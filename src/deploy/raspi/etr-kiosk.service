@@ -1,7 +1,7 @@
 [Unit]
 Description=EtR kiosk (Chromium on SPI)
-Requires=etr-dashboard.service spi-desktop.service
-After=network-online.target etr-dashboard.service spi-desktop.service
+Requires=etr-dashboard.service spi-desktop.service etr-wifi-portal.service
+After=etr-dashboard.service spi-desktop.service etr-wifi-portal.service
 PartOf=spi-desktop.service
 StartLimitIntervalSec=180
 StartLimitBurst=3
