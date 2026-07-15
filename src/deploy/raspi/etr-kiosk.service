@@ -1,0 +1,21 @@
+[Unit]
+Description=EtR kiosk (Chromium on SPI)
+Requires=etr-dashboard.service spi-desktop.service
+After=network-online.target etr-dashboard.service spi-desktop.service
+PartOf=spi-desktop.service
+StartLimitIntervalSec=180
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=oryx
+Group=oryx
+Environment=HOME=/home/oryx
+Environment=DISPLAY=:1
+Environment=XAUTHORITY=/home/oryx/.Xauthority
+ExecStart=/usr/local/bin/etr-kiosk.sh
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
