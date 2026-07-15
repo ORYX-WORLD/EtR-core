@@ -1,4 +1,4 @@
-name: Réparer et vérifier l'affichage EtR
+name: Vérifier la stabilité EtR
 
 on:
   workflow_dispatch:
@@ -10,112 +10,50 @@ permissions:
   contents: write
 
 jobs:
-  repair-display:
+  stability-check:
     runs-on: [self-hosted, Linux, ARM64]
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
-      - name: Installer la correction d'affichage
+      - name: Contrôler EtR après stabilisation
         shell: bash
         run: |
           set +e
-          report="/tmp/etr-display-repair.txt"
-          backup="/var/backups/etr-display/$(date +%Y%m%d-%H%M%S)"
-          sudo -n mkdir -p "$backup"
-
-          for file in \
-            /usr/local/bin/start_spi_desktop.sh \
-            /usr/local/bin/etr-kiosk.sh \
-            /etc/systemd/system/spi-desktop.service \
-            /etc/systemd/system/etr-kiosk.service
-          do
-            [ -e "$file" ] && sudo -n cp -a "$file" "$backup/"
-          done
-
-          sudo -n systemctl stop etr-kiosk.service
-          sudo -n systemctl stop spi-desktop.service
-          sudo -n install -m 755 src/deploy/raspi/start_spi_desktop.sh /usr/local/bin/start_spi_desktop.sh
-          sudo -n install -m 755 src/deploy/raspi/etr-kiosk.sh /usr/local/bin/etr-kiosk.sh
-          sudo -n install -m 644 src/deploy/raspi/spi-desktop.service /etc/systemd/system/spi-desktop.service
-          sudo -n install -m 644 src/deploy/raspi/etr-kiosk.service /etc/systemd/system/etr-kiosk.service
-          sudo -n install -m 755 src/deploy/raspi/etr-storage-maintenance.sh /home/oryx/.local/bin/etr-storage-maintenance.sh
-          sudo -n chown oryx:oryx /home/oryx/.local/bin/etr-storage-maintenance.sh
-          sudo -n systemctl daemon-reload
-          sudo -n systemctl enable spi-desktop.service etr-kiosk.service
-          sudo -n systemctl reset-failed spi-desktop.service etr-kiosk.service
-          sudo -n systemctl start spi-desktop.service
-
-          for _ in $(seq 1 40); do
-            [ -S /tmp/.X11-unix/X1 ] && systemctl is-active --quiet spi-desktop.service && break
-            sleep 1
-          done
-
-          display_ok=no
-          kiosk_ok=no
-          if [ -S /tmp/.X11-unix/X1 ] && systemctl is-active --quiet spi-desktop.service; then
-            display_ok=yes
-            sudo -n systemctl start etr-kiosk.service
-            for _ in $(seq 1 30); do
-              systemctl is-active --quiet etr-kiosk.service && pgrep -u oryx -x chromium >/dev/null && break
-              sleep 1
-            done
-            if systemctl is-active --quiet etr-kiosk.service && pgrep -u oryx -x chromium >/dev/null; then
-              kiosk_ok=yes
-            fi
-          else
-            sudo -n systemctl stop etr-kiosk.service
-            sudo -n systemctl stop spi-desktop.service
-          fi
-
-          sleep 10
-          {
-            echo "Réparation affichage EtR - $(date -Is)"
-            echo "Sauvegarde : $backup"
-            echo "Affichage SPI : $display_ok"
-            echo "Kiosque Chromium : $kiosk_ok"
-            echo
-            echo "=== SERVICES ==="
-            systemctl is-active etr.service || true
-            systemctl is-active etr-dashboard.service || true
-            systemctl is-active spi-desktop.service || true
-            systemctl is-active etr-kiosk.service || true
-            echo
-            systemctl status spi-desktop.service --no-pager -n 50 || true
-            echo
-            systemctl status etr-kiosk.service --no-pager -n 50 || true
-            echo
-            echo "=== PROCESSUS ==="
-            pgrep -af 'Xorg|startlxde|lxsession|chromium' || true
-            echo
-            echo "=== SOCKETS / PORTS ==="
-            ls -la /tmp/.X11-unix 2>/dev/null || true
-            nc -zv 127.0.0.1 8000 2>&1 || true
-            nc -zv 127.0.0.1 8080 2>&1 || true
-            echo
-            echo "=== JOURNAL SPI ==="
-            journalctl -u spi-desktop.service -b --no-pager -n 100 || true
-            echo
-            echo "=== JOURNAL KIOSQUE ==="
-            journalctl -u etr-kiosk.service -b --no-pager -n 100 || true
-            echo
-            echo "=== STOCKAGE ==="
-            df -h /
-            du -sh /home/oryx/.config/chromium/BrowserMetrics 2>/dev/null || true
-            du -sh /home/oryx/.cache/etr-kiosk-chromium 2>/dev/null || true
-          } > "$report" 2>&1
-
+          sleep 20
+          report="docs/raspberry/live-stability-check.txt"
           mkdir -p docs/raspberry
-          cp "$report" docs/raspberry/live-display-repair.txt
+          overall=OK
+          {
+            echo "Contrôle de stabilité EtR - $(date -Is)"
+            echo
+            for service in etr.service etr-dashboard.service spi-desktop.service etr-kiosk.service; do
+              state=$(systemctl is-active "$service" 2>/dev/null || true)
+              restarts=$(systemctl show "$service" -p NRestarts --value 2>/dev/null || true)
+              printf "%s : %s ; redémarrages=%s\n" "$service" "$state" "${restarts:-inconnu}"
+              [ "$state" = active ] || overall=ECHEC
+            done
+            [ -S /tmp/.X11-unix/X1 ] && echo "Affichage X11 : OK" || { echo "Affichage X11 : ECHEC"; overall=ECHEC; }
+            pgrep -u oryx -x chromium >/dev/null && echo "Chromium kiosque : OK" || { echo "Chromium kiosque : ECHEC"; overall=ECHEC; }
+            nc -z 127.0.0.1 8000 >/dev/null 2>&1 && echo "Tableau de bord 8000 : OK" || { echo "Tableau de bord 8000 : ECHEC"; overall=ECHEC; }
+            nc -z 127.0.0.1 8080 >/dev/null 2>&1 && echo "Service EtR 8080 : OK" || { echo "Service EtR 8080 : ECHEC"; overall=ECHEC; }
+            echo
+            echo "Stockage : $(df -h / | awk 'NR==2 {print $5 " utilisé, " $4 " disponible"}')"
+            echo "Profil kiosque : $(du -sh /home/oryx/.cache/etr-kiosk-chromium 2>/dev/null | awk '{print $1}')"
+            echo
+            echo "Résultat global : $overall"
+          } > "$report"
+          [ "$overall" = OK ]
 
-      - name: Publier le résultat de la réparation
+      - name: Publier le contrôle
+        if: always()
         shell: bash
         run: |
           git config user.name "EtR Core"
           git config user.email "etr-core@users.noreply.github.com"
-          git add docs/raspberry/live-display-repair.txt
+          git add docs/raspberry/live-stability-check.txt
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "diag: publish live display repair result"
+          git commit -m "diag: publish EtR stability check"
           git push
