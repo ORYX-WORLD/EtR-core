@@ -1,4 +1,4 @@
-name: Contact EtR
+name: Diagnostic EtR
 
 on:
   workflow_dispatch:
@@ -7,19 +7,39 @@ on:
       - ".github/workflows/etr-contact.yml"
 
 jobs:
-  contact:
+  diagnostic:
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 5
     steps:
-      - name: Signal de présence EtR
+      - name: État général et occupation du disque
         shell: bash
         run: |
-          echo "ETR_CONTACT_OK"
+          set +e
+          echo "ETR_DIAGNOSTIC_OK"
           echo "Date : $(date --iso-8601=seconds)"
           echo "Hôte : $(hostname)"
           echo "Utilisateur : $(whoami)"
           echo "Uptime : $(uptime -p)"
-          echo "Adresses : $(hostname -I 2>/dev/null || true)"
-          echo "Service EtR :"
+          echo
+          echo "=== SYSTÈMES DE FICHIERS ==="
+          df -hT
+          echo
+          echo "=== INODES ==="
+          df -ih
+          echo
+          echo "=== DOSSIERS /HOME/ORYX ==="
+          du -xhd1 /home/oryx 2>/dev/null | sort -h
+          echo
+          echo "=== DOSSIERS DU RUNNER ==="
+          for d in /home/oryx/actions-runner /home/oryx/EtR-core /home/oryx/.cache /home/oryx/.local /tmp /var/tmp /var/log /var/cache/apt/archives; do
+            [ -e "$d" ] && du -xhd2 "$d" 2>/dev/null | sort -h | tail -n 25
+          done
+          echo
+          echo "=== FICHIERS > 25 MIO DANS /HOME/ORYX ==="
+          find /home/oryx -xdev -type f -size +25M -printf '%s %p\n' 2>/dev/null | sort -nr | head -n 40
+          echo
+          echo "=== JOURNAL SYSTEMD ==="
+          journalctl --disk-usage 2>/dev/null || true
+          echo
+          echo "=== SERVICE ETR ==="
           systemctl is-active etr.service 2>/dev/null || true
-          systemctl status etr.service --no-pager -n 20 2>/dev/null || true
