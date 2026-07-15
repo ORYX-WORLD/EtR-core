@@ -22,7 +22,12 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 
-if nm-online -q --timeout=8 && nc -z 127.0.0.1 8000; then
+HOTSPOT_ACTIVE=false
+if nmcli -t -f NAME,TYPE connection show --active 2>/dev/null | grep -q '^etr-setup:'; then
+  HOTSPOT_ACTIVE=true
+fi
+
+if [ "$HOTSPOT_ACTIVE" = false ] && nm-online -q --timeout=8 && nc -z 127.0.0.1 8000; then
   ETR_URL="http://127.0.0.1:8000"
 elif nc -z 127.0.0.1 8081; then
   ETR_URL="http://127.0.0.1:8081"
