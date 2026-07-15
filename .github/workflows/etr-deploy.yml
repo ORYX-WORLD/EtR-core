@@ -1,0 +1,106 @@
+name: Déployer le parcours Wi-Fi EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-deploy.yml
+
+concurrency:
+  group: etr-physical-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    name: Installer sur le Raspberry EtR
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 35
+
+    steps:
+      - name: Préparer le dépôt de suivi
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Vérifier l'agent et les droits
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Hôte : $(hostname)"
+          echo "Utilisateur : $(whoami)"
+          uname -a
+          sudo -n true
+          id oryx
+
+      - name: Actualiser le code installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          repo_url=https://github.com/ORYX-WORLD/EtR-core.git
+
+          if [ ! -d "$install_dir/.git" ]; then
+            sudo -u oryx -H git clone "$repo_url" "$install_dir"
+          else
+            sudo -u oryx -H git -C "$install_dir" remote set-url origin "$repo_url"
+            if [ -n "$(sudo -u oryx -H git -C "$install_dir" status --porcelain)" ]; then
+              sudo -u oryx -H git -C "$install_dir" stash push --include-untracked -m "Sauvegarde automatique avant déploiement $(date -u +%Y%m%dT%H%M%SZ)"
+            fi
+            sudo -u oryx -H git -C "$install_dir" fetch origin main
+            sudo -u oryx -H git -C "$install_dir" checkout main
+            sudo -u oryx -H git -C "$install_dir" pull --ff-only origin main
+          fi
+
+      - name: Installer le portail Wi-Fi tactile
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u oryx -H bash /home/oryx/EtR-core/src/deploy/raspi/setup_etr.sh
+
+      - name: Vérifier le fonctionnement
+        shell: bash
+        run: |
+          set -euo pipefail
+          for service in etr.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service; do
+            sudo systemctl is-active --quiet "$service"
+            echo "$service : actif"
+          done
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8081/api/status > /tmp/etr-wifi-status.json; then
+              break
+            fi
+            sleep 2
+          done
+          test -s /tmp/etr-wifi-status.json
+          python3 -m json.tool /tmp/etr-wifi-status.json
+          curl -fsS http://127.0.0.1:8081/ | grep -q "Configuration réseau EtR"
+          echo "Portail Wi-Fi tactile : opérationnel"
+
+      - name: Publier le compte rendu
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          mkdir -p .github/deployment
+          {
+            echo "date_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "job_status=${{ job.status }}"
+            echo "host=$(hostname)"
+            echo "installed_commit=$(sudo -u oryx -H git -C /home/oryx/EtR-core rev-parse HEAD 2>/dev/null || echo unavailable)"
+            for service in etr.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service; do
+              echo "$service=$(sudo systemctl is-active "$service" 2>/dev/null || true)"
+            done
+            echo "wifi_portal_http=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/ 2>/dev/null || echo 000)"
+          } > .github/deployment/etr-last-deploy.txt
+
+          git config user.name "EtR deployment agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-last-deploy.txt
+          git commit -m "chore: record EtR deployment result" || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
