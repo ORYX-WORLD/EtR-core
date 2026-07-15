@@ -1,0 +1,21 @@
+{
+  "rules": {
+    "installations": {
+      "$installationId": {
+        ".read": "auth != null && (root.child('clientAccess').child(auth.uid).child($installationId).val() === true || root.child('deviceAccess').child(auth.uid).val() === $installationId)",
+        ".write": "auth != null && root.child('deviceAccess').child(auth.uid).val() === $installationId",
+        "latest": {
+          ".validate": "newData.hasChildren(['installation_id', 'updated_at']) && newData.child('installation_id').val() === $installationId"
+        }
+      }
+    },
+    "clientAccess": {
+      ".read": false,
+      ".write": false
+    },
+    "deviceAccess": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}
