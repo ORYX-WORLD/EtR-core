@@ -1,4 +1,5 @@
 name: Déployer le parcours Wi-Fi EtR
+# Déploiement physique révision 3
 
 on:
   workflow_dispatch:
