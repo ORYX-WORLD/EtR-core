@@ -25,7 +25,7 @@ PIN_FILE = STATE_DIR / "wifi-setup.pin"
 COMMISSIONED_FILE = STATE_DIR / "commissioned"
 HOTSPOT_NAME = "etr-setup"
 WIFI_DEVICE = os.environ.get("ETR_WIFI_DEVICE", "wlan0")
-PORT = int(os.environ.get("ETR_WIFI_PORT", "8081"))
+PORT = int(os.environ.get("ETR_WIFI_PORT", "8090"))
 
 
 def run_nmcli(*args: str, timeout: int = 35, check: bool = True) -> str:
