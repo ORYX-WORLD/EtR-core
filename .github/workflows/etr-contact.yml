@@ -1,4 +1,4 @@
-name: Nettoyage EtR
+name: Finaliser nettoyage EtR
 
 on:
   workflow_dispatch:
@@ -11,25 +11,39 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 10
     steps:
-      - name: Libérer l’espace saturé par Chromium
+      - name: Finaliser et prévenir la saturation
         shell: bash
         run: |
-          set -u
-          echo "ETR_CLEANUP_START"
+          set +e
+          echo "ETR_CLEANUP_RESUME"
           echo "=== AVANT ==="
           df -h /
           METRICS="/home/oryx/.config/chromium/BrowserMetrics"
-          if [ -d "$METRICS" ]; then
-            echo "BrowserMetrics avant : $(du -sh "$METRICS" 2>/dev/null | cut -f1)"
-            find "$METRICS" -xdev -type f -delete
-            find "$METRICS" -xdev -mindepth 1 -type d -empty -delete
-          fi
+          find "$METRICS" -xdev -type f -delete 2>&1 || true
+          find "$METRICS" -xdev -mindepth 1 -type d -empty -delete 2>/dev/null || true
           find /home/oryx/.config/chromium -maxdepth 1 -type f -name '.org.chromium.Chromium.*' -delete 2>/dev/null || true
-          rm -f /home/oryx/actions-runner/actions-runner-linux-arm64-2.329.0.tar.gz
+          rm -f /home/oryx/actions-runner/actions-runner-linux-arm64-2.329.0.tar.gz 2>/dev/null || true
           rm -rf /home/oryx/.cache/pip/http-v2 2>/dev/null || true
+
+          mkdir -p /home/oryx/.local/bin
+          printf '%s\n' \
+            '#!/usr/bin/env bash' \
+            'find /home/oryx/.config/chromium/BrowserMetrics -xdev -type f -delete 2>/dev/null || true' \
+            'find /home/oryx/.config/chromium -maxdepth 1 -type f -name ".org.chromium.Chromium.*" -delete 2>/dev/null || true' \
+            > /home/oryx/.local/bin/etr-storage-maintenance.sh
+          chmod 755 /home/oryx/.local/bin/etr-storage-maintenance.sh
+
+          if command -v crontab >/dev/null 2>&1; then
+            (crontab -l 2>/dev/null | grep -v 'etr-storage-maintenance.sh'; echo '*/15 * * * * /home/oryx/.local/bin/etr-storage-maintenance.sh') | crontab -
+            echo "Prévention : tâche planifiée toutes les 15 minutes"
+            crontab -l
+          else
+            echo "Prévention : crontab indisponible"
+          fi
+
           sync
           echo "=== APRÈS ==="
           df -h /
-          echo "BrowserMetrics après : $(du -sh "$METRICS" 2>/dev/null | cut -f1 || echo absent)"
+          du -sh "$METRICS" 2>/dev/null || true
           echo "Service EtR : $(systemctl is-active etr.service 2>/dev/null || true)"
-          echo "ETR_CLEANUP_DONE"
+          echo "ETR_CLEANUP_COMPLETE"
