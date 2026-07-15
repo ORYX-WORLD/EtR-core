@@ -39,6 +39,7 @@ sudo install -m 644 src/deploy/raspi/spi-desktop.service /etc/systemd/system/spi
 sudo install -m 644 src/deploy/raspi/etr-kiosk.service /etc/systemd/system/etr-kiosk.service
 
 # Protection de l'espace disque
+sudo install -d -m 755 -o oryx -g oryx /home/oryx/.local/bin
 sudo install -m 755 src/deploy/raspi/etr-storage-maintenance.sh /home/oryx/.local/bin/etr-storage-maintenance.sh
 echo '*/15 * * * * oryx /home/oryx/.local/bin/etr-storage-maintenance.sh' | \
   sudo tee /etc/cron.d/etr-storage-maintenance >/dev/null
