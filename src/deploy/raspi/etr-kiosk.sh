@@ -27,7 +27,11 @@ if nmcli -t -f NAME,TYPE connection show --active 2>/dev/null | grep -q '^etr-se
   HOTSPOT_ACTIVE=true
 fi
 
-if [ "$HOTSPOT_ACTIVE" = false ] && nm-online -q --timeout=8 && nc -z 127.0.0.1 8000; then
+if [ ! -f /var/lib/etr-core/commissioned ] && nc -z 127.0.0.1 8081; then
+  # Premier démarrage : l'assistant reste affiché, même avec Ethernet, jusqu'à
+  # la validation tactile de la mise en service.
+  ETR_URL="http://127.0.0.1:8081"
+elif [ "$HOTSPOT_ACTIVE" = false ] && nm-online -q --timeout=8 && nc -z 127.0.0.1 8000; then
   ETR_URL="http://127.0.0.1:8000"
 elif nc -z 127.0.0.1 8081; then
   ETR_URL="http://127.0.0.1:8081"
