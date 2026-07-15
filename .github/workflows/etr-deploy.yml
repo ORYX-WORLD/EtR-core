@@ -3,6 +3,13 @@ name: Déployer le parcours Wi-Fi EtR
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-deploy.yml
+      - src/wifi_portal.py
+      - src/deploy/raspi/**
+      - requirements.txt
 
 concurrency:
   group: etr-physical-deploy
