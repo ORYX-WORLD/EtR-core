@@ -1,4 +1,4 @@
-name: Sécurisation et diagnostic X EtR
+name: Diagnostic service écran SPI EtR
 
 on:
   workflow_dispatch:
@@ -7,46 +7,41 @@ on:
       - ".github/workflows/etr-contact.yml"
 
 jobs:
-  display:
+  spi:
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 5
     steps:
-      - name: Arrêter la boucle et identifier le lanceur graphique
+      - name: Lire la panne du service écran SPI
         shell: bash
         run: |
           set +e
-          echo "=== ARRÊT PROVISOIRE DU KIOSQUE ==="
           sudo -n systemctl stop etr-kiosk.service
+          echo "=== SPI-DESKTOP UNIT ==="
+          systemctl cat spi-desktop.service
+          echo
+          echo "=== SPI-DESKTOP STATUS ==="
+          systemctl status spi-desktop.service --no-pager -n 100
+          echo
+          echo "=== SPI-DESKTOP JOURNAL ==="
+          journalctl -u spi-desktop.service -b --no-pager -n 160
+          echo
+          echo "=== ERREURS XORG :1 ==="
+          grep -E '^\[.*\]( \(EE\)| \(WW\)|Fatal|Server terminated|Unable|No devices|no screens)' /home/oryx/.local/share/xorg/Xorg.1.log 2>/dev/null || true
+          echo
+          echo "=== DÉBUT ET FIN XORG :1 ==="
+          sed -n '1,100p' /home/oryx/.local/share/xorg/Xorg.1.log 2>/dev/null || true
+          tail -n 100 /home/oryx/.local/share/xorg/Xorg.1.log 2>/dev/null || true
+          echo
+          echo "=== FICHIERS SERVICE / SCRIPTS ==="
+          systemctl show spi-desktop.service -p FragmentPath -p ExecStart -p User -p Group -p Environment
+          unit_path="$(systemctl show spi-desktop.service -p FragmentPath --value)"
+          [ -n "$unit_path" ] && sed -n '1,240p' "$unit_path"
+          command -v startx || true
+          command -v Xorg || true
+          echo
+          echo "=== ÉTAT PROTÉGÉ ==="
           systemctl is-active etr-kiosk.service
-          echo
-          echo "=== UNITÉS GRAPHIQUES / ETR ==="
-          systemctl list-unit-files --no-pager | grep -Ei 'etr|xorg|lightdm|display|kiosk|framebuffer|fbcp'
-          echo
-          systemctl list-units --all --no-pager | grep -Ei 'etr|xorg|lightdm|display|kiosk|framebuffer|fbcp'
-          echo
-          echo "=== DÉPENDANCES ET CIBLES ==="
-          systemctl get-default
-          systemctl list-dependencies graphical.target --no-pager
-          systemctl list-dependencies multi-user.target --no-pager | grep -Ei 'etr|lightdm|display|graphical'
-          echo
-          echo "=== JOURNAL LIGHTDM ==="
-          journalctl -u lightdm.service -b --no-pager -n 100
-          echo
-          echo "=== LOG XORG :1 ==="
-          tail -n 180 /home/oryx/.local/share/xorg/Xorg.1.log 2>/dev/null || true
-          tail -n 180 /var/log/Xorg.1.log 2>/dev/null || true
-          echo
-          echo "=== CONFIG XORG ==="
-          find /etc/X11 -maxdepth 3 -type f \( -name '*.conf' -o -name 'xorg.conf' \) -print -exec sed -n '1,240p' {} \; 2>/dev/null
-          echo
-          echo "=== SCRIPTS / SERVICES CONNEXES ==="
-          for unit in etr-kiosk.service etr-dashboard.service lightdm.service; do
-            echo "--- $unit ---"
-            systemctl cat "$unit" 2>/dev/null || true
-          done
-          echo
-          echo "=== ÉTAT APRÈS ARRÊT ==="
-          df -h /
-          du -sh /home/oryx/.config/chromium/BrowserMetrics 2>/dev/null || true
           systemctl is-active etr.service
           systemctl is-active etr-dashboard.service
+          df -h /
+          du -sh /home/oryx/.config/chromium/BrowserMetrics 2>/dev/null || true
