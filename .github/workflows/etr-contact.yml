@@ -1,4 +1,4 @@
-name: Vérification finale EtR
+name: Diagnostic Chromium EtR
 
 on:
   workflow_dispatch:
@@ -7,30 +7,36 @@ on:
       - ".github/workflows/etr-contact.yml"
 
 jobs:
-  verify:
+  chromium:
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 5
     steps:
-      - name: Vérifier stockage, dépôt et service
+      - name: Identifier le lancement de Chromium
         shell: bash
         run: |
           set +e
-          echo "ETR_FINAL_CHECK"
-          git -C /home/oryx/EtR-core remote set-url origin https://github.com/ORYX-WORLD/EtR-core.git
-          echo "=== DÉPÔT ==="
-          git -C /home/oryx/EtR-core remote -v
-          git -C /home/oryx/EtR-core status --short --branch
+          echo "=== PROCESSUS CHROMIUM ==="
+          ps -eo pid,ppid,lstart,etime,args | grep -E '[c]hromium|[c]hrome'
           echo
-          echo "=== STOCKAGE ==="
-          df -h /
+          echo "=== ARBORESCENCE DES PROCESSUS ==="
+          command -v pstree >/dev/null && pstree -ap "$(pgrep -o chromium 2>/dev/null)" || true
+          echo
+          echo "=== CONFIGURATIONS DE LANCEMENT ==="
+          grep -RniE 'chromium|chrome|BrowserMetrics' \
+            /home/oryx/.config/lxsession \
+            /home/oryx/.config/autostart \
+            /home/oryx/.config/labwc \
+            /home/oryx/.config/systemd \
+            /home/oryx/Desktop \
+            /etc/xdg/lxsession \
+            /etc/xdg/autostart \
+            /etc/systemd/system 2>/dev/null | head -n 200
+          echo
+          echo "=== SERVICE/CRON ==="
+          systemctl list-units --type=service --all 2>/dev/null | grep -iE 'chrom|kiosk|browser' || true
+          crontab -l 2>/dev/null || true
+          echo
+          echo "=== CROISSANCE BROWSERMETRICS ==="
+          find /home/oryx/.config/chromium/BrowserMetrics -maxdepth 1 -type f -mmin -5 2>/dev/null | wc -l
           du -sh /home/oryx/.config/chromium/BrowserMetrics 2>/dev/null || true
-          echo
-          echo "=== ERREURS NOYAU DU DÉMARRAGE ==="
-          journalctl -k -p err..alert --since boot --no-pager 2>/dev/null | tail -n 80 || true
-          echo
-          echo "=== FICHIER CHROMIUM RÉSIDUEL ==="
-          ls -lh /home/oryx/.config/chromium/BrowserMetrics 2>&1 | tail -n 20 || true
-          echo
-          echo "=== SERVICE ETR ==="
-          systemctl is-active etr.service
-          systemctl status etr.service --no-pager -n 12
+          df -h /
