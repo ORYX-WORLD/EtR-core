@@ -1,0 +1,20 @@
+[Unit]
+Description=EtR Wi-Fi onboarding portal
+Wants=NetworkManager.service
+After=NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/oryx/EtR-core
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/wifi_portal.py
+Restart=always
+RestartSec=5
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/etr-core /etc/NetworkManager/system-connections
+
+[Install]
+WantedBy=multi-user.target
