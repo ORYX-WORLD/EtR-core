@@ -1,4 +1,4 @@
-name: Diagnostic kiosque EtR
+name: Diagnostic détaillé kiosque EtR
 
 on:
   workflow_dispatch:
@@ -11,23 +11,23 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 5
     steps:
-      - name: Lire le service kiosque et ses erreurs
+      - name: Lire le script et les erreurs du kiosque
         shell: bash
         run: |
           set +e
-          echo "=== UNITÉ ETR-KIOSK ==="
-          systemctl cat etr-kiosk.service
+          echo "=== SCRIPT ETR-KIOSK ==="
+          sed -n '1,240p' /usr/local/bin/etr-kiosk.sh
           echo
-          echo "=== ÉTAT ETR-KIOSK ==="
-          systemctl status etr-kiosk.service --no-pager -n 80
+          echo "=== JOURNAL ETR-KIOSK DU DÉMARRAGE ==="
+          journalctl -u etr-kiosk.service -b --no-pager -n 200
           echo
-          echo "=== JOURNAL ETR-KIOSK ==="
-          journalctl -u etr-kiosk.service --since boot --no-pager -n 160
+          echo "=== DASHBOARD ==="
+          systemctl status etr-dashboard.service --no-pager -n 80
+          systemctl cat etr-dashboard.service
           echo
-          echo "=== ÉCRAN / SESSION ==="
-          ls -l /tmp/.X11-unix 2>/dev/null || true
-          loginctl list-sessions 2>/dev/null || true
-          systemctl is-active display-manager.service 2>/dev/null || true
+          echo "=== AFFICHAGES DISPONIBLES ==="
+          ls -la /tmp/.X11-unix 2>/dev/null || true
+          ps -eo pid,user,args | grep -E '[X]org|[X]wayland|[w]ayfire|[l]abwc|[x]init|[f]bcp' || true
           echo
           echo "=== STOCKAGE ==="
           df -h /
