@@ -1,9 +1,9 @@
-date_utc=2026-07-15T22:58:26Z
+date_utc=2026-07-15T23:06:21Z
 job_status=failure
 host=etr-core
-installed_commit=2762b29cfa5a5ece5a24059915fb670c989e7f7a
-etr.service=active
-etr-wifi-portal.service=activating
-spi-desktop.service=active
-etr-kiosk.service=active
+installed_commit=6df8fa627f558a247eddfbbf48e5ea8d7308f423
+etr.service=Result=success,ActiveState=active,SubState=running
+etr-wifi-portal.service=Result=exit-code,ActiveState=activating,SubState=auto-restart
+spi-desktop.service=Result=success,ActiveState=active,SubState=running
+etr-kiosk.service=Result=start-limit-hit,ActiveState=failed,SubState=failed
 wifi_portal_http=200
