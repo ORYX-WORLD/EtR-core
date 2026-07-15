@@ -7,7 +7,7 @@ contient déjà le portail, NetworkManager et les services d'affichage.
 
 1. **Ethernet disponible** : il reste prioritaire et l'EtR est immédiatement
    joignable. Le portail Wi-Fi reste disponible sur
-   `http://etr-core.local:8081` pour mémoriser un réseau sans débrancher le
+   `http://etr-core.local:8090` pour mémoriser un réseau sans débrancher le
    câble.
 2. **Wi-Fi déjà mémorisé** : NetworkManager le reconnecte automatiquement.
 3. **Aucune connexion** : après le délai de démarrage, l'EtR crée le point
