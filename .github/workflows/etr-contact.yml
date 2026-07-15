@@ -6,66 +6,88 @@ on:
     paths:
       - ".github/workflows/etr-contact.yml"
 
+permissions:
+  contents: write
+
 jobs:
   spi:
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
+
       - name: Relever les scripts et la configuration SPI
         shell: bash
         run: |
           set +e
           sudo -n systemctl stop etr-kiosk.service
           sudo -n systemctl stop spi-desktop.service
+          mkdir -p docs/raspberry
+          report="docs/raspberry/live-spi-diagnostic.txt"
+          {
+            echo "Diagnostic SPI EtR - $(date -Is)"
+            echo
+            echo "=== SCRIPT SPI ==="
+            sudo -n sed -n '1,240p' /usr/local/bin/start_spi_desktop.sh 2>/dev/null || true
+            echo
+            echo "=== SCRIPT KIOSQUE ==="
+            sudo -n sed -n '1,240p' /usr/local/bin/etr-kiosk.sh 2>/dev/null || true
+            echo
+            echo "=== UNITÉS ==="
+            systemctl cat spi-desktop.service 2>/dev/null || true
+            systemctl cat etr-kiosk.service 2>/dev/null || true
 
-          echo "=== SCRIPT SPI ==="
-          sudo -n sed -n '1,240p' /usr/local/bin/start_spi_desktop.sh 2>/dev/null || true
-          echo
-          echo "=== SCRIPT KIOSQUE ==="
-          sudo -n sed -n '1,240p' /usr/local/bin/etr-kiosk.sh 2>/dev/null || true
-          echo
-          echo "=== UNITÉS ==="
-          systemctl cat spi-desktop.service 2>/dev/null || true
-          systemctl cat etr-kiosk.service 2>/dev/null || true
+            echo
+            echo "=== CONFIGURATIONS XORG PERTINENTES ==="
+            for root in /etc/X11 /usr/share/X11 /opt/LCD-show /home/oryx/LCD-show /home/oryx/EtR-core; do
+              [ -e "$root" ] || continue
+              grep -RIlE 'MHS35|FBTFT|99-fbtft|fbdev|/dev/fb' "$root" 2>/dev/null | head -n 40
+            done | sort -u > /tmp/etr-xorg-candidates.txt
+            cat /tmp/etr-xorg-candidates.txt
+            while IFS= read -r file; do
+              [ -f "$file" ] || continue
+              size="$(stat -c %s "$file" 2>/dev/null || echo 999999)"
+              [ "$size" -le 20000 ] || continue
+              echo "--- $file ---"
+              sed -n '1,220p' "$file"
+            done < /tmp/etr-xorg-candidates.txt
 
-          echo
-          echo "=== CONFIGURATIONS XORG PERTINENTES ==="
-          for root in /etc/X11 /usr/share/X11 /opt/LCD-show /home/oryx/LCD-show /home/oryx/EtR-core; do
-            [ -e "$root" ] || continue
-            grep -RIlE 'MHS35|FBTFT|99-fbtft|fbdev|/dev/fb' "$root" 2>/dev/null | head -n 40
-          done | sort -u > /tmp/etr-xorg-candidates.txt
-          cat /tmp/etr-xorg-candidates.txt
-          while IFS= read -r file; do
-            [ -f "$file" ] || continue
-            size="$(stat -c %s "$file" 2>/dev/null || echo 999999)"
-            [ "$size" -le 20000 ] || continue
-            echo "--- $file ---"
-            sed -n '1,220p' "$file"
-          done < /tmp/etr-xorg-candidates.txt
+            echo
+            echo "=== MATÉRIEL ET PERMISSIONS ==="
+            id oryx
+            ls -l /dev/tty1 /dev/tty2 /dev/fb* 2>/dev/null || true
+            getfacl -p /dev/tty2 /dev/fb0 /dev/fb1 2>/dev/null || true
+            cat /proc/fb 2>/dev/null || true
+            ls -la /tmp/.X11-unix 2>/dev/null || true
+            loginctl list-sessions --no-legend 2>/dev/null || true
+            loginctl user-status oryx --no-pager 2>/dev/null | sed -n '1,100p' || true
 
-          echo
-          echo "=== MATÉRIEL ET PERMISSIONS ==="
-          id oryx
-          ls -l /dev/tty1 /dev/tty2 /dev/fb* 2>/dev/null || true
-          getfacl -p /dev/tty2 /dev/fb0 /dev/fb1 2>/dev/null || true
-          cat /proc/fb 2>/dev/null || true
-          ls -la /tmp/.X11-unix 2>/dev/null || true
-          loginctl list-sessions --no-legend 2>/dev/null || true
-          loginctl user-status oryx --no-pager 2>/dev/null | sed -n '1,100p' || true
+            echo
+            echo "=== PAQUETS / COMMANDES ==="
+            command -v startx || true
+            command -v Xorg || true
+            command -v startlxde || true
+            command -v lxsession || true
+            dpkg-query -W -f='\${binary:Package} \${Version}\n' xserver-xorg xserver-xorg-video-fbdev xinit lxde-core 2>/dev/null || true
 
-          echo
-          echo "=== PAQUETS / COMMANDES ==="
-          command -v startx || true
-          command -v Xorg || true
-          command -v startlxde || true
-          command -v lxsession || true
-          dpkg-query -W -f='\${binary:Package} \${Version}\n' xserver-xorg xserver-xorg-video-fbdev xinit lxde-core 2>/dev/null || true
+            echo
+            echo "=== ÉTAT PROTÉGÉ ==="
+            systemctl is-active spi-desktop.service || true
+            systemctl is-active etr-kiosk.service || true
+            systemctl is-active etr.service || true
+            systemctl is-active etr-dashboard.service || true
+            df -h /
+            du -sh /home/oryx/.config/chromium/BrowserMetrics 2>/dev/null || true
+          } > "$report" 2>&1
 
-          echo
-          echo "=== ÉTAT PROTÉGÉ ==="
-          systemctl is-active spi-desktop.service || true
-          systemctl is-active etr-kiosk.service || true
-          systemctl is-active etr.service || true
-          systemctl is-active etr-dashboard.service || true
-          df -h /
-          du -sh /home/oryx/.config/chromium/BrowserMetrics 2>/dev/null || true
+      - name: Publier le diagnostic dans le dépôt
+        shell: bash
+        run: |
+          git config user.name "EtR Core"
+          git config user.email "etr-core@users.noreply.github.com"
+          git add docs/raspberry/live-spi-diagnostic.txt
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "diag: publish live SPI display state"
+          git push
