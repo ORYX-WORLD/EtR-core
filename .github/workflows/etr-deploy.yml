@@ -1,15 +1,8 @@
 name: Déployer le parcours Wi-Fi EtR
-# Déploiement physique révision 4
+# Déploiement physique révision 5
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/etr-deploy.yml
-      - src/wifi_portal.py
-      - src/deploy/raspi/**
-      - requirements.txt
 
 concurrency:
   group: etr-physical-deploy
@@ -81,14 +74,14 @@ jobs:
           done
 
           for attempt in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:8081/api/status > /tmp/etr-wifi-status.json; then
+            if curl -fsS http://127.0.0.1:8090/api/status > /tmp/etr-wifi-status.json; then
               break
             fi
             sleep 2
           done
           test -s /tmp/etr-wifi-status.json
           python3 -m json.tool /tmp/etr-wifi-status.json
-          curl -fsS http://127.0.0.1:8081/ | grep -q "Connecter cet EtR"
+          curl -fsS http://127.0.0.1:8090/ | grep -q "Connecter cet EtR"
           echo "Portail Wi-Fi tactile : opérationnel"
 
       - name: Publier le compte rendu
@@ -106,7 +99,7 @@ jobs:
               state=$(sudo systemctl show "$service" -p ActiveState -p SubState -p Result --no-pager 2>/dev/null | tr '\n' ',' | sed 's/,$//')
               echo "$service=$state"
             done
-            echo "wifi_portal_http=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/ 2>/dev/null || echo 000)"
+            echo "wifi_portal_http=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/ 2>/dev/null || echo 000)"
           } > .github/deployment/etr-last-deploy.txt
 
           git config user.name "EtR deployment agent"
