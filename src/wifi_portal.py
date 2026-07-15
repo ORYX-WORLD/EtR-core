@@ -22,6 +22,7 @@ from flask import Flask, jsonify, render_template_string, request
 APP = Flask(__name__)
 STATE_DIR = Path(os.environ.get("ETR_STATE_DIR", "/var/lib/etr-core"))
 PIN_FILE = STATE_DIR / "wifi-setup.pin"
+COMMISSIONED_FILE = STATE_DIR / "commissioned"
 HOTSPOT_NAME = "etr-setup"
 WIFI_DEVICE = os.environ.get("ETR_WIFI_DEVICE", "wlan0")
 PORT = int(os.environ.get("ETR_WIFI_PORT", "8081"))
@@ -172,7 +173,19 @@ def active_connection() -> dict[str, Any]:
             if not hotspot:
                 wifi_name = name
     online = subprocess.run(["nm-online", "-q", "--timeout", "1"], check=False).returncode == 0
-    return {"online": online, "ethernet": ethernet, "wifi": wifi_name, "hotspot": hotspot}
+    return {
+        "online": online,
+        "ethernet": ethernet,
+        "wifi": wifi_name,
+        "hotspot": hotspot,
+        "commissioned": COMMISSIONED_FILE.exists(),
+    }
+
+
+def mark_commissioned() -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    COMMISSIONED_FILE.write_text("commissioned\n", encoding="utf-8")
+    COMMISSIONED_FILE.chmod(0o644)
 
 
 def ensure_hotspot() -> None:
@@ -215,7 +228,8 @@ button{border:0;border-radius:99px;padding:12px 18px;font-weight:850;cursor:poin
 </style></head><body><main>
 <div class="brand"><span>ORYX</span> · EtR PROJECT</div><h1>Connecter cet EtR</h1>
 <p class="intro">Ethernet est prioritaire. Pour utiliser le Wi-Fi, choisissez un réseau puis saisissez sa clé. La clé reste uniquement dans NetworkManager sur cet EtR.</p>
-<section class="card"><div id="status" class="status"><span class="pill">Vérification du réseau…</span></div><p id="localCode" class="local-code" hidden></p></section>
+<section class="card"><div id="status" class="status"><span class="pill">Vérification du réseau…</span></div><p id="localCode" class="local-code" hidden></p>
+<div class="actions"><button id="useEthernet" hidden>Continuer avec Ethernet</button></div></section>
 <section class="card"><label for="pin">Code de configuration EtR</label><input id="pin" inputmode="numeric" autocomplete="one-time-code" placeholder="6 chiffres">
 <div class="actions"><button id="scan">Rechercher les réseaux</button><button id="refresh" class="secondary">Actualiser l’état</button></div><p id="message" class="message"></p><div id="networks" class="networks"></div></section>
 <section id="credentials" class="card secret"><h2 id="chosen">Réseau Wi-Fi</h2><form id="connect"><input type="hidden" id="ssid"><input type="hidden" id="security">
@@ -225,9 +239,9 @@ button{border:0;border-radius:99px;padding:12px 18px;font-weight:850;cursor:poin
 </main><script>
 const $=s=>document.querySelector(s), pin=$('#pin'), msg=$('#message'), networks=$('#networks'), credentials=$('#credentials'), keyboard=$('#keyboard');let keyTarget=null,keyShift=false,keySymbols=false;
 async function api(path,options={}){const body=options.body?JSON.parse(options.body):{};body.pin=pin.value.trim();options.body=options.body?JSON.stringify(body):undefined;options.headers={'Content-Type':'application/json',...(options.headers||{})};const r=await fetch(path,options);const data=await r.json();if(!r.ok)throw new Error(data.error||'Opération impossible');return data}
-function showStatus(s){const items=[];items.push(`<span class="pill ${s.online?'ok':''}">${s.online?'En ligne':'Hors ligne'}</span>`);if(s.ethernet)items.push('<span class="pill ok">Ethernet connecté</span>');if(s.wifi)items.push(`<span class="pill ok">Wi-Fi : ${esc(s.wifi)}</span>`);if(s.hotspot)items.push('<span class="pill">Mode configuration actif</span>');$('#status').innerHTML=items.join('')}
+function showStatus(s){const items=[];items.push(`<span class="pill ${s.online?'ok':''}">${s.online?'En ligne':'Hors ligne'}</span>`);if(s.ethernet)items.push('<span class="pill ok">Ethernet connecté</span>');if(s.wifi)items.push(`<span class="pill ok">Wi-Fi : ${esc(s.wifi)}</span>`);if(s.hotspot)items.push('<span class="pill">Mode configuration actif</span>');if(s.commissioned)items.push('<span class="pill ok">EtR configuré</span>');$('#status').innerHTML=items.join('');$('#useEthernet').hidden=!s.ethernet||s.commissioned}
 function esc(v){const d=document.createElement('div');d.textContent=v;return d.innerHTML}
-async function status(){try{const s=await api('/api/status');showStatus(s);if(s.online&&!s.hotspot&&location.hostname==='127.0.0.1')setTimeout(()=>location.href='http://127.0.0.1:8000',2500)}catch(e){msg.textContent=e.message}}
+async function status(){try{const s=await api('/api/status');showStatus(s);if(s.commissioned&&s.online&&!s.hotspot&&location.hostname==='127.0.0.1')setTimeout(()=>location.href='http://127.0.0.1:8000',1200)}catch(e){msg.textContent=e.message}}
 async function localInfo(){try{const r=await fetch('/api/local-info');if(!r.ok)return;const d=await r.json();pin.value=d.pin;$('#localCode').hidden=false;$('#localCode').textContent=`Réseau temporaire : ${d.hotspotSsid} · clé : ${d.hotspotPassword} · code : ${d.pin}`;}catch(e){}}
 async function scan(){msg.textContent='Recherche en cours…';networks.innerHTML='';try{const list=await api('/api/networks');list.forEach(n=>{const b=document.createElement('button');b.type='button';b.className='network';b.innerHTML=`<span><strong>${esc(n.ssid)}</strong><small>${esc(n.security)}${n.connected?' · connecté':''}</small></span><span class="signal">${n.signal}%</span>`;b.onclick=()=>selectNetwork(n,b);networks.appendChild(b)});msg.textContent=list.length?`${list.length} réseau(x) détecté(s).`:'Aucun réseau détecté.'}catch(e){msg.textContent=e.message}}
 function selectNetwork(n,b){document.querySelectorAll('.network').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');$('#ssid').value=n.ssid;$('#security').value=n.security;$('#chosen').textContent=n.ssid;const open=n.security==='Ouvert'||n.security==='--';$('#password').disabled=open;$('#password').placeholder=open?'Réseau ouvert':'Clé WPA2 / WPA3';credentials.classList.remove('secret');credentials.scrollIntoView({behavior:'smooth'})}
@@ -237,6 +251,7 @@ function keyPress(k){if(!keyTarget)return;if(k==='Fermer'){keyboard.hidden=true;
 function offerKeyboard(input){input.addEventListener('focus',()=>{keyTarget=input;keySymbols=false;keyShift=false;drawKeyboard()});input.addEventListener('pointerdown',()=>{keyTarget=input;drawKeyboard()})}
 offerKeyboard(pin);offerKeyboard($('#password'));
 $('#scan').onclick=scan;$('#refresh').onclick=status;$('#cancel').onclick=()=>credentials.classList.add('secret');
+$('#useEthernet').onclick=async()=>{msg.textContent='Validation de la connexion Ethernet…';try{await api('/api/complete',{method:'POST',body:'{}'});msg.textContent='EtR configuré. Ouverture du tableau de bord…';setTimeout(()=>location.href='http://127.0.0.1:8000',900)}catch(e){msg.textContent=e.message}};
 $('#connect').onsubmit=async e=>{e.preventDefault();msg.textContent='Connexion en cours…';const payload={ssid:$('#ssid').value,password:$('#password').value,security:$('#security').value,pin:pin.value.trim()};try{await api('/api/connect',{method:'POST',body:JSON.stringify(payload)});msg.textContent='Configuration enregistrée. EtR rejoint le réseau…';setTimeout(status,3500)}catch(err){msg.textContent=err.message}};
 localInfo().then(status);
 </script></body></html>
@@ -271,6 +286,18 @@ def networks():
         return jsonify({"error": f"Recherche Wi-Fi impossible : {exc}"}), 503
 
 
+@APP.post("/api/complete")
+def complete():
+    payload = request.get_json(silent=True) or {}
+    if not authorized(payload):
+        return jsonify({"error": "Code de configuration incorrect"}), 403
+    state = active_connection()
+    if not state["ethernet"] and not state["wifi"]:
+        return jsonify({"error": "Aucune connexion réseau utilisable"}), 409
+    mark_commissioned()
+    return jsonify({"ok": True})
+
+
 @APP.post("/api/connect")
 def connect():
     payload = request.get_json(silent=True) or {}
@@ -290,6 +317,7 @@ def connect():
         if password:
             args.extend(["password", password])
         run_nmcli(*args, timeout=55)
+        mark_commissioned()
         # La connexion réussie est enregistrée par NetworkManager. Le hotspot
         # disparaît lorsque wlan0 rejoint le réseau sélectionné.
         return jsonify({"ok": True, "ssid": ssid})
