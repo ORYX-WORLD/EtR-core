@@ -1,0 +1,25 @@
+name: Contact EtR
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/etr-contact.yml"
+
+jobs:
+  contact:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 5
+    steps:
+      - name: Signal de présence EtR
+        shell: bash
+        run: |
+          echo "ETR_CONTACT_OK"
+          echo "Date : $(date --iso-8601=seconds)"
+          echo "Hôte : $(hostname)"
+          echo "Utilisateur : $(whoami)"
+          echo "Uptime : $(uptime -p)"
+          echo "Adresses : $(hostname -I 2>/dev/null || true)"
+          echo "Service EtR :"
+          systemctl is-active etr.service 2>/dev/null || true
+          systemctl status etr.service --no-pager -n 20 2>/dev/null || true
