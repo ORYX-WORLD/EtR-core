@@ -1,4 +1,4 @@
-name: Diagnostic configuration écran SPI EtR
+name: Réparer et vérifier l'affichage EtR
 
 on:
   workflow_dispatch:
@@ -10,84 +10,112 @@ permissions:
   contents: write
 
 jobs:
-  spi:
+  repair-display:
     runs-on: [self-hosted, Linux, ARM64]
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
 
-      - name: Relever les scripts et la configuration SPI
+      - name: Installer la correction d'affichage
         shell: bash
         run: |
           set +e
+          report="/tmp/etr-display-repair.txt"
+          backup="/var/backups/etr-display/$(date +%Y%m%d-%H%M%S)"
+          sudo -n mkdir -p "$backup"
+
+          for file in \
+            /usr/local/bin/start_spi_desktop.sh \
+            /usr/local/bin/etr-kiosk.sh \
+            /etc/systemd/system/spi-desktop.service \
+            /etc/systemd/system/etr-kiosk.service
+          do
+            [ -e "$file" ] && sudo -n cp -a "$file" "$backup/"
+          done
+
           sudo -n systemctl stop etr-kiosk.service
           sudo -n systemctl stop spi-desktop.service
-          mkdir -p docs/raspberry
-          report="docs/raspberry/live-spi-diagnostic.txt"
+          sudo -n install -m 755 src/deploy/raspi/start_spi_desktop.sh /usr/local/bin/start_spi_desktop.sh
+          sudo -n install -m 755 src/deploy/raspi/etr-kiosk.sh /usr/local/bin/etr-kiosk.sh
+          sudo -n install -m 644 src/deploy/raspi/spi-desktop.service /etc/systemd/system/spi-desktop.service
+          sudo -n install -m 644 src/deploy/raspi/etr-kiosk.service /etc/systemd/system/etr-kiosk.service
+          sudo -n install -m 755 src/deploy/raspi/etr-storage-maintenance.sh /home/oryx/.local/bin/etr-storage-maintenance.sh
+          sudo -n chown oryx:oryx /home/oryx/.local/bin/etr-storage-maintenance.sh
+          sudo -n systemctl daemon-reload
+          sudo -n systemctl enable spi-desktop.service etr-kiosk.service
+          sudo -n systemctl reset-failed spi-desktop.service etr-kiosk.service
+          sudo -n systemctl start spi-desktop.service
+
+          for _ in $(seq 1 40); do
+            [ -S /tmp/.X11-unix/X1 ] && systemctl is-active --quiet spi-desktop.service && break
+            sleep 1
+          done
+
+          display_ok=no
+          kiosk_ok=no
+          if [ -S /tmp/.X11-unix/X1 ] && systemctl is-active --quiet spi-desktop.service; then
+            display_ok=yes
+            sudo -n systemctl start etr-kiosk.service
+            for _ in $(seq 1 30); do
+              systemctl is-active --quiet etr-kiosk.service && pgrep -u oryx -x chromium >/dev/null && break
+              sleep 1
+            done
+            if systemctl is-active --quiet etr-kiosk.service && pgrep -u oryx -x chromium >/dev/null; then
+              kiosk_ok=yes
+            fi
+          else
+            sudo -n systemctl stop etr-kiosk.service
+            sudo -n systemctl stop spi-desktop.service
+          fi
+
+          sleep 10
           {
-            echo "Diagnostic SPI EtR - $(date -Is)"
+            echo "Réparation affichage EtR - $(date -Is)"
+            echo "Sauvegarde : $backup"
+            echo "Affichage SPI : $display_ok"
+            echo "Kiosque Chromium : $kiosk_ok"
             echo
-            echo "=== SCRIPT SPI ==="
-            sudo -n sed -n '1,240p' /usr/local/bin/start_spi_desktop.sh 2>/dev/null || true
-            echo
-            echo "=== SCRIPT KIOSQUE ==="
-            sudo -n sed -n '1,240p' /usr/local/bin/etr-kiosk.sh 2>/dev/null || true
-            echo
-            echo "=== UNITÉS ==="
-            systemctl cat spi-desktop.service 2>/dev/null || true
-            systemctl cat etr-kiosk.service 2>/dev/null || true
-
-            echo
-            echo "=== CONFIGURATIONS XORG PERTINENTES ==="
-            for root in /etc/X11 /usr/share/X11 /opt/LCD-show /home/oryx/LCD-show /home/oryx/EtR-core; do
-              [ -e "$root" ] || continue
-              grep -RIlE 'MHS35|FBTFT|99-fbtft|fbdev|/dev/fb' "$root" 2>/dev/null | head -n 40
-            done | sort -u > /tmp/etr-xorg-candidates.txt
-            cat /tmp/etr-xorg-candidates.txt
-            while IFS= read -r file; do
-              [ -f "$file" ] || continue
-              size="$(stat -c %s "$file" 2>/dev/null || echo 999999)"
-              [ "$size" -le 20000 ] || continue
-              echo "--- $file ---"
-              sed -n '1,220p' "$file"
-            done < /tmp/etr-xorg-candidates.txt
-
-            echo
-            echo "=== MATÉRIEL ET PERMISSIONS ==="
-            id oryx
-            ls -l /dev/tty1 /dev/tty2 /dev/fb* 2>/dev/null || true
-            getfacl -p /dev/tty2 /dev/fb0 /dev/fb1 2>/dev/null || true
-            cat /proc/fb 2>/dev/null || true
-            ls -la /tmp/.X11-unix 2>/dev/null || true
-            loginctl list-sessions --no-legend 2>/dev/null || true
-            loginctl user-status oryx --no-pager 2>/dev/null | sed -n '1,100p' || true
-
-            echo
-            echo "=== PAQUETS / COMMANDES ==="
-            command -v startx || true
-            command -v Xorg || true
-            command -v startlxde || true
-            command -v lxsession || true
-            dpkg-query -W -f='\${binary:Package} \${Version}\n' xserver-xorg xserver-xorg-video-fbdev xinit lxde-core 2>/dev/null || true
-
-            echo
-            echo "=== ÉTAT PROTÉGÉ ==="
-            systemctl is-active spi-desktop.service || true
-            systemctl is-active etr-kiosk.service || true
+            echo "=== SERVICES ==="
             systemctl is-active etr.service || true
             systemctl is-active etr-dashboard.service || true
+            systemctl is-active spi-desktop.service || true
+            systemctl is-active etr-kiosk.service || true
+            echo
+            systemctl status spi-desktop.service --no-pager -n 50 || true
+            echo
+            systemctl status etr-kiosk.service --no-pager -n 50 || true
+            echo
+            echo "=== PROCESSUS ==="
+            pgrep -af 'Xorg|startlxde|lxsession|chromium' || true
+            echo
+            echo "=== SOCKETS / PORTS ==="
+            ls -la /tmp/.X11-unix 2>/dev/null || true
+            nc -zv 127.0.0.1 8000 2>&1 || true
+            nc -zv 127.0.0.1 8080 2>&1 || true
+            echo
+            echo "=== JOURNAL SPI ==="
+            journalctl -u spi-desktop.service -b --no-pager -n 100 || true
+            echo
+            echo "=== JOURNAL KIOSQUE ==="
+            journalctl -u etr-kiosk.service -b --no-pager -n 100 || true
+            echo
+            echo "=== STOCKAGE ==="
             df -h /
             du -sh /home/oryx/.config/chromium/BrowserMetrics 2>/dev/null || true
+            du -sh /home/oryx/.cache/etr-kiosk-chromium 2>/dev/null || true
           } > "$report" 2>&1
 
-      - name: Publier le diagnostic dans le dépôt
+          mkdir -p docs/raspberry
+          cp "$report" docs/raspberry/live-display-repair.txt
+
+      - name: Publier le résultat de la réparation
         shell: bash
         run: |
           git config user.name "EtR Core"
           git config user.email "etr-core@users.noreply.github.com"
-          git add docs/raspberry/live-spi-diagnostic.txt
+          git add docs/raspberry/live-display-repair.txt
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "diag: publish live SPI display state"
+          git commit -m "diag: publish live display repair result"
           git push
