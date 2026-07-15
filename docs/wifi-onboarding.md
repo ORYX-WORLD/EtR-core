@@ -2,6 +2,9 @@
 
 ## Parcours au démarrage
 
+La mise en service client ne nécessite aucun ordinateur. L'image EtR livrée
+contient déjà le portail, NetworkManager et les services d'affichage.
+
 1. **Ethernet disponible** : il reste prioritaire et l'EtR est immédiatement
    joignable. Le portail Wi-Fi reste disponible sur
    `http://etr-core.local:8081` pour mémoriser un réseau sans débrancher le
@@ -10,6 +13,11 @@
 3. **Aucune connexion** : après le délai de démarrage, l'EtR crée le point
    d'accès temporaire `EtR-Setup-XXXX`. L'écran local affiche le SSID, la clé
    temporaire et le code de configuration, puis ouvre le portail.
+
+Au tout premier démarrage, l'assistant reste affiché même lorsque l'Ethernet
+est déjà opérationnel. Le client touche **Continuer avec Ethernet** ou choisit
+un Wi-Fi. La validation crée `/var/lib/etr-core/commissioned`; les démarrages
+suivants ouvrent directement le tableau de bord.
 
 Le portail scanne les réseaux, affiche leur puissance et leur sécurité, puis
 enregistre le profil sélectionné dans NetworkManager. La clé Wi-Fi n'est ni
