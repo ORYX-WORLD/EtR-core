@@ -172,7 +172,7 @@ def active_connection() -> dict[str, Any]:
             hotspot = name == HOTSPOT_NAME
             if not hotspot:
                 wifi_name = name
-    online = subprocess.run(["nm-online", "-q", "--timeout", "1"], check=False).returncode == 0
+    # Une connexion exploitable signifie ici une liaison active réelle, et non\n    # simplement que NetworkManager a terminé son démarrage.\n    online = ethernet or bool(wifi_name)
     return {
         "online": online,
         "ethernet": ethernet,
@@ -199,6 +199,15 @@ def ensure_hotspot() -> None:
         "con-name", HOTSPOT_NAME, "ssid", HOTSPOT_SSID,
         "password", HOTSPOT_PASSWORD,
     )
+
+
+def restore_hotspot_after_failure() -> None:
+    """Rétablit le réseau de configuration si une tentative Wi-Fi échoue."""
+    time.sleep(2)
+    try:
+        ensure_hotspot()
+    except Exception as exc:
+        print(f"EtR Wi-Fi: restauration du hotspot impossible: {exc}", flush=True)
 
 
 def bootstrap_network() -> None:
@@ -252,7 +261,7 @@ function offerKeyboard(input){input.addEventListener('focus',()=>{keyTarget=inpu
 offerKeyboard(pin);offerKeyboard($('#password'));
 $('#scan').onclick=scan;$('#refresh').onclick=status;$('#cancel').onclick=()=>credentials.classList.add('secret');
 $('#useEthernet').onclick=async()=>{msg.textContent='Validation de la connexion Ethernet…';try{await api('/api/complete',{method:'POST',body:'{}'});msg.textContent='EtR configuré. Ouverture du tableau de bord…';setTimeout(()=>location.href='http://127.0.0.1:8000',900)}catch(e){msg.textContent=e.message}};
-$('#connect').onsubmit=async e=>{e.preventDefault();msg.textContent='Connexion en cours…';const payload={ssid:$('#ssid').value,password:$('#password').value,security:$('#security').value,pin:pin.value.trim()};try{await api('/api/connect',{method:'POST',body:JSON.stringify(payload)});msg.textContent='Configuration enregistrée. EtR rejoint le réseau…';setTimeout(status,3500)}catch(err){msg.textContent=err.message}};
+$('#connect').onsubmit=async e=>{e.preventDefault();msg.textContent='Connexion en cours…';const payload={ssid:$('#ssid').value,password:$('#password').value,security:$('#security').value,pin:pin.value.trim()};try{const result=await api('/api/connect',{method:'POST',body:JSON.stringify(payload)});$('#password').value='';keyboard.hidden=true;msg.textContent='Connexion Wi-Fi confirmée. Ouverture du tableau EtR…';setTimeout(()=>location.replace(result.redirect||'http://127.0.0.1:8000'),1200)}catch(err){msg.textContent=err.message;setTimeout(status,2500)}};
 localInfo().then(status);
 </script></body></html>
 """
@@ -317,11 +326,29 @@ def connect():
         if password:
             args.extend(["password", password])
         run_nmcli(*args, timeout=55)
+        # nmcli peut rendre la main avant que l'état actif soit stabilisé.
+        # On ne valide jamais l'EtR tant que wlan0 n'a pas réellement quitté
+        # le hotspot pour une connexion Wi-Fi active.
+        deadline = time.monotonic() + 25
+        connected_name = ""
+        while time.monotonic() < deadline:
+            state = active_connection()
+            if state["wifi"] and not state["hotspot"]:
+                connected_name = str(state["wifi"])
+                break
+            time.sleep(1)
+        if not connected_name:
+            raise RuntimeError("le réseau n'a pas confirmé la connexion")
         mark_commissioned()
-        # La connexion réussie est enregistrée par NetworkManager. Le hotspot
-        # disparaît lorsque wlan0 rejoint le réseau sélectionné.
-        return jsonify({"ok": True, "ssid": ssid})
+        return jsonify({
+            "ok": True,
+            "ssid": ssid,
+            "redirect": "http://127.0.0.1:8000",
+        })
     except Exception as exc:
+        # Une clé refusée peut couper le hotspot de configuration. Sa
+        # restauration en arrière-plan permet de réessayer sans ordinateur.
+        threading.Thread(target=restore_hotspot_after_failure, daemon=True).start()
         return jsonify({"error": f"Connexion refusée : {exc}"}), 400
 
 
