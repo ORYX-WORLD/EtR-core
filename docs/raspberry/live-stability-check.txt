@@ -1,0 +1,15 @@
+Contrôle de stabilité EtR - 2026-07-15T20:45:48+02:00
+
+etr.service : active ; redémarrages=0
+etr-dashboard.service : active ; redémarrages=0
+spi-desktop.service : active ; redémarrages=0
+etr-kiosk.service : active ; redémarrages=0
+Affichage X11 : OK
+Chromium kiosque : OK
+Tableau de bord 8000 : OK
+Service EtR 8080 : OK
+
+Stockage : 23% utilisé, 21G disponible
+Profil kiosque : 7.2M
+
+Résultat global : OK
