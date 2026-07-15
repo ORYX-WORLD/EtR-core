@@ -1,4 +1,4 @@
-name: Diagnostic EtR
+name: Diagnostic EtR config
 
 on:
   workflow_dispatch:
@@ -11,35 +11,29 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 5
     steps:
-      - name: État général et occupation du disque
+      - name: Identifier le dossier saturant la carte
         shell: bash
         run: |
           set +e
-          echo "ETR_DIAGNOSTIC_OK"
-          echo "Date : $(date --iso-8601=seconds)"
-          echo "Hôte : $(hostname)"
-          echo "Utilisateur : $(whoami)"
-          echo "Uptime : $(uptime -p)"
+          echo "ETR_CONFIG_DIAGNOSTIC_OK"
+          echo "=== ESPACE AVANT ==="
+          df -h /
           echo
-          echo "=== SYSTÈMES DE FICHIERS ==="
-          df -hT
+          echo "=== PLUS GROS DOSSIERS .CONFIG NIVEAU 1 ==="
+          du -xhd1 /home/oryx/.config 2>/dev/null | sort -h | tail -n 30
           echo
-          echo "=== INODES ==="
-          df -ih
+          echo "=== PLUS GROS DOSSIERS .CONFIG NIVEAU 3 ==="
+          du -xhd3 /home/oryx/.config 2>/dev/null | sort -h | tail -n 60
           echo
-          echo "=== DOSSIERS /HOME/ORYX ==="
-          du -xhd1 /home/oryx 2>/dev/null | sort -h
+          echo "=== NOMBRE DE FICHIERS PAR DOSSIER PRINCIPAL ==="
+          for d in /home/oryx/.config/*; do
+            [ -d "$d" ] || continue
+            printf '%s ' "$d"
+            find "$d" -xdev -type f 2>/dev/null | wc -l
+          done | sort -k2 -n | tail -n 30
           echo
-          echo "=== DOSSIERS DU RUNNER ==="
-          for d in /home/oryx/actions-runner /home/oryx/EtR-core /home/oryx/.cache /home/oryx/.local /tmp /var/tmp /var/log /var/cache/apt/archives; do
-            [ -e "$d" ] && du -xhd2 "$d" 2>/dev/null | sort -h | tail -n 25
-          done
-          echo
-          echo "=== FICHIERS > 25 MIO DANS /HOME/ORYX ==="
-          find /home/oryx -xdev -type f -size +25M -printf '%s %p\n' 2>/dev/null | sort -nr | head -n 40
-          echo
-          echo "=== JOURNAL SYSTEMD ==="
-          journalctl --disk-usage 2>/dev/null || true
+          echo "=== FICHIERS RÉCENTS DANS LE PLUS GROS DOSSIER ==="
+          find /home/oryx/.config -xdev -type f -printf '%T@ %s %p\n' 2>/dev/null | sort -nr | head -n 40
           echo
           echo "=== SERVICE ETR ==="
           systemctl is-active etr.service 2>/dev/null || true
