@@ -1,4 +1,4 @@
-name: Diagnostic EtR config
+name: Nettoyage EtR
 
 on:
   workflow_dispatch:
@@ -7,33 +7,29 @@ on:
       - ".github/workflows/etr-contact.yml"
 
 jobs:
-  diagnostic:
+  cleanup:
     runs-on: [self-hosted, Linux, ARM64]
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Identifier le dossier saturant la carte
+      - name: Libérer l’espace saturé par Chromium
         shell: bash
         run: |
-          set +e
-          echo "ETR_CONFIG_DIAGNOSTIC_OK"
-          echo "=== ESPACE AVANT ==="
+          set -u
+          echo "ETR_CLEANUP_START"
+          echo "=== AVANT ==="
           df -h /
-          echo
-          echo "=== PLUS GROS DOSSIERS .CONFIG NIVEAU 1 ==="
-          du -xhd1 /home/oryx/.config 2>/dev/null | sort -h | tail -n 30
-          echo
-          echo "=== PLUS GROS DOSSIERS .CONFIG NIVEAU 3 ==="
-          du -xhd3 /home/oryx/.config 2>/dev/null | sort -h | tail -n 60
-          echo
-          echo "=== NOMBRE DE FICHIERS PAR DOSSIER PRINCIPAL ==="
-          for d in /home/oryx/.config/*; do
-            [ -d "$d" ] || continue
-            printf '%s ' "$d"
-            find "$d" -xdev -type f 2>/dev/null | wc -l
-          done | sort -k2 -n | tail -n 30
-          echo
-          echo "=== FICHIERS RÉCENTS DANS LE PLUS GROS DOSSIER ==="
-          find /home/oryx/.config -xdev -type f -printf '%T@ %s %p\n' 2>/dev/null | sort -nr | head -n 40
-          echo
-          echo "=== SERVICE ETR ==="
-          systemctl is-active etr.service 2>/dev/null || true
+          METRICS="/home/oryx/.config/chromium/BrowserMetrics"
+          if [ -d "$METRICS" ]; then
+            echo "BrowserMetrics avant : $(du -sh "$METRICS" 2>/dev/null | cut -f1)"
+            find "$METRICS" -xdev -type f -delete
+            find "$METRICS" -xdev -mindepth 1 -type d -empty -delete
+          fi
+          find /home/oryx/.config/chromium -maxdepth 1 -type f -name '.org.chromium.Chromium.*' -delete 2>/dev/null || true
+          rm -f /home/oryx/actions-runner/actions-runner-linux-arm64-2.329.0.tar.gz
+          rm -rf /home/oryx/.cache/pip/http-v2 2>/dev/null || true
+          sync
+          echo "=== APRÈS ==="
+          df -h /
+          echo "BrowserMetrics après : $(du -sh "$METRICS" 2>/dev/null | cut -f1 || echo absent)"
+          echo "Service EtR : $(systemctl is-active etr.service 2>/dev/null || true)"
+          echo "ETR_CLEANUP_DONE"
