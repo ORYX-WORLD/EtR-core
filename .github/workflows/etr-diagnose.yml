@@ -1,0 +1,70 @@
+name: Diagnostic EtR physique
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-diagnose.yml
+
+concurrency:
+  group: etr-physical-diagnostic
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    name: Examiner les services du Raspberry
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Produire le diagnostic ciblé
+        shell: bash
+        run: |
+          set +e
+          mkdir -p .github/deployment
+          report=.github/deployment/etr-diagnostics.txt
+          {
+            echo "date_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "host=$(hostname)"
+            echo "uptime=$(uptime -p)"
+            echo
+            echo "[unit-files]"
+            sudo systemctl list-unit-files --no-pager | grep -Ei 'etr|spi-desktop|wifi-portal' || true
+            echo
+            echo "[unit-states]"
+            for unit in etr.service etr-dashboard.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service; do
+              sudo systemctl show "$unit" -p Id -p LoadState -p ActiveState -p SubState -p Result -p MainPID -p FragmentPath -p ExecStart --no-pager 2>&1 || true
+            done
+            echo
+            echo "[port-8081]"
+            sudo fuser -v 8081/tcp 2>&1 || true
+            sudo ss -ltnp 'sport = :8081' 2>&1 || true
+            pids=$(sudo fuser 8081/tcp 2>/dev/null | tr -cd '0-9 ')
+            [ -n "$pids" ] && ps -o pid,ppid,user,lstart,args -p $pids || true
+            echo
+            echo "[portal-journal]"
+            sudo journalctl -u etr-wifi-portal.service -n 30 --no-pager 2>&1 || true
+            echo
+            echo "[spi-journal]"
+            sudo journalctl -u spi-desktop.service -n 30 --no-pager 2>&1 || true
+            echo
+            echo "[kiosk-journal]"
+            sudo journalctl -u etr-kiosk.service -n 30 --no-pager 2>&1 || true
+          } > "$report"
+
+      - name: Publier le diagnostic
+        shell: bash
+        run: |
+          git config user.name "EtR diagnostic agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-diagnostics.txt
+          git commit -m "chore: record EtR service diagnostics" || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
