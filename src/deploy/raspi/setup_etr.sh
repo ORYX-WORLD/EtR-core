@@ -45,6 +45,13 @@ echo '*/15 * * * * oryx /home/oryx/.local/bin/etr-storage-maintenance.sh' | \
   sudo tee /etc/cron.d/etr-storage-maintenance >/dev/null
 sudo chmod 644 /etc/cron.d/etr-storage-maintenance
 
+# Une ancienne exécution manuelle peut conserver le port 8081 ou le profil
+# Chromium. On arrête proprement les services puis les processus orphelins.
+sudo systemctl stop etr-kiosk.service etr-wifi-portal.service 2>/dev/null || true
+sudo pkill -f '/home/oryx/EtR-core/src/wifi_portal.py' 2>/dev/null || true
+sudo pkill -u oryx -x chromium 2>/dev/null || true
+sudo systemctl reset-failed etr-wifi-portal.service etr-kiosk.service 2>/dev/null || true
+
 sudo systemctl daemon-reload
 sudo systemctl enable etr.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service
 sudo systemctl restart etr.service
