@@ -1,0 +1,134 @@
+date_utc=2026-07-15T23:28:20Z
+host=etr-core
+uptime=up 4 minutes
+
+[unit-files]
+actions.runner.OrXEtR-EtR-core.etr-core.service enabled         enabled
+etr-dashboard.service                           enabled         enabled
+etr-kiosk.service                               enabled         enabled
+etr-update.service                              static          -
+etr-wifi-portal.service                         enabled         enabled
+etr.service                                     enabled         enabled
+spi-desktop.service                             enabled         enabled
+etr-update.timer                                enabled         enabled
+
+[unit-states]
+MainPID=1099
+Result=success
+ExecStart={ path=/home/oryx/EtR-core/.venv/bin/python ; argv[]=/home/oryx/EtR-core/.venv/bin/python -m flask --app src/app.py run --host=0.0.0.0 --port=8080 ; ignore_errors=no ; start_time=[Thu 2026-07-16 01:18:54 CEST] ; stop_time=[n/a] ; pid=1099 ; code=(null) ; status=0/0 }
+Id=etr.service
+LoadState=loaded
+ActiveState=active
+SubState=running
+FragmentPath=/etc/systemd/system/etr.service
+MainPID=1098
+Result=success
+ExecStart={ path=/opt/etr/dashboard/.venv/bin/gunicorn ; argv[]=/opt/etr/dashboard/.venv/bin/gunicorn -b 127.0.0.1:8000 app:app ; ignore_errors=no ; start_time=[Thu 2026-07-16 01:18:54 CEST] ; stop_time=[n/a] ; pid=1098 ; code=(null) ; status=0/0 }
+Id=etr-dashboard.service
+LoadState=loaded
+ActiveState=active
+SubState=running
+FragmentPath=/etc/systemd/system/etr-dashboard.service
+MainPID=0
+Result=exit-code
+ExecStart={ path=/home/oryx/EtR-core/.venv/bin/python ; argv[]=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/wifi_portal.py ; ignore_errors=no ; start_time=[Thu 2026-07-16 01:28:19 CEST] ; stop_time=[Thu 2026-07-16 01:28:19 CEST] ; pid=2496 ; code=exited ; status=226 }
+Id=etr-wifi-portal.service
+LoadState=loaded
+ActiveState=activating
+SubState=auto-restart
+FragmentPath=/etc/systemd/system/etr-wifi-portal.service
+MainPID=1107
+Result=success
+ExecStart={ path=/usr/local/bin/start_spi_desktop.sh ; argv[]=/usr/local/bin/start_spi_desktop.sh ; ignore_errors=no ; start_time=[Thu 2026-07-16 01:18:54 CEST] ; stop_time=[n/a] ; pid=1107 ; code=(null) ; status=0/0 }
+Id=spi-desktop.service
+LoadState=loaded
+ActiveState=active
+SubState=running
+FragmentPath=/etc/systemd/system/spi-desktop.service
+MainPID=0
+Result=start-limit-hit
+ExecStart={ path=/usr/local/bin/etr-kiosk.sh ; argv[]=/usr/local/bin/etr-kiosk.sh ; ignore_errors=no ; start_time=[Thu 2026-07-16 01:19:08 CEST] ; stop_time=[Thu 2026-07-16 01:24:45 CEST] ; pid=1711 ; code=exited ; status=0 }
+Id=etr-kiosk.service
+LoadState=loaded
+ActiveState=failed
+SubState=failed
+FragmentPath=/etc/systemd/system/etr-kiosk.service
+
+[port-8081]
+                     USER        PID ACCESS COMMAND
+8081/tcp:            oryx       1100 F.... websockify
+State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess                              
+LISTEN 0      100          0.0.0.0:8081      0.0.0.0:*    users:(("websockify",pid=1100,fd=3))
+    PID    PPID USER                      STARTED COMMAND
+   1100       1 oryx     Thu Jul 16 01:24:25 2026 /usr/bin/python3 /usr/bin/websockify --web=/usr/share/novnc/ 8081 localhost:5900
+
+[portal-journal]
+Jul 16 01:27:59 etr-core systemd[1]: etr-wifi-portal.service: Scheduled restart job, restart counter is at 41.
+Jul 16 01:27:59 etr-core systemd[1]: Started etr-wifi-portal.service - EtR Wi-Fi onboarding portal.
+Jul 16 01:27:59 etr-core (python)[2301]: etr-wifi-portal.service: Failed to set up mount namespacing: /var/lib/etr-core: No such file or directory
+Jul 16 01:27:59 etr-core (python)[2301]: etr-wifi-portal.service: Failed at step NAMESPACE spawning /home/oryx/EtR-core/.venv/bin/python: No such file or directory
+Jul 16 01:27:59 etr-core systemd[1]: etr-wifi-portal.service: Main process exited, code=exited, status=226/NAMESPACE
+Jul 16 01:27:59 etr-core systemd[1]: etr-wifi-portal.service: Failed with result 'exit-code'.
+Jul 16 01:28:04 etr-core systemd[1]: etr-wifi-portal.service: Scheduled restart job, restart counter is at 42.
+Jul 16 01:28:04 etr-core systemd[1]: Started etr-wifi-portal.service - EtR Wi-Fi onboarding portal.
+Jul 16 01:28:04 etr-core (python)[2309]: etr-wifi-portal.service: Failed to set up mount namespacing: /var/lib/etr-core: No such file or directory
+Jul 16 01:28:04 etr-core (python)[2309]: etr-wifi-portal.service: Failed at step NAMESPACE spawning /home/oryx/EtR-core/.venv/bin/python: No such file or directory
+Jul 16 01:28:04 etr-core systemd[1]: etr-wifi-portal.service: Main process exited, code=exited, status=226/NAMESPACE
+Jul 16 01:28:04 etr-core systemd[1]: etr-wifi-portal.service: Failed with result 'exit-code'.
+Jul 16 01:28:09 etr-core systemd[1]: etr-wifi-portal.service: Scheduled restart job, restart counter is at 43.
+Jul 16 01:28:09 etr-core systemd[1]: Started etr-wifi-portal.service - EtR Wi-Fi onboarding portal.
+Jul 16 01:28:09 etr-core (python)[2318]: etr-wifi-portal.service: Failed to set up mount namespacing: /var/lib/etr-core: No such file or directory
+Jul 16 01:28:09 etr-core (python)[2318]: etr-wifi-portal.service: Failed at step NAMESPACE spawning /home/oryx/EtR-core/.venv/bin/python: No such file or directory
+Jul 16 01:28:09 etr-core systemd[1]: etr-wifi-portal.service: Main process exited, code=exited, status=226/NAMESPACE
+Jul 16 01:28:09 etr-core systemd[1]: etr-wifi-portal.service: Failed with result 'exit-code'.
+Jul 16 01:28:14 etr-core systemd[1]: etr-wifi-portal.service: Scheduled restart job, restart counter is at 44.
+Jul 16 01:28:14 etr-core systemd[1]: Started etr-wifi-portal.service - EtR Wi-Fi onboarding portal.
+Jul 16 01:28:14 etr-core (python)[2347]: etr-wifi-portal.service: Failed to set up mount namespacing: /var/lib/etr-core: No such file or directory
+Jul 16 01:28:14 etr-core (python)[2347]: etr-wifi-portal.service: Failed at step NAMESPACE spawning /home/oryx/EtR-core/.venv/bin/python: No such file or directory
+Jul 16 01:28:14 etr-core systemd[1]: etr-wifi-portal.service: Main process exited, code=exited, status=226/NAMESPACE
+Jul 16 01:28:14 etr-core systemd[1]: etr-wifi-portal.service: Failed with result 'exit-code'.
+Jul 16 01:28:19 etr-core systemd[1]: etr-wifi-portal.service: Scheduled restart job, restart counter is at 45.
+Jul 16 01:28:19 etr-core systemd[1]: Started etr-wifi-portal.service - EtR Wi-Fi onboarding portal.
+Jul 16 01:28:19 etr-core (python)[2496]: etr-wifi-portal.service: Failed to set up mount namespacing: /var/lib/etr-core: No such file or directory
+Jul 16 01:28:19 etr-core (python)[2496]: etr-wifi-portal.service: Failed at step NAMESPACE spawning /home/oryx/EtR-core/.venv/bin/python: No such file or directory
+Jul 16 01:28:19 etr-core systemd[1]: etr-wifi-portal.service: Main process exited, code=exited, status=226/NAMESPACE
+Jul 16 01:28:19 etr-core systemd[1]: etr-wifi-portal.service: Failed with result 'exit-code'.
+
+[spi-journal]
+Jul 16 01:18:54 etr-core systemd[1]: Started spi-desktop.service - EtR SPI desktop on display :1.
+Jul 16 01:18:55 etr-core runuser[1148]: pam_unix(runuser:session): session opened for user oryx(uid=1000) by (uid=0)
+Jul 16 01:19:05 etr-core obexd[1611]: OBEX daemon 5.82
+Jul 16 01:19:05 etr-core obexd[1611]: Unable to acquire registry: Error calling StartServiceByName for org.gnome.evolution.dataserver.Sources5: Failed to execute program org.gnome.evolution.dataserver.Sources5: No such file or directory
+Jul 16 01:19:05 etr-core obexd[1611]: Unable to acquire registry: Error calling StartServiceByName for org.gnome.evolution.dataserver.Sources5: Failed to execute program org.gnome.evolution.dataserver.Sources5: No such file or directory
+
+[kiosk-journal]
+Jul 16 01:19:08 etr-core systemd[1]: Started etr-kiosk.service - EtR kiosk (Chromium on SPI).
+Jul 16 01:19:08 etr-core etr-kiosk.sh[1717]: Connection to 127.0.0.1 8000 port [tcp/*] succeeded!
+Jul 16 01:19:08 etr-core etr-kiosk.sh[1724]: Connection to 127.0.0.1 8081 port [tcp/tproxy] succeeded!
+Jul 16 01:19:08 etr-core etr-kiosk.sh[1711]: [1711:1764:0716/011908.694734:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+Jul 16 01:19:08 etr-core etr-kiosk.sh[1711]: [1711:1764:0716/011908.697153:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+Jul 16 01:19:08 etr-core etr-kiosk.sh[1711]: [1711:1764:0716/011908.706035:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+Jul 16 01:19:08 etr-core etr-kiosk.sh[1711]: [1711:1764:0716/011908.815301:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1764:0716/011909.044590:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1764:0716/011909.044706:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1711:0716/011909.256088:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type:
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1764:0716/011909.256285:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1711:0716/011909.256313:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type:
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1764:0716/011909.256466:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1711:0716/011909.271496:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type:
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1711:0716/011909.302428:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type:
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1711:0716/011909.355367:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type:
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1711:0716/011909.356059:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type:
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1764:0716/011909.357852:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1711:0716/011909.430849:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type:
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1764:0716/011909.431503:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1711:0716/011909.479991:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type:
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1764:0716/011909.480638:ERROR:dbus/bus.cc:405] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are "tcp" and on UNIX "unix")
+Jul 16 01:19:09 etr-core etr-kiosk.sh[1711]: [1711:1711:0716/011909.542753:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type:
+Jul 16 01:24:45 etr-core systemd[1]: Stopping etr-kiosk.service - EtR kiosk (Chromium on SPI)...
+Jul 16 01:24:45 etr-core systemd[1]: etr-kiosk.service: Deactivated successfully.
+Jul 16 01:24:45 etr-core systemd[1]: Stopped etr-kiosk.service - EtR kiosk (Chromium on SPI).
+Jul 16 01:24:45 etr-core systemd[1]: etr-kiosk.service: Consumed 2.816s CPU time.
+Jul 16 01:24:45 etr-core systemd[1]: etr-kiosk.service: Start request repeated too quickly.
+Jul 16 01:24:45 etr-core systemd[1]: etr-kiosk.service: Failed with result 'start-limit-hit'.
+Jul 16 01:24:45 etr-core systemd[1]: Failed to start etr-kiosk.service - EtR kiosk (Chromium on SPI).
