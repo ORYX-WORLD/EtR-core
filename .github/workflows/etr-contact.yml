@@ -1,4 +1,4 @@
-name: Diagnostiquer l'écran EtR
+name: Diagnostiquer le kiosque EtR
 
 on:
   workflow_dispatch:
@@ -10,78 +10,53 @@ permissions:
   contents: write
 
 jobs:
-  screen-diagnostic:
+  kiosk-diagnostic:
     runs-on: [self-hosted, Linux, ARM64]
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
 
-      - name: Diagnostiquer et réveiller la dalle
+      - name: Diagnostiquer et relancer Chromium
         shell: bash
         run: |
           set +e
-          report="docs/raspberry/live-screen-diagnostic.txt"
+          report="docs/raspberry/live-kiosk-diagnostic.txt"
           mkdir -p docs/raspberry
           {
-            echo "Diagnostic écran EtR - $(date -Is)"
+            echo "Diagnostic kiosque EtR - $(date -Is)"
             echo
-            echo "=== CONSOLE ACTIVE AVANT ==="
-            sudo -n fgconsole || fgconsole || true
+            echo "=== SERVICES AVANT ==="
+            systemctl status etr-dashboard.service etr-kiosk.service spi-desktop.service --no-pager -l || true
             echo
-            echo "=== FRAMEBUFFERS ==="
-            ls -l /dev/fb* 2>&1 || true
-            for fb in /sys/class/graphics/fb*; do
-              echo "--- $fb ---"
-              cat "$fb/name" 2>/dev/null || true
-              cat "$fb/modes" 2>/dev/null || true
-              cat "$fb/virtual_size" 2>/dev/null || true
-              cat "$fb/bits_per_pixel" 2>/dev/null || true
-            done
-            for dev in /dev/fb0 /dev/fb1; do
-              [ -e "$dev" ] || continue
-              echo "--- fbset $dev ---"
-              sudo -n fbset -fb "$dev" 2>&1 || true
-            done
+            echo "=== PROCESSUS ==="
+            ps -ef | grep -E '[c]hromium|[X]org|[s]tartlxde|[o]penbox' || true
             echo
-            echo "=== BACKLIGHT ==="
-            for bl in /sys/class/backlight/*; do
-              [ -e "$bl" ] || continue
-              echo "--- $bl ---"
-              for f in brightness actual_brightness max_brightness bl_power; do
-                printf "%s=" "$f"
-                cat "$bl/$f" 2>/dev/null || true
-              done
-            done
+            echo "=== URL TABLEAU DE BORD ==="
+            curl -sS -I --max-time 10 http://127.0.0.1:8000/ || true
             echo
-            echo "=== XORG ==="
-            DISPLAY=:1 xrandr 2>&1 || true
-            DISPLAY=:1 xset q 2>&1 || true
-            grep -E 'fbdev|FBIO|Screen|Virtual size|connected|\(EE\)|\(WW\)' /var/log/Xorg.1.log /home/oryx/.local/share/xorg/Xorg.1.log 2>/dev/null | tail -n 160 || true
+            echo "=== FENETRES X AVANT ==="
+            DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xwininfo -root -tree 2>&1 || true
             echo
-            echo "=== CONFIG XORG ==="
-            grep -R -n -E 'Driver|fbdev|Device' /etc/X11/xorg.conf.d /usr/share/X11/xorg.conf.d 2>/dev/null || true
+            echo "=== JOURNAL KIOSQUE ==="
+            journalctl -u etr-kiosk.service -n 160 --no-pager || true
             echo
-            echo "=== CONTENU FB1 ==="
-            sudo -n python3 - <<'PY'
-import hashlib, os
-p='/dev/fb1'
-if os.path.exists(p):
-    with open(p,'rb',buffering=0) as f:
-        data=f.read(480*320*4)
-    print('octets',len(data),'non_nuls',sum(b != 0 for b in data),'sha256',hashlib.sha256(data).hexdigest())
-else:
-    print('absent')
-PY
+            echo "=== RELANCE CIBLEE ==="
+            DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xset s off 2>&1 || true
+            DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xset -dpms 2>&1 || true
+            sudo -n systemctl restart etr-kiosk.service || true
+            sleep 18
             echo
-            echo "=== ACTION REVEIL ==="
-            DISPLAY=:1 xset s off 2>&1 || true
-            DISPLAY=:1 xset -dpms 2>&1 || true
-            sudo -n chvt 2 2>&1 || true
-            sleep 3
-            echo -n "console_apres="
-            sudo -n fgconsole || fgconsole || true
-            systemctl is-active spi-desktop.service || true
-            systemctl is-active etr-kiosk.service || true
+            echo "=== SERVICES APRES ==="
+            systemctl status etr-kiosk.service --no-pager -l || true
+            echo
+            echo "=== PROCESSUS APRES ==="
+            ps -ef | grep -E '[c]hromium|[X]org|[s]tartlxde|[o]penbox' || true
+            echo
+            echo "=== FENETRES X APRES ==="
+            DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xwininfo -root -tree 2>&1 || true
+            echo
+            echo "=== JOURNAL APRES ==="
+            journalctl -u etr-kiosk.service -n 100 --no-pager || true
           } > "$report" 2>&1
 
       - name: Publier temporairement le diagnostic
@@ -89,6 +64,6 @@ PY
         run: |
           git config user.name "EtR Core"
           git config user.email "etr-core@users.noreply.github.com"
-          git add docs/raspberry/live-screen-diagnostic.txt
-          git commit -m "diag: publish temporary EtR screen diagnostic"
+          git add docs/raspberry/live-kiosk-diagnostic.txt
+          git commit -m "diag: publish temporary EtR kiosk diagnostic"
           git push
