@@ -1,4 +1,4 @@
-name: Diagnostic détaillé kiosque EtR
+name: Diagnostic graphique EtR
 
 on:
   workflow_dispatch:
@@ -7,27 +7,46 @@ on:
       - ".github/workflows/etr-contact.yml"
 
 jobs:
-  kiosk:
+  display:
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 5
     steps:
-      - name: Lire le script et les erreurs du kiosque
+      - name: Examiner LightDM et l’écran SPI
         shell: bash
         run: |
           set +e
-          echo "=== SCRIPT ETR-KIOSK ==="
-          sed -n '1,240p' /usr/local/bin/etr-kiosk.sh
+          echo "=== SUDO ==="
+          sudo -n true
+          echo "sudo_rc=$?"
           echo
-          echo "=== JOURNAL ETR-KIOSK DU DÉMARRAGE ==="
-          journalctl -u etr-kiosk.service -b --no-pager -n 200
+          echo "=== CIBLES SYSTEMD ==="
+          systemctl get-default
+          systemctl is-enabled lightdm.service
+          systemctl is-active lightdm.service
+          systemctl status lightdm.service --no-pager -n 80
           echo
-          echo "=== DASHBOARD ==="
-          systemctl status etr-dashboard.service --no-pager -n 80
-          systemctl cat etr-dashboard.service
+          echo "=== CONFIG LIGHTDM ==="
+          find /etc/lightdm -maxdepth 3 -type f -print -exec sed -n '1,220p' {} \; 2>/dev/null
           echo
-          echo "=== AFFICHAGES DISPONIBLES ==="
+          echo "=== JOURNAL LIGHTDM ==="
+          journalctl -u lightdm.service -b --no-pager -n 200
+          echo
+          echo "=== XORG ET AFFICHAGES ==="
           ls -la /tmp/.X11-unix 2>/dev/null || true
-          ps -eo pid,user,args | grep -E '[X]org|[X]wayland|[w]ayfire|[l]abwc|[x]init|[f]bcp' || true
+          ls -la /home/oryx/.Xauthority /var/log/Xorg* /home/oryx/.local/share/xorg 2>/dev/null || true
+          find /var/log /home/oryx/.local/share/xorg -maxdepth 2 -type f -name 'Xorg*.log' -print -exec tail -n 120 {} \; 2>/dev/null
+          echo
+          echo "=== ÉCRAN / FRAMEBUFFER ==="
+          ls -la /dev/fb* 2>/dev/null || true
+          command -v fbset >/dev/null && fbset -s || true
+          grep -E '^(dtoverlay|dtparam=spi|framebuffer_|hdmi_|display_)' /boot/firmware/config.txt 2>/dev/null || true
+          echo
+          echo "=== PAQUETS GRAPHIQUES ==="
+          dpkg -l lightdm lxde xserver-xorg chromium 2>/dev/null || true
+          echo
+          echo "=== PROCESSUS ==="
+          ps -eo pid,user,args | grep -E '[X]org|[X]wayland|[l]ightdm|[w]ayfire|[l]abwc|[x]init|[f]bcp|[c]hromium' || true
           echo
           echo "=== STOCKAGE ==="
           df -h /
+          du -sh /home/oryx/.config/chromium/BrowserMetrics 2>/dev/null || true
