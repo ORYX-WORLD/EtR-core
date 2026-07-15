@@ -15,6 +15,14 @@ Le portail scanne les réseaux, affiche leur puissance et leur sécurité, puis
 enregistre le profil sélectionné dans NetworkManager. La clé Wi-Fi n'est ni
 retournée par l'API, ni écrite dans les journaux EtR.
 
+## Saisie tactile et souris
+
+- Un pavé numérique apparaît pour le code de configuration EtR.
+- Un clavier visuel AZERTY apparaît pour la clé Wi-Fi, avec majuscules,
+  chiffres, symboles, espace, retour arrière et fermeture.
+- Toutes les touches fonctionnent au toucher comme au clic de souris. Un
+  clavier physique reste utilisable en parallèle.
+
 ## Sécurité
 
 - La modification du Wi-Fi exige le code local à six chiffres conservé dans
