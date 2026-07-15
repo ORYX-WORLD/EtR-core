@@ -1,0 +1,25 @@
+[Unit]
+Description=EtR SPI desktop on display :1
+Wants=network-online.target
+After=network-online.target systemd-user-sessions.service
+Conflicts=getty@tty2.service
+StartLimitIntervalSec=120
+StartLimitBurst=3
+ConditionPathExists=/dev/fb1
+
+[Service]
+Type=simple
+User=root
+Environment=DISPLAY=:1
+Environment=XAUTHORITY=/home/oryx/.Xauthority
+ExecStart=/usr/local/bin/start_spi_desktop.sh
+Restart=on-failure
+RestartSec=10
+StandardInput=tty-force
+TTYPath=/dev/tty2
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+
+[Install]
+WantedBy=multi-user.target
