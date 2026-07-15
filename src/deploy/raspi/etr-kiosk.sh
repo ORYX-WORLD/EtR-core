@@ -18,7 +18,7 @@ done
 # l'écran conserve le tableau de bord pression/compresseur existant.
 for _ in $(seq 1 60); do
   nc -z 127.0.0.1 8000 && break
-  nc -z 127.0.0.1 8081 && break
+  nc -z 127.0.0.1 8090 && break
   sleep 1
 done
 
@@ -27,14 +27,14 @@ if nmcli -t -f NAME,TYPE connection show --active 2>/dev/null | grep -q '^etr-se
   HOTSPOT_ACTIVE=true
 fi
 
-if [ ! -f /var/lib/etr-core/commissioned ] && nc -z 127.0.0.1 8081; then
+if [ ! -f /var/lib/etr-core/commissioned ] && nc -z 127.0.0.1 8090; then
   # Premier démarrage : l'assistant reste affiché, même avec Ethernet, jusqu'à
   # la validation tactile de la mise en service.
-  ETR_URL="http://127.0.0.1:8081"
+  ETR_URL="http://127.0.0.1:8090"
 elif [ "$HOTSPOT_ACTIVE" = false ] && nm-online -q --timeout=8 && nc -z 127.0.0.1 8000; then
   ETR_URL="http://127.0.0.1:8000"
-elif nc -z 127.0.0.1 8081; then
-  ETR_URL="http://127.0.0.1:8081"
+elif nc -z 127.0.0.1 8090; then
+  ETR_URL="http://127.0.0.1:8090"
 else
   echo "Ni le tableau de bord ni le portail réseau EtR ne répondent" >&2
   exit 1
