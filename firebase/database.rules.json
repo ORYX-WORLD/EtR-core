@@ -1,19 +1,65 @@
 {
   "rules": {
+    ".read": false,
+    ".write": false,
     "installations": {
       "$installationId": {
-        ".read": "auth != null && (root.child('clientAccess').child(auth.uid).child($installationId).val() === true || root.child('deviceAccess').child(auth.uid).val() === $installationId)",
-        ".write": "auth != null && root.child('deviceAccess').child(auth.uid).val() === $installationId",
+        ".read": "auth != null && (auth.token.oryxStaff === true || auth.token.oryxDeveloper === true || root.child('memberships').child(auth.uid).child($installationId).child('active').val() === true || root.child('deviceAccess').child(auth.uid).val() === $installationId)",
+        "metadata": {
+          ".write": false
+        },
         "latest": {
+          ".write": "auth != null && root.child('deviceAccess').child(auth.uid).val() === $installationId",
           ".validate": "newData.hasChildren(['installation_id', 'updated_at']) && newData.child('installation_id').val() === $installationId"
+        },
+        "telemetry": {
+          ".write": "auth != null && root.child('deviceAccess').child(auth.uid).val() === $installationId"
+        },
+        "configuration": {
+          ".write": "auth != null && (auth.token.oryxDeveloper === true || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'owner' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'administrator' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'installer')"
+        },
+        "maintenance": {
+          ".write": "auth != null && (auth.token.oryxDeveloper === true || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'owner' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'administrator' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'installer' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'maintenance')"
+        },
+        "commands": {
+          "commissioning": {
+            ".write": "auth != null && (auth.token.oryxDeveloper === true || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'owner' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'administrator' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'installer')"
+          },
+          "maintenance": {
+            ".write": "auth != null && (auth.token.oryxDeveloper === true || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'owner' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'administrator' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'installer' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'maintenance')"
+          },
+          "operation": {
+            ".write": "auth != null && (auth.token.oryxDeveloper === true || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'owner' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'administrator' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'installer' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'maintenance' || root.child('memberships').child(auth.uid).child($installationId).child('role').val() === 'operator')"
+          }
         }
       }
     },
-    "clientAccess": {
+    "memberships": {
+      "$uid": {
+        ".read": "auth != null && ($uid === auth.uid || auth.token.oryxStaff === true || auth.token.oryxDeveloper === true)",
+        "$installationId": {
+          ".write": false,
+          ".validate": "newData.hasChildren(['role', 'active']) && newData.child('role').isString() && (newData.child('role').val() === 'owner' || newData.child('role').val() === 'administrator' || newData.child('role').val() === 'installer' || newData.child('role').val() === 'maintenance' || newData.child('role').val() === 'operator' || newData.child('role').val() === 'viewer')"
+        }
+      }
+    },
+    "userInstallations": {
+      "$uid": {
+        ".read": "auth != null && ($uid === auth.uid || auth.token.oryxStaff === true || auth.token.oryxDeveloper === true)",
+        ".write": false
+      }
+    },
+    "deviceAccess": {
+      "$uid": {
+        ".read": "auth != null && ($uid === auth.uid || auth.token.oryxStaff === true || auth.token.oryxDeveloper === true)",
+        ".write": false
+      }
+    },
+    "activationCodes": {
       ".read": false,
       ".write": false
     },
-    "deviceAccess": {
+    "enrollmentRequests": {
       ".read": false,
       ".write": false
     }
