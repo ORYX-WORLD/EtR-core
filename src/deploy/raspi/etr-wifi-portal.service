@@ -7,6 +7,8 @@ After=NetworkManager.service
 Type=simple
 User=root
 WorkingDirectory=/home/oryx/EtR-core
+StateDirectory=etr-core
+StateDirectoryMode=0755
 Environment="PYTHONUNBUFFERED=1"
 ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/wifi_portal.py
 Restart=always
