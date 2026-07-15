@@ -1,0 +1,1762 @@
+Diagnostic SPI EtR - 2026-07-15T20:31:52+02:00
+
+=== SCRIPT SPI ===
+#!/usr/bin/env bash
+set -euo pipefail
+export DISPLAY=:1
+export XAUTHORITY=/home/oryx/.Xauthority
+exec xinit /usr/bin/startlxde -- :1 vt2 -config /etc/X11/xorg.conf.d/99-fbtft.conf
+
+=== SCRIPT KIOSQUE ===
+#!/usr/bin/env bash
+set -euo pipefail
+export DISPLAY=:1
+export XAUTHORITY=/home/oryx/.Xauthority
+for i in {1..30}; do nc -z 127.0.0.1 8000 && break || sleep 1; done
+/usr/bin/chromium --kiosk --noerrdialogs --incognito --disable-translate --overscroll-history-navigation=0 \
+  http://127.0.0.1:8000
+
+=== UNITÉS ===
+# /etc/systemd/system/spi-desktop.service
+[Unit]
+Description=Start LXDE on SPI display (:1)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=oryx
+Environment=DISPLAY=:1
+Environment=XAUTHORITY=/home/oryx/.Xauthority
+ExecStart=/usr/local/bin/start_spi_desktop.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+# /etc/systemd/system/etr-kiosk.service
+[Unit]
+Description=EtR Kiosk (Chromium on SPI)
+After=etr-dashboard.service
+Requires=etr-dashboard.service
+
+[Service]
+Type=simple
+User=oryx
+Group=oryx
+Environment=DISPLAY=:1
+Environment=XAUTHORITY=/home/oryx/.Xauthority
+ExecStart=/usr/local/bin/etr-kiosk.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+
+=== CONFIGURATIONS XORG PERTINENTES ===
+/home/oryx/LCD-show/LCD-hdmi
+/home/oryx/LCD-show/README.md
+/home/oryx/LCD-show/rotate.sh
+/home/oryx/LCD-show/rpi-fbcp/main.c
+/home/oryx/LCD-show/rpi-fbcp/README.md
+/home/oryx/LCD-show/usr/99-fbturbo.conf
+/home/oryx/LCD-show/usr/99-fbturbo.conf-HDMI
+/home/oryx/LCD-show/usr/99-fbturbo.conf-original
+/home/oryx/LCD-show/usr/99-fbturbo-fbcp.conf
+/home/oryx/LCD-show/usr/fbcp-ili9341/README.md
+/home/oryx/LCD-show/usr/rpi-fbcp/main.c
+/home/oryx/LCD-show/usr/rpi-fbcp/README.md
+/opt/LCD-show/LCD-hdmi
+/opt/LCD-show/README.md
+/opt/LCD-show/rotate.sh
+/opt/LCD-show/rpi-fbcp/main.c
+/opt/LCD-show/rpi-fbcp/README.md
+/opt/LCD-show/usr/99-fbturbo.conf
+/opt/LCD-show/usr/99-fbturbo.conf-HDMI
+/opt/LCD-show/usr/99-fbturbo.conf-original
+/opt/LCD-show/usr/99-fbturbo-fbcp.conf
+/opt/LCD-show/usr/fbcp-ili9341/README.md
+/opt/LCD-show/usr/rpi-fbcp/main.c
+/opt/LCD-show/usr/rpi-fbcp/README.md
+/usr/share/X11/xorg.conf.d/99-fbdev.conf
+/usr/share/X11/xorg.conf.d/99-fbturbo.~
+--- /home/oryx/LCD-show/LCD-hdmi ---
+#!/bin/bash
+
+#dev=`grep -rn "Option" /usr/share/X11/xorg.conf.d/99-fbturbo.conf | grep "fbdev" |awk -F\" '{printf $4}'`
+#if test "$dev" = "/dev/fb0";then
+#echo "The system is already output for HDMI and does not need to be set up any more"
+#exit
+#fi
+sudo ./system_backup.sh
+source ./system_config.sh
+#sudo cp -rf ./boot/config-nomal.txt ./boot/config.txt.bak
+sudo echo "hdmi_force_hotplug=1" >> ./boot/config.txt.bak
+sudo cp -rf ./boot/config.txt.bak /boot/config.txt
+
+sudo sync
+sudo sync
+#sudo cp -rf ./usr/modules-HDMI  /etc/modules
+#sudo cp -rf ./usr/99-fbturbo.conf-HDMI  /usr/share/X11/xorg.conf.d/99-fbturbo.conf
+#sudo cp ./boot/config-nomal.txt /boot/config.txt
+#if [ -b /dev/mmcblk0p7 ]; then
+#sudo cp ./usr/cmdline.txt-noobs /boot/cmdline.txt
+#else
+#sudo cp ./usr/cmdline.txt /boot/
+#fi
+#sudo cp ./usr/inittab /etc/
+echo "reboot now"
+sudo reboot
+--- /home/oryx/LCD-show/README.md ---
+### Install drivers in the Ubuntu system
+https://github.com/lcdwiki/LCD-show-ubuntu
+
+### Install drivers in the Kali system
+https://github.com/lcdwiki/LCD-show-kali
+
+### Install drivers in the RetroPie system
+https://github.com/lcdwiki/LCD-show-retropie
+
+
+
+Install drivers in the Raspbian system<br>
+====================================================
+Update: <br>
+  v2.1-20191106<br>
+  Update to support MHS35B<br>
+Update: <br>
+  v2.0-20190704<br>
+  Update to support rotate the display direction<br>
+Update: <br>
+  v1.9-20181204<br>
+  Update to support MHS40 & MHS32<br>
+Update: <br>
+  v1.8-20180907<br>
+  Update to support MHS35<br>
+Update: <br>
+  v1.7-20180320<br>
+  Update to support Raspbian Version: March 2018(Release date:2018-03-13)<br>
+Update: <br>
+  v1.6-20170824<br>
+  Update xserver to support Raspbian-2017-08-16<br>
+Update: <br>
+  v1.5-20170706<br>
+  Update to support Raspbian-2017-07-05, Raspbian-2017-06-21<br>
+Update: <br>
+  v1.3-20170612<br>
+  fixed to support Raspbian-2017-03-02, Raspbian-2017-04-10<br>
+Update: <br>
+  v1.2-20170302<br>
+  Add xserver-xorg-input-evdev_1%3a2.10.3-1_armhf.deb to support Raspbian-2017-03-02<br>
+Update: <br>
+  v1.1-20160815<br><br>
+
+
+# How to install the LCD driver of Raspberry Pi
+  
+1.)Step1, Install Raspbian official mirror <br>
+====================================================
+  a)Download Raspbian official mirror:<br>
+  https://www.raspberrypi.org/downloads/<br>
+  b)Use“SDFormatter.exe”to Format your TF Card<br>
+  c)Use“Win32DiskImager.exe” Burning mirror to TF Card<br>
+     
+2.) Step2, Clone my repo onto your pi<br>
+====================================================
+Use SSH to connect the Raspberry Pi, <br>
+And Ensure that the Raspberry Pi is connected to the Internet before executing the following commands:
+-----------------------------------------------------------------------------------------------------
+
+```sudo rm -rf LCD-show```<br>
+```git clone https://github.com/goodtft/LCD-show.git```<br>
+```chmod -R 755 LCD-show```<br>
+```cd LCD-show/```<br>
+  
+3.)Step3, According to your LCD's type, excute the corresponding driver:
+====================================================
+
+# 2.4” RPi Display (MPI2401):
+### Driver install:
+sudo ./LCD24-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/2.4inch_RPi_Display  <br>
+EN: http://www.lcdwiki.com/2.4inch_RPi_Display
+ 
+
+# 2.4” RPi Display For RPi 3A+ (MPI2411):
+### Driver install:
+sudo ./LCD24-3A+-show  
+### WIKI:
+CN: http://www.lcdwiki.com/zh/2.4inch_RPi_Display_For_RPi_3A+   <br>
+EN: http://www.lcdwiki.com/2.4inch_RPi_Display_For_RPi_3A+
+
+# 2.8” RPi Display (MPI2801):
+### Driver install:
+sudo ./LCD28-show 
+### WIKI:
+CN: http://www.lcdwiki.com/zh/2.8inch_RPi_Display  <br>
+EN: http://www.lcdwiki.com/2.8inch_RPi_Display
+  
+# 3.2” RPi Display (MPI3201):
+### Driver install:
+sudo ./LCD32-show   
+### WIKI:
+CN: http://www.lcdwiki.com/zh/3.2inch_RPi_Display  <br>
+EN: http://www.lcdwiki.com/3.2inch_RPi_Display
+
+# MHS-3.2” RPi Display (MHS3232):
+### Driver install:
+sudo ./MHS32-show   
+### WIKI:
+CN: http://www.lcdwiki.com/zh/MHS-3.2inch_Display  <br>
+EN: http://www.lcdwiki.com/MHS-3.2inch_Display
+
+# 3.5” RPi Display(MPI3501):
+### Driver install:
+sudo ./LCD35-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/3.5inch_RPi_Display  <br>
+EN: http://www.lcdwiki.com/3.5inch_RPi_Display
+   
+# 3.5” HDMI Display-B(MPI3508):
+### Driver install:
+sudo ./MPI3508-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/3.5inch_HDMI_Display-B  <br>
+EN: http://www.lcdwiki.com/3.5inch_HDMI_Display-B
+    
+# MHS-3.5” RPi Display(MHS3528):
+### Driver install:
+sudo ./MHS35-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/MHS-3.5inch_RPi_Display  <br>
+EN:http://www.lcdwiki.com/MHS-3.5inch_RPi_Display
+
+# MHS-3.5” RPi Display-B(MHS35XX):
+### Driver install:
+sudo ./MHS35B-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/MHS-3.5inch_RPi_Display-B  <br>
+EN:http://www.lcdwiki.com/MHS-3.5inch_RPi_Display-B
+
+# 4.0" HDMI Display(MPI4008):
+### Driver install:
+sudo ./MPI4008-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/4inch_HDMI_Display-C  <br>
+EN: http://www.lcdwiki.com/4inch_HDMI_Display-C
+   
+# MHS-4.0" HDMI Display-B(MHS4001):
+### Driver install:
+sudo ./MHS40-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/MHS-4.0inch_Display-B  <br>
+EN: http://www.lcdwiki.com/MHS-4.0inch_Display-B
+  
+# 5.0” HDMI Display(Resistance touch)(MPI5008):
+### Driver install:
+sudo ./LCD5-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/5inch_HDMI_Display  <br>
+EN: http://www.lcdwiki.com/5inch_HDMI_Display
+    
+# 5inch HDMI Display-B(Capacitor touch)(MPI5001):
+### Driver install:
+sudo ./MPI5001-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/5inch_HDMI_Display-B  <br>
+EN: http://www.lcdwiki.com/5inch_HDMI_Display-B
+    
+# 7inch HDMI Display-B-800X480(MPI7001):
+### Driver install:
+sudo ./LCD7B-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/7inch_HDMI_Display-B  <br>
+EN: http://www.lcdwiki.com/7inch_HDMI_Display-B
+   
+# 7inch HDMI Display-C-1024X600(MPI7002):
+### Driver install:
+sudo ./LCD7C-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/7inch_HDMI_Display-C  <br>
+EN: http://www.lcdwiki.com/7inch_HDMI_Display-C
+   
+Wait for a moment after executing the above command, then you can use the corresponding raspberry LCD.
+
+
+
+
+# How to rotate the display direction
+
+This method only applies to the Raspberry Pi series of display screens, other display screens do not apply.
+
+### Method 1, If the driver is not installed, execute the following command (Raspberry Pi needs to connected to the Internet):
+
+sudo rm -rf LCD-show<br>
+git clone https://github.com/goodtft/LCD-show.git<br>
+chmod -R 755 LCD-show<br>
+cd LCD-show/<br>
+sudo ./XXX-show 90<br>
+
+After execution, the driver will be installed. The system will automatically restart, and the display screen will rotate 90 degrees to display and touch normally.<br>
+( ' XXX-show ' can be changed to the corresponding driver, and ' 90 ' can be changed to 0, 90, 180 and 270, respectively representing rotation angles of 0 degrees, 90 degrees, 180 degrees, 270 degrees)<br>
+
+### Method 2, If the driver is already installed, execute the following command:
+
+cd LCD-show/<br>
+sudo ./rotate.sh 90<br>
+
+After execution, the system will automatically restart, and the display screen will rotate 90 degrees to display and touch normally.<br>
+( ' 90 ' can be changed to 0, 90, 180 and 270, respectively representing rotation angles of 0 degrees, 90 degrees, 180 degrees, 270 degrees)<br>
+(If the rotate.sh prompt cannot be found, use Method 1 to install the latest drivers)
+
+
+
+--- /home/oryx/LCD-show/rotate.sh ---
+#!/bin/bash
+cur_dir=`pwd`
+if [ ! -f $cur_dir/.have_installed ]; then
+echo "Please install the LCD driver first"
+echo "Usage: sudo ./xxx-show. xxx: MHS35,LCD35,MPI3508 etc."
+exit
+fi
+
+print_info()
+{
+echo "Usage:sudo ./rotate.sh [0] [90] [180] [270] [360] [450]"
+echo "0-Screen rotation 0 degrees"
+echo "90-Screen rotation 90 degrees"
+echo "180-Screen rotation 180 degrees"
+echo "270-Screen rotation 270 degrees"
+echo "360-Screen flip horizontal(Valid only for HDMI screens)"
+echo "450-Screen flip vertical(Valid only for HDMI screens)"
+}
+
+if [ $# -eq 0 ]; then
+echo "Please input parameter:0,90,180,270,360,450"
+print_info
+exit
+elif [ $# -eq 1 ]; then
+if [ ! -n "$(echo $1| sed -n "/^[0-9]\+$/p")" ]; then
+echo "Invalid parameter"
+print_info
+exit
+else
+if [ $1 -ne 0 ] && [ $1 -ne 90 ] && [ $1 -ne 180 ] && [ $1 -ne 270 ] && [ $1 -ne 360 ] && [ $1 -ne 450 ]; then
+echo "Invalid parameter"
+print_info
+exit
+fi
+fi
+else
+echo "Too many parameters, only one parameter allowed"
+exit
+fi
+
+#get screen parameter
+tmp=`cat $cur_dir/.have_installed`
+output_type=`cat $cur_dir/.have_installed | awk -F ':' '{printf $1}'`
+touch_type=`cat $cur_dir/.have_installed | awk -F ':' '{printf $2}'`
+device_id=`cat $cur_dir/.have_installed | awk -F ':' '{printf $3}'`
+default_value=`cat $cur_dir/.have_installed | awk -F ':' '{printf $4}'`
+width=`cat $cur_dir/.have_installed | awk -F ':' '{printf $5}'`
+height=`cat $cur_dir/.have_installed | awk -F ':' '{printf $6}'`
+
+if [ $output_type = "hdmi" ]; then
+result=`grep -rn "^display_rotate=" /boot/config.txt | tail -n 1`
+line=`echo -n $result | awk -F: '{printf $1}'`
+str=`echo -n $result | awk -F: '{printf $NF}'`
+old_rotate_value=`echo -n $result | awk -F= '{printf $NF}'`
+if [ $old_rotate_value = "0x10000" ]; then
+old_rotate_value=4
+elif  [ $old_rotate_value = "0x20000" ]; then
+old_rotate_value=5
+fi
+if [ $1 -eq 0 ] || [ $1 -eq 90 ] || [ $1 -eq 180 ] || [ $1 -eq 270 ]; then
+new_rotate_value=$[(($default_value+$1)%360)/90]
+else
+new_rotate_value=$[$1/90]
+fi
+elif [ $output_type = "gpio" ]; then
+result=`grep -rn "^dtoverlay=" /boot/config.txt | grep ":rotate=" | tail -n 1`
+line=`echo -n $result | awk -F: '{printf $1}'`
+str=`echo -n $result | awk -F: '{printf $NF}'`
+old_rotate_value=`echo -n $result | awk -F= '{printf $NF}'`
+if [ $1 -eq 0 ] || [ $1 -eq 90 ] || [ $1 -eq 180 ] || [ $1 -eq 270 ]; then
+new_rotate_value=$[($default_value+$1)%360]
+else
+echo "Invalid parameter: only for HDMI screens"
+exit
+fi
+else
+echo "Invalid output type"
+exit
+fi
+
+if [ $old_rotate_value -eq $new_rotate_value ]; then
+if [ $output_type = "hdmi" ]; then
+if [ $1 -eq 0 ] || [ $1 -eq 90 ] || [ $1 -eq 180 ] || [ $1 -eq 270 ]; then
+old_rotate_value=$[($old_rotate_value*90+360-$default_value)%360]
+else
+old_rotate_value=$[$old_rotate_value*90]
+fi
+elif [ $output_type = "gpio" ]; then
+old_rotate_value=$[($old_rotate_value+360-$default_value)%360]
+fi
+echo "Current rotate value is $old_rotate_value"
+exit
+fi
+
+#setting LCD rotate
+if [ $output_type = "hdmi" ]; then
+if [ $new_rotate_value -eq 4 ]; then
+sudo sed -i --follow-symlinks -e ''"$line"'s/'"$str"'/display_rotate=0x10000/' /boot/config.txt
+elif  [ $new_rotate_value -eq 5 ]; then
+sudo sed -i --follow-symlinks -e ''"$line"'s/'"$str"'/display_rotate=0x20000/' /boot/config.txt
+else
+sudo sed -i --follow-symlinks -e ''"$line"'s/'"$str"'/display_rotate='"$new_rotate_value"'/' /boot/config.txt
+fi
+new_rotate_value=$[$new_rotate_value*90]
+elif [ $output_type = "gpio" ]; then
+sudo sed -i --follow-symlinks -e ''"$line"'s/'"$str"'/rotate='"$new_rotate_value"'/' /boot/config.txt
+resultr=`grep -rn "^hdmi_cvt" /boot/config.txt | tail -n 1 | awk -F' ' '{print $1,$2,$3}'`
+if [ -n "$resultr" ]; then
+liner=`echo -n $resultr | awk -F: '{printf $1}'`
+strr=`echo -n $resultr | awk -F: '{printf $2}'`
+if [ $new_rotate_value -eq $default_value ] || [ $new_rotate_value -eq $[($default_value+180+360)%360] ]; then
+sudo sed -i --follow-symlinks -e ''"$liner"'s/'"$strr"'/hdmi_cvt '"$width"' '"$height"'/' /boot/config.txt
+elif [ $new_rotate_value -eq $[($default_value-90+360)%360] ] || [ $new_rotate_value -eq $[($default_value+90+360)%360] ]; then
+sudo sed -i --follow-symlinks -e ''"$liner"'s/'"$strr"'/hdmi_cvt '"$height"' '"$width"'/' /boot/config.txt
+fi
+fi
+fi
+
+#setting touch screen rotate
+if [ $touch_type = "resistance" ]; then 
+if [ $new_rotate_value -eq 0 ]; then
+sudo cp $cur_dir/usr/99-calibration.conf-$device_id-0 /etc/X11/xorg.conf.d/99-calibration.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 90 ]; then
+sudo cp $cur_dir/usr/99-calibration.conf-$device_id-90 /etc/X11/xorg.conf.d/99-calibration.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 180 ]; then
+sudo cp $cur_dir/usr/99-calibration.conf-$device_id-180 /etc/X11/xorg.conf.d/99-calibration.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 270 ]; then
+sudo cp $cur_dir/usr/99-calibration.conf-$device_id-270 /etc/X11/xorg.conf.d/99-calibration.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 360 ]; then
+sudo cp $cur_dir/usr/99-calibration.conf-$device_id-FLIP-H /etc/X11/xorg.conf.d/99-calibration.conf
+echo "LCD rotate value is set to flip horizontally"
+elif [ $new_rotate_value -eq 450 ]; then
+sudo cp $cur_dir/usr/99-calibration.conf-$device_id-FLIP-V /etc/X11/xorg.conf.d/99-calibration.conf
+echo "LCD rotate value is set to flip vertically"
+fi
+elif [ $touch_type = "capacity" ]; then
+if [ $new_rotate_value -eq 0 ]; then
+sudo cp $cur_dir/usr/40-libinput.conf-0 /etc/X11/xorg.conf.d/40-libinput.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 90 ]; then
+sudo cp $cur_dir/usr/40-libinput.conf-90 /etc/X11/xorg.conf.d/40-libinput.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 180 ]; then
+sudo cp $cur_dir/usr/40-libinput.conf-180 /etc/X11/xorg.conf.d/40-libinput.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 270 ]; then
+sudo cp $cur_dir/usr/40-libinput.conf-270 /etc/X11/xorg.conf.d/40-libinput.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 360 ]; then
+sudo cp $cur_dir/usr/40-libinput.conf-FLIP-H /etc/X11/xorg.conf.d/40-libinput.conf
+echo "LCD rotate value is set to flip horizontally"
+elif [ $new_rotate_value -eq 450 ]; then
+sudo cp $cur_dir/usr/40-libinput.conf-FLIP-V /etc/X11/xorg.conf.d/40-libinput.conf
+echo "LCD rotate value is set to flip vertically"
+fi
+else
+echo "Invalid touch type"
+exit
+fi
+
+sudo sync
+sudo sync
+
+echo "reboot now"
+sleep 1
+sudo reboot
+
+--- /home/oryx/LCD-show/rpi-fbcp/main.c ---
+
+#include <stdio.h>
+#include <syslog.h>
+#include <sys/fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/fb.h>
+#include <sys/mman.h>
+
+#include <bcm_host.h>
+
+int process() {
+    DISPMANX_DISPLAY_HANDLE_T display;
+    DISPMANX_MODEINFO_T display_info;
+    DISPMANX_RESOURCE_HANDLE_T screen_resource;
+    VC_IMAGE_TRANSFORM_T transform;
+    uint32_t image_prt;
+    VC_RECT_T rect1;
+    int ret;
+    int fbfd = 0;
+    char *fbp = 0;
+
+    struct fb_var_screeninfo vinfo;
+    struct fb_fix_screeninfo finfo;
+
+
+    bcm_host_init();
+
+    display = vc_dispmanx_display_open(0);
+    if (!display) {
+        syslog(LOG_ERR, "Unable to open primary display");
+        return -1;
+    }
+    ret = vc_dispmanx_display_get_info(display, &display_info);
+    if (ret) {
+        syslog(LOG_ERR, "Unable to get primary display information");
+        return -1;
+    }
+    syslog(LOG_INFO, "Primary display is %d x %d", display_info.width, display_info.height);
+
+
+    fbfd = open("/dev/fb1", O_RDWR);
+    if (fbfd == -1) {
+        syslog(LOG_ERR, "Unable to open secondary display");
+        return -1;
+    }
+    if (ioctl(fbfd, FBIOGET_FSCREENINFO, &finfo)) {
+        syslog(LOG_ERR, "Unable to get secondary display information");
+        return -1;
+    }
+    if (ioctl(fbfd, FBIOGET_VSCREENINFO, &vinfo)) {
+        syslog(LOG_ERR, "Unable to get secondary display information");
+        return -1;
+    }
+
+    syslog(LOG_INFO, "Second display is %d x %d %dbps\n", vinfo.xres, vinfo.yres, vinfo.bits_per_pixel);
+
+    screen_resource = vc_dispmanx_resource_create(VC_IMAGE_RGB565, vinfo.xres, vinfo.yres, &image_prt);
+    if (!screen_resource) {
+        syslog(LOG_ERR, "Unable to create screen buffer");
+        close(fbfd);
+        vc_dispmanx_display_close(display);
+        return -1;
+    }
+
+    fbp = (char*) mmap(0, finfo.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fbfd, 0);
+    if (fbp <= 0) {
+        syslog(LOG_ERR, "Unable to create memory mapping");
+        close(fbfd);
+        ret = vc_dispmanx_resource_delete(screen_resource);
+        vc_dispmanx_display_close(display);
+        return -1;
+    }
+
+    vc_dispmanx_rect_set(&rect1, 0, 0, vinfo.xres, vinfo.yres);
+
+    while (1) {
+        ret = vc_dispmanx_snapshot(display, screen_resource, 0);
+        vc_dispmanx_resource_read_data(screen_resource, &rect1, fbp, vinfo.xres * vinfo.bits_per_pixel / 8);
+        usleep(25 * 1000);
+    }
+
+    munmap(fbp, finfo.smem_len);
+    close(fbfd);
+    ret = vc_dispmanx_resource_delete(screen_resource);
+    vc_dispmanx_display_close(display);
+}
+
+int main(int argc, char **argv) {
+    setlogmask(LOG_UPTO(LOG_DEBUG));
+    openlog("fbcp", LOG_NDELAY | LOG_PID, LOG_USER);
+
+    return process();
+}
+--- /home/oryx/LCD-show/rpi-fbcp/README.md ---
+Raspberry Pi Framebuffer Copy
+=============================
+This program used for copy primary framebuffer to secondary framebuffer (eg. FBTFT). It require lastest raspberry pi firmware (> 2013-07-11) to working properly.
+
+Tested on Raspberry Pi 3
+========================
+2017-11-29-raspbian-stretch
+
+
+Requirement
+-----------
+cmake
+
+$ sudo apt-get install cmake
+
+Build
+-----
+
+    $ mkdir build
+    
+    $ cd build
+    
+    $ cmake ..
+    
+    $ make 
+
+
+How To Use
+----------
+$ ./fbcp
+
+Wanna to run from booting
+-------------------------
+$ sudo cp fbcp /usr/bin
+$ sudo chmod +x /usr/bin/fbcp
+$ sudo nano /etc/rc.local -> add new line before "exit 0" with "/usr/bin/fbcp &" without quote
+$ sudo reboot
+
+
+License
+-------
+
+
+Copyright (c) 2013 Tasanakorn Phaipool
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.--- /home/oryx/LCD-show/usr/99-fbturbo.conf ---
+# This is a minimal sample config file, which can be copied to
+# /etc/X11/xorg.conf in order to make the Xorg server pick up
+# and load xf86-video-fbturbo driver installed in the system.
+#
+# When troubleshooting, check /var/log/Xorg.0.log for the debugging
+# output and error messages.
+# Run "man fbturbo" to get additional information about the extra
+# configuration options for tuning the driver.
+
+Section "Device"
+        Identifier      "Allwinner A10/A13/A20 FBDEV"
+        Driver          "fbturbo"
+        Option          "fbdev" "/dev/fb1"
+
+        Option          "SwapbuffersWait" "true"
+EndSection
+--- /home/oryx/LCD-show/usr/99-fbturbo.conf-HDMI ---
+# This is a minimal sample config file, which can be copied to
+# /etc/X11/xorg.conf in order to make the Xorg server pick up
+# and load xf86-video-fbturbo driver installed in the system.
+#
+# When troubleshooting, check /var/log/Xorg.0.log for the debugging
+# output and error messages.
+# Run "man fbturbo" to get additional information about the extra
+# configuration options for tuning the driver.
+
+Section "Device"
+        Identifier      "Allwinner A10/A13/A20 FBDEV"
+        Driver          "fbturbo"
+        Option          "fbdev" "/dev/fb0"
+
+        Option          "SwapbuffersWait" "true"
+EndSection
+--- /home/oryx/LCD-show/usr/99-fbturbo.conf-original ---
+# This is a minimal sample config file, which can be copied to
+# /etc/X11/xorg.conf in order to make the Xorg server pick up
+# and load xf86-video-fbturbo driver installed in the system.
+#
+# When troubleshooting, check /var/log/Xorg.0.log for the debugging
+# output and error messages.
+#
+# Run "man fbturbo" to get additional information about the extra
+# configuration options for tuning the driver.
+
+Section "Device"
+        Identifier      "Allwinner A10/A13 FBDEV"
+        Driver          "fbturbo"
+        Option          "fbdev" "/dev/fb0"
+
+        Option          "SwapbuffersWait" "true"
+EndSection
+--- /home/oryx/LCD-show/usr/99-fbturbo-fbcp.conf ---
+# This is a minimal sample config file, which can be copied to
+# /etc/X11/xorg.conf in order to make the Xorg server pick up
+# and load xf86-video-fbturbo driver installed in the system.
+#
+# When troubleshooting, check /var/log/Xorg.0.log for the debugging
+# output and error messages.
+# Run "man fbturbo" to get additional information about the extra
+# configuration options for tuning the driver.
+
+Section "Device"
+        Identifier      "Allwinner A10/A13/A20 FBDEV"
+        Driver          "fbturbo"
+        Option          "fbdev" "/dev/fb0"
+
+        Option          "SwapbuffersWait" "true"
+EndSection
+--- /home/oryx/LCD-show/usr/rpi-fbcp/main.c ---
+
+#include <stdio.h>
+#include <syslog.h>
+#include <sys/fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/fb.h>
+#include <sys/mman.h>
+
+#include <bcm_host.h>
+
+int process() {
+    DISPMANX_DISPLAY_HANDLE_T display;
+    DISPMANX_MODEINFO_T display_info;
+    DISPMANX_RESOURCE_HANDLE_T screen_resource;
+    VC_IMAGE_TRANSFORM_T transform;
+    uint32_t image_prt;
+    VC_RECT_T rect1;
+    int ret;
+    int fbfd = 0;
+    char *fbp = 0;
+
+    struct fb_var_screeninfo vinfo;
+    struct fb_fix_screeninfo finfo;
+
+
+    bcm_host_init();
+
+    display = vc_dispmanx_display_open(0);
+    if (!display) {
+        syslog(LOG_ERR, "Unable to open primary display");
+        return -1;
+    }
+    ret = vc_dispmanx_display_get_info(display, &display_info);
+    if (ret) {
+        syslog(LOG_ERR, "Unable to get primary display information");
+        return -1;
+    }
+    syslog(LOG_INFO, "Primary display is %d x %d", display_info.width, display_info.height);
+
+
+    fbfd = open("/dev/fb1", O_RDWR);
+    if (fbfd == -1) {
+        syslog(LOG_ERR, "Unable to open secondary display");
+        return -1;
+    }
+    if (ioctl(fbfd, FBIOGET_FSCREENINFO, &finfo)) {
+        syslog(LOG_ERR, "Unable to get secondary display information");
+        return -1;
+    }
+    if (ioctl(fbfd, FBIOGET_VSCREENINFO, &vinfo)) {
+        syslog(LOG_ERR, "Unable to get secondary display information");
+        return -1;
+    }
+
+    syslog(LOG_INFO, "Second display is %d x %d %dbps\n", vinfo.xres, vinfo.yres, vinfo.bits_per_pixel);
+
+    screen_resource = vc_dispmanx_resource_create(VC_IMAGE_RGB565, vinfo.xres, vinfo.yres, &image_prt);
+    if (!screen_resource) {
+        syslog(LOG_ERR, "Unable to create screen buffer");
+        close(fbfd);
+        vc_dispmanx_display_close(display);
+        return -1;
+    }
+
+    fbp = (char*) mmap(0, finfo.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fbfd, 0);
+    if (fbp <= 0) {
+        syslog(LOG_ERR, "Unable to create memory mapping");
+        close(fbfd);
+        ret = vc_dispmanx_resource_delete(screen_resource);
+        vc_dispmanx_display_close(display);
+        return -1;
+    }
+
+    vc_dispmanx_rect_set(&rect1, 0, 0, vinfo.xres, vinfo.yres);
+
+    while (1) {
+        ret = vc_dispmanx_snapshot(display, screen_resource, 0);
+        vc_dispmanx_resource_read_data(screen_resource, &rect1, fbp, vinfo.xres * vinfo.bits_per_pixel / 8);
+        usleep(25 * 1000);
+    }
+
+    munmap(fbp, finfo.smem_len);
+    close(fbfd);
+    ret = vc_dispmanx_resource_delete(screen_resource);
+    vc_dispmanx_display_close(display);
+}
+
+int main(int argc, char **argv) {
+    setlogmask(LOG_UPTO(LOG_DEBUG));
+    openlog("fbcp", LOG_NDELAY | LOG_PID, LOG_USER);
+
+    return process();
+}
+--- /home/oryx/LCD-show/usr/rpi-fbcp/README.md ---
+Raspberry Pi Framebuffer Copy
+=============================
+This program used for copy primary framebuffer to secondary framebuffer (eg. FBTFT). It require lastest raspberry pi firmware (> 2013-07-11) to working properly.
+
+Tested on Raspberry Pi 3
+========================
+2017-11-29-raspbian-stretch
+
+
+Requirement
+-----------
+cmake
+
+$ sudo apt-get install cmake
+
+Build
+-----
+
+    $ mkdir build
+    
+    $ cd build
+    
+    $ cmake ..
+    
+    $ make 
+
+
+How To Use
+----------
+$ ./fbcp
+
+Wanna to run from booting
+-------------------------
+$ sudo cp fbcp /usr/bin
+$ sudo chmod +x /usr/bin/fbcp
+$ sudo nano /etc/rc.local -> add new line before "exit 0" with "/usr/bin/fbcp &" without quote
+$ sudo reboot
+
+
+License
+-------
+
+
+Copyright (c) 2013 Tasanakorn Phaipool
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.--- /opt/LCD-show/LCD-hdmi ---
+#!/bin/bash
+
+#dev=`grep -rn "Option" /usr/share/X11/xorg.conf.d/99-fbturbo.conf | grep "fbdev" |awk -F\" '{printf $4}'`
+#if test "$dev" = "/dev/fb0";then
+#echo "The system is already output for HDMI and does not need to be set up any more"
+#exit
+#fi
+sudo ./system_backup.sh
+source ./system_config.sh
+#sudo cp -rf ./boot/config-nomal.txt ./boot/config.txt.bak
+sudo echo "hdmi_force_hotplug=1" >> ./boot/config.txt.bak
+sudo cp -rf ./boot/config.txt.bak /boot/config.txt
+
+sudo sync
+sudo sync
+#sudo cp -rf ./usr/modules-HDMI  /etc/modules
+#sudo cp -rf ./usr/99-fbturbo.conf-HDMI  /usr/share/X11/xorg.conf.d/99-fbturbo.conf
+#sudo cp ./boot/config-nomal.txt /boot/config.txt
+#if [ -b /dev/mmcblk0p7 ]; then
+#sudo cp ./usr/cmdline.txt-noobs /boot/cmdline.txt
+#else
+#sudo cp ./usr/cmdline.txt /boot/
+#fi
+#sudo cp ./usr/inittab /etc/
+echo "reboot now"
+sudo reboot
+--- /opt/LCD-show/README.md ---
+### Install drivers in the Ubuntu system
+https://github.com/lcdwiki/LCD-show-ubuntu
+
+### Install drivers in the Kali system
+https://github.com/lcdwiki/LCD-show-kali
+
+### Install drivers in the RetroPie system
+https://github.com/lcdwiki/LCD-show-retropie
+
+
+
+Install drivers in the Raspbian system<br>
+====================================================
+Update: <br>
+  v2.1-20191106<br>
+  Update to support MHS35B<br>
+Update: <br>
+  v2.0-20190704<br>
+  Update to support rotate the display direction<br>
+Update: <br>
+  v1.9-20181204<br>
+  Update to support MHS40 & MHS32<br>
+Update: <br>
+  v1.8-20180907<br>
+  Update to support MHS35<br>
+Update: <br>
+  v1.7-20180320<br>
+  Update to support Raspbian Version: March 2018(Release date:2018-03-13)<br>
+Update: <br>
+  v1.6-20170824<br>
+  Update xserver to support Raspbian-2017-08-16<br>
+Update: <br>
+  v1.5-20170706<br>
+  Update to support Raspbian-2017-07-05, Raspbian-2017-06-21<br>
+Update: <br>
+  v1.3-20170612<br>
+  fixed to support Raspbian-2017-03-02, Raspbian-2017-04-10<br>
+Update: <br>
+  v1.2-20170302<br>
+  Add xserver-xorg-input-evdev_1%3a2.10.3-1_armhf.deb to support Raspbian-2017-03-02<br>
+Update: <br>
+  v1.1-20160815<br><br>
+
+
+# How to install the LCD driver of Raspberry Pi
+  
+1.)Step1, Install Raspbian official mirror <br>
+====================================================
+  a)Download Raspbian official mirror:<br>
+  https://www.raspberrypi.org/downloads/<br>
+  b)Use“SDFormatter.exe”to Format your TF Card<br>
+  c)Use“Win32DiskImager.exe” Burning mirror to TF Card<br>
+     
+2.) Step2, Clone my repo onto your pi<br>
+====================================================
+Use SSH to connect the Raspberry Pi, <br>
+And Ensure that the Raspberry Pi is connected to the Internet before executing the following commands:
+-----------------------------------------------------------------------------------------------------
+
+```sudo rm -rf LCD-show```<br>
+```git clone https://github.com/goodtft/LCD-show.git```<br>
+```chmod -R 755 LCD-show```<br>
+```cd LCD-show/```<br>
+  
+3.)Step3, According to your LCD's type, excute the corresponding driver:
+====================================================
+
+# 2.4” RPi Display (MPI2401):
+### Driver install:
+sudo ./LCD24-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/2.4inch_RPi_Display  <br>
+EN: http://www.lcdwiki.com/2.4inch_RPi_Display
+ 
+
+# 2.4” RPi Display For RPi 3A+ (MPI2411):
+### Driver install:
+sudo ./LCD24-3A+-show  
+### WIKI:
+CN: http://www.lcdwiki.com/zh/2.4inch_RPi_Display_For_RPi_3A+   <br>
+EN: http://www.lcdwiki.com/2.4inch_RPi_Display_For_RPi_3A+
+
+# 2.8” RPi Display (MPI2801):
+### Driver install:
+sudo ./LCD28-show 
+### WIKI:
+CN: http://www.lcdwiki.com/zh/2.8inch_RPi_Display  <br>
+EN: http://www.lcdwiki.com/2.8inch_RPi_Display
+  
+# 3.2” RPi Display (MPI3201):
+### Driver install:
+sudo ./LCD32-show   
+### WIKI:
+CN: http://www.lcdwiki.com/zh/3.2inch_RPi_Display  <br>
+EN: http://www.lcdwiki.com/3.2inch_RPi_Display
+
+# MHS-3.2” RPi Display (MHS3232):
+### Driver install:
+sudo ./MHS32-show   
+### WIKI:
+CN: http://www.lcdwiki.com/zh/MHS-3.2inch_Display  <br>
+EN: http://www.lcdwiki.com/MHS-3.2inch_Display
+
+# 3.5” RPi Display(MPI3501):
+### Driver install:
+sudo ./LCD35-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/3.5inch_RPi_Display  <br>
+EN: http://www.lcdwiki.com/3.5inch_RPi_Display
+   
+# 3.5” HDMI Display-B(MPI3508):
+### Driver install:
+sudo ./MPI3508-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/3.5inch_HDMI_Display-B  <br>
+EN: http://www.lcdwiki.com/3.5inch_HDMI_Display-B
+    
+# MHS-3.5” RPi Display(MHS3528):
+### Driver install:
+sudo ./MHS35-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/MHS-3.5inch_RPi_Display  <br>
+EN:http://www.lcdwiki.com/MHS-3.5inch_RPi_Display
+
+# MHS-3.5” RPi Display-B(MHS35XX):
+### Driver install:
+sudo ./MHS35B-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/MHS-3.5inch_RPi_Display-B  <br>
+EN:http://www.lcdwiki.com/MHS-3.5inch_RPi_Display-B
+
+# 4.0" HDMI Display(MPI4008):
+### Driver install:
+sudo ./MPI4008-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/4inch_HDMI_Display-C  <br>
+EN: http://www.lcdwiki.com/4inch_HDMI_Display-C
+   
+# MHS-4.0" HDMI Display-B(MHS4001):
+### Driver install:
+sudo ./MHS40-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/MHS-4.0inch_Display-B  <br>
+EN: http://www.lcdwiki.com/MHS-4.0inch_Display-B
+  
+# 5.0” HDMI Display(Resistance touch)(MPI5008):
+### Driver install:
+sudo ./LCD5-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/5inch_HDMI_Display  <br>
+EN: http://www.lcdwiki.com/5inch_HDMI_Display
+    
+# 5inch HDMI Display-B(Capacitor touch)(MPI5001):
+### Driver install:
+sudo ./MPI5001-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/5inch_HDMI_Display-B  <br>
+EN: http://www.lcdwiki.com/5inch_HDMI_Display-B
+    
+# 7inch HDMI Display-B-800X480(MPI7001):
+### Driver install:
+sudo ./LCD7B-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/7inch_HDMI_Display-B  <br>
+EN: http://www.lcdwiki.com/7inch_HDMI_Display-B
+   
+# 7inch HDMI Display-C-1024X600(MPI7002):
+### Driver install:
+sudo ./LCD7C-show
+### WIKI:
+CN: http://www.lcdwiki.com/zh/7inch_HDMI_Display-C  <br>
+EN: http://www.lcdwiki.com/7inch_HDMI_Display-C
+   
+Wait for a moment after executing the above command, then you can use the corresponding raspberry LCD.
+
+
+
+
+# How to rotate the display direction
+
+This method only applies to the Raspberry Pi series of display screens, other display screens do not apply.
+
+### Method 1, If the driver is not installed, execute the following command (Raspberry Pi needs to connected to the Internet):
+
+sudo rm -rf LCD-show<br>
+git clone https://github.com/goodtft/LCD-show.git<br>
+chmod -R 755 LCD-show<br>
+cd LCD-show/<br>
+sudo ./XXX-show 90<br>
+
+After execution, the driver will be installed. The system will automatically restart, and the display screen will rotate 90 degrees to display and touch normally.<br>
+( ' XXX-show ' can be changed to the corresponding driver, and ' 90 ' can be changed to 0, 90, 180 and 270, respectively representing rotation angles of 0 degrees, 90 degrees, 180 degrees, 270 degrees)<br>
+
+### Method 2, If the driver is already installed, execute the following command:
+
+cd LCD-show/<br>
+sudo ./rotate.sh 90<br>
+
+After execution, the system will automatically restart, and the display screen will rotate 90 degrees to display and touch normally.<br>
+( ' 90 ' can be changed to 0, 90, 180 and 270, respectively representing rotation angles of 0 degrees, 90 degrees, 180 degrees, 270 degrees)<br>
+(If the rotate.sh prompt cannot be found, use Method 1 to install the latest drivers)
+
+
+
+--- /opt/LCD-show/rotate.sh ---
+#!/bin/bash
+cur_dir=`pwd`
+if [ ! -f $cur_dir/.have_installed ]; then
+echo "Please install the LCD driver first"
+echo "Usage: sudo ./xxx-show. xxx: MHS35,LCD35,MPI3508 etc."
+exit
+fi
+
+print_info()
+{
+echo "Usage:sudo ./rotate.sh [0] [90] [180] [270] [360] [450]"
+echo "0-Screen rotation 0 degrees"
+echo "90-Screen rotation 90 degrees"
+echo "180-Screen rotation 180 degrees"
+echo "270-Screen rotation 270 degrees"
+echo "360-Screen flip horizontal(Valid only for HDMI screens)"
+echo "450-Screen flip vertical(Valid only for HDMI screens)"
+}
+
+if [ $# -eq 0 ]; then
+echo "Please input parameter:0,90,180,270,360,450"
+print_info
+exit
+elif [ $# -eq 1 ]; then
+if [ ! -n "$(echo $1| sed -n "/^[0-9]\+$/p")" ]; then
+echo "Invalid parameter"
+print_info
+exit
+else
+if [ $1 -ne 0 ] && [ $1 -ne 90 ] && [ $1 -ne 180 ] && [ $1 -ne 270 ] && [ $1 -ne 360 ] && [ $1 -ne 450 ]; then
+echo "Invalid parameter"
+print_info
+exit
+fi
+fi
+else
+echo "Too many parameters, only one parameter allowed"
+exit
+fi
+
+#get screen parameter
+tmp=`cat $cur_dir/.have_installed`
+output_type=`cat $cur_dir/.have_installed | awk -F ':' '{printf $1}'`
+touch_type=`cat $cur_dir/.have_installed | awk -F ':' '{printf $2}'`
+device_id=`cat $cur_dir/.have_installed | awk -F ':' '{printf $3}'`
+default_value=`cat $cur_dir/.have_installed | awk -F ':' '{printf $4}'`
+width=`cat $cur_dir/.have_installed | awk -F ':' '{printf $5}'`
+height=`cat $cur_dir/.have_installed | awk -F ':' '{printf $6}'`
+
+if [ $output_type = "hdmi" ]; then
+result=`grep -rn "^display_rotate=" /boot/config.txt | tail -n 1`
+line=`echo -n $result | awk -F: '{printf $1}'`
+str=`echo -n $result | awk -F: '{printf $NF}'`
+old_rotate_value=`echo -n $result | awk -F= '{printf $NF}'`
+if [ $old_rotate_value = "0x10000" ]; then
+old_rotate_value=4
+elif  [ $old_rotate_value = "0x20000" ]; then
+old_rotate_value=5
+fi
+if [ $1 -eq 0 ] || [ $1 -eq 90 ] || [ $1 -eq 180 ] || [ $1 -eq 270 ]; then
+new_rotate_value=$[(($default_value+$1)%360)/90]
+else
+new_rotate_value=$[$1/90]
+fi
+elif [ $output_type = "gpio" ]; then
+result=`grep -rn "^dtoverlay=" /boot/config.txt | grep ":rotate=" | tail -n 1`
+line=`echo -n $result | awk -F: '{printf $1}'`
+str=`echo -n $result | awk -F: '{printf $NF}'`
+old_rotate_value=`echo -n $result | awk -F= '{printf $NF}'`
+if [ $1 -eq 0 ] || [ $1 -eq 90 ] || [ $1 -eq 180 ] || [ $1 -eq 270 ]; then
+new_rotate_value=$[($default_value+$1)%360]
+else
+echo "Invalid parameter: only for HDMI screens"
+exit
+fi
+else
+echo "Invalid output type"
+exit
+fi
+
+if [ $old_rotate_value -eq $new_rotate_value ]; then
+if [ $output_type = "hdmi" ]; then
+if [ $1 -eq 0 ] || [ $1 -eq 90 ] || [ $1 -eq 180 ] || [ $1 -eq 270 ]; then
+old_rotate_value=$[($old_rotate_value*90+360-$default_value)%360]
+else
+old_rotate_value=$[$old_rotate_value*90]
+fi
+elif [ $output_type = "gpio" ]; then
+old_rotate_value=$[($old_rotate_value+360-$default_value)%360]
+fi
+echo "Current rotate value is $old_rotate_value"
+exit
+fi
+
+#setting LCD rotate
+if [ $output_type = "hdmi" ]; then
+if [ $new_rotate_value -eq 4 ]; then
+sudo sed -i --follow-symlinks -e ''"$line"'s/'"$str"'/display_rotate=0x10000/' /boot/config.txt
+elif  [ $new_rotate_value -eq 5 ]; then
+sudo sed -i --follow-symlinks -e ''"$line"'s/'"$str"'/display_rotate=0x20000/' /boot/config.txt
+else
+sudo sed -i --follow-symlinks -e ''"$line"'s/'"$str"'/display_rotate='"$new_rotate_value"'/' /boot/config.txt
+fi
+new_rotate_value=$[$new_rotate_value*90]
+elif [ $output_type = "gpio" ]; then
+sudo sed -i --follow-symlinks -e ''"$line"'s/'"$str"'/rotate='"$new_rotate_value"'/' /boot/config.txt
+resultr=`grep -rn "^hdmi_cvt" /boot/config.txt | tail -n 1 | awk -F' ' '{print $1,$2,$3}'`
+if [ -n "$resultr" ]; then
+liner=`echo -n $resultr | awk -F: '{printf $1}'`
+strr=`echo -n $resultr | awk -F: '{printf $2}'`
+if [ $new_rotate_value -eq $default_value ] || [ $new_rotate_value -eq $[($default_value+180+360)%360] ]; then
+sudo sed -i --follow-symlinks -e ''"$liner"'s/'"$strr"'/hdmi_cvt '"$width"' '"$height"'/' /boot/config.txt
+elif [ $new_rotate_value -eq $[($default_value-90+360)%360] ] || [ $new_rotate_value -eq $[($default_value+90+360)%360] ]; then
+sudo sed -i --follow-symlinks -e ''"$liner"'s/'"$strr"'/hdmi_cvt '"$height"' '"$width"'/' /boot/config.txt
+fi
+fi
+fi
+
+#setting touch screen rotate
+if [ $touch_type = "resistance" ]; then 
+if [ $new_rotate_value -eq 0 ]; then
+sudo cp $cur_dir/usr/99-calibration.conf-$device_id-0 /etc/X11/xorg.conf.d/99-calibration.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 90 ]; then
+sudo cp $cur_dir/usr/99-calibration.conf-$device_id-90 /etc/X11/xorg.conf.d/99-calibration.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 180 ]; then
+sudo cp $cur_dir/usr/99-calibration.conf-$device_id-180 /etc/X11/xorg.conf.d/99-calibration.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 270 ]; then
+sudo cp $cur_dir/usr/99-calibration.conf-$device_id-270 /etc/X11/xorg.conf.d/99-calibration.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 360 ]; then
+sudo cp $cur_dir/usr/99-calibration.conf-$device_id-FLIP-H /etc/X11/xorg.conf.d/99-calibration.conf
+echo "LCD rotate value is set to flip horizontally"
+elif [ $new_rotate_value -eq 450 ]; then
+sudo cp $cur_dir/usr/99-calibration.conf-$device_id-FLIP-V /etc/X11/xorg.conf.d/99-calibration.conf
+echo "LCD rotate value is set to flip vertically"
+fi
+elif [ $touch_type = "capacity" ]; then
+if [ $new_rotate_value -eq 0 ]; then
+sudo cp $cur_dir/usr/40-libinput.conf-0 /etc/X11/xorg.conf.d/40-libinput.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 90 ]; then
+sudo cp $cur_dir/usr/40-libinput.conf-90 /etc/X11/xorg.conf.d/40-libinput.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 180 ]; then
+sudo cp $cur_dir/usr/40-libinput.conf-180 /etc/X11/xorg.conf.d/40-libinput.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 270 ]; then
+sudo cp $cur_dir/usr/40-libinput.conf-270 /etc/X11/xorg.conf.d/40-libinput.conf
+echo "LCD rotate value is set to $1"
+elif [ $new_rotate_value -eq 360 ]; then
+sudo cp $cur_dir/usr/40-libinput.conf-FLIP-H /etc/X11/xorg.conf.d/40-libinput.conf
+echo "LCD rotate value is set to flip horizontally"
+elif [ $new_rotate_value -eq 450 ]; then
+sudo cp $cur_dir/usr/40-libinput.conf-FLIP-V /etc/X11/xorg.conf.d/40-libinput.conf
+echo "LCD rotate value is set to flip vertically"
+fi
+else
+echo "Invalid touch type"
+exit
+fi
+
+sudo sync
+sudo sync
+
+echo "reboot now"
+sleep 1
+sudo reboot
+
+--- /opt/LCD-show/rpi-fbcp/main.c ---
+
+#include <stdio.h>
+#include <syslog.h>
+#include <sys/fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/fb.h>
+#include <sys/mman.h>
+
+#include <bcm_host.h>
+
+int process() {
+    DISPMANX_DISPLAY_HANDLE_T display;
+    DISPMANX_MODEINFO_T display_info;
+    DISPMANX_RESOURCE_HANDLE_T screen_resource;
+    VC_IMAGE_TRANSFORM_T transform;
+    uint32_t image_prt;
+    VC_RECT_T rect1;
+    int ret;
+    int fbfd = 0;
+    char *fbp = 0;
+
+    struct fb_var_screeninfo vinfo;
+    struct fb_fix_screeninfo finfo;
+
+
+    bcm_host_init();
+
+    display = vc_dispmanx_display_open(0);
+    if (!display) {
+        syslog(LOG_ERR, "Unable to open primary display");
+        return -1;
+    }
+    ret = vc_dispmanx_display_get_info(display, &display_info);
+    if (ret) {
+        syslog(LOG_ERR, "Unable to get primary display information");
+        return -1;
+    }
+    syslog(LOG_INFO, "Primary display is %d x %d", display_info.width, display_info.height);
+
+
+    fbfd = open("/dev/fb1", O_RDWR);
+    if (fbfd == -1) {
+        syslog(LOG_ERR, "Unable to open secondary display");
+        return -1;
+    }
+    if (ioctl(fbfd, FBIOGET_FSCREENINFO, &finfo)) {
+        syslog(LOG_ERR, "Unable to get secondary display information");
+        return -1;
+    }
+    if (ioctl(fbfd, FBIOGET_VSCREENINFO, &vinfo)) {
+        syslog(LOG_ERR, "Unable to get secondary display information");
+        return -1;
+    }
+
+    syslog(LOG_INFO, "Second display is %d x %d %dbps\n", vinfo.xres, vinfo.yres, vinfo.bits_per_pixel);
+
+    screen_resource = vc_dispmanx_resource_create(VC_IMAGE_RGB565, vinfo.xres, vinfo.yres, &image_prt);
+    if (!screen_resource) {
+        syslog(LOG_ERR, "Unable to create screen buffer");
+        close(fbfd);
+        vc_dispmanx_display_close(display);
+        return -1;
+    }
+
+    fbp = (char*) mmap(0, finfo.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fbfd, 0);
+    if (fbp <= 0) {
+        syslog(LOG_ERR, "Unable to create memory mapping");
+        close(fbfd);
+        ret = vc_dispmanx_resource_delete(screen_resource);
+        vc_dispmanx_display_close(display);
+        return -1;
+    }
+
+    vc_dispmanx_rect_set(&rect1, 0, 0, vinfo.xres, vinfo.yres);
+
+    while (1) {
+        ret = vc_dispmanx_snapshot(display, screen_resource, 0);
+        vc_dispmanx_resource_read_data(screen_resource, &rect1, fbp, vinfo.xres * vinfo.bits_per_pixel / 8);
+        usleep(25 * 1000);
+    }
+
+    munmap(fbp, finfo.smem_len);
+    close(fbfd);
+    ret = vc_dispmanx_resource_delete(screen_resource);
+    vc_dispmanx_display_close(display);
+}
+
+int main(int argc, char **argv) {
+    setlogmask(LOG_UPTO(LOG_DEBUG));
+    openlog("fbcp", LOG_NDELAY | LOG_PID, LOG_USER);
+
+    return process();
+}
+--- /opt/LCD-show/rpi-fbcp/README.md ---
+Raspberry Pi Framebuffer Copy
+=============================
+This program used for copy primary framebuffer to secondary framebuffer (eg. FBTFT). It require lastest raspberry pi firmware (> 2013-07-11) to working properly.
+
+Tested on Raspberry Pi 3
+========================
+2017-11-29-raspbian-stretch
+
+
+Requirement
+-----------
+cmake
+
+$ sudo apt-get install cmake
+
+Build
+-----
+
+    $ mkdir build
+    
+    $ cd build
+    
+    $ cmake ..
+    
+    $ make 
+
+
+How To Use
+----------
+$ ./fbcp
+
+Wanna to run from booting
+-------------------------
+$ sudo cp fbcp /usr/bin
+$ sudo chmod +x /usr/bin/fbcp
+$ sudo nano /etc/rc.local -> add new line before "exit 0" with "/usr/bin/fbcp &" without quote
+$ sudo reboot
+
+
+License
+-------
+
+
+Copyright (c) 2013 Tasanakorn Phaipool
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.--- /opt/LCD-show/usr/99-fbturbo.conf ---
+# This is a minimal sample config file, which can be copied to
+# /etc/X11/xorg.conf in order to make the Xorg server pick up
+# and load xf86-video-fbturbo driver installed in the system.
+#
+# When troubleshooting, check /var/log/Xorg.0.log for the debugging
+# output and error messages.
+# Run "man fbturbo" to get additional information about the extra
+# configuration options for tuning the driver.
+
+Section "Device"
+        Identifier      "Allwinner A10/A13/A20 FBDEV"
+        Driver          "fbturbo"
+        Option          "fbdev" "/dev/fb1"
+
+        Option          "SwapbuffersWait" "true"
+EndSection
+--- /opt/LCD-show/usr/99-fbturbo.conf-HDMI ---
+# This is a minimal sample config file, which can be copied to
+# /etc/X11/xorg.conf in order to make the Xorg server pick up
+# and load xf86-video-fbturbo driver installed in the system.
+#
+# When troubleshooting, check /var/log/Xorg.0.log for the debugging
+# output and error messages.
+# Run "man fbturbo" to get additional information about the extra
+# configuration options for tuning the driver.
+
+Section "Device"
+        Identifier      "Allwinner A10/A13/A20 FBDEV"
+        Driver          "fbturbo"
+        Option          "fbdev" "/dev/fb0"
+
+        Option          "SwapbuffersWait" "true"
+EndSection
+--- /opt/LCD-show/usr/99-fbturbo.conf-original ---
+# This is a minimal sample config file, which can be copied to
+# /etc/X11/xorg.conf in order to make the Xorg server pick up
+# and load xf86-video-fbturbo driver installed in the system.
+#
+# When troubleshooting, check /var/log/Xorg.0.log for the debugging
+# output and error messages.
+#
+# Run "man fbturbo" to get additional information about the extra
+# configuration options for tuning the driver.
+
+Section "Device"
+        Identifier      "Allwinner A10/A13 FBDEV"
+        Driver          "fbturbo"
+        Option          "fbdev" "/dev/fb0"
+
+        Option          "SwapbuffersWait" "true"
+EndSection
+--- /opt/LCD-show/usr/99-fbturbo-fbcp.conf ---
+# This is a minimal sample config file, which can be copied to
+# /etc/X11/xorg.conf in order to make the Xorg server pick up
+# and load xf86-video-fbturbo driver installed in the system.
+#
+# When troubleshooting, check /var/log/Xorg.0.log for the debugging
+# output and error messages.
+# Run "man fbturbo" to get additional information about the extra
+# configuration options for tuning the driver.
+
+Section "Device"
+        Identifier      "Allwinner A10/A13/A20 FBDEV"
+        Driver          "fbturbo"
+        Option          "fbdev" "/dev/fb0"
+
+        Option          "SwapbuffersWait" "true"
+EndSection
+--- /opt/LCD-show/usr/rpi-fbcp/main.c ---
+
+#include <stdio.h>
+#include <syslog.h>
+#include <sys/fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/fb.h>
+#include <sys/mman.h>
+
+#include <bcm_host.h>
+
+int process() {
+    DISPMANX_DISPLAY_HANDLE_T display;
+    DISPMANX_MODEINFO_T display_info;
+    DISPMANX_RESOURCE_HANDLE_T screen_resource;
+    VC_IMAGE_TRANSFORM_T transform;
+    uint32_t image_prt;
+    VC_RECT_T rect1;
+    int ret;
+    int fbfd = 0;
+    char *fbp = 0;
+
+    struct fb_var_screeninfo vinfo;
+    struct fb_fix_screeninfo finfo;
+
+
+    bcm_host_init();
+
+    display = vc_dispmanx_display_open(0);
+    if (!display) {
+        syslog(LOG_ERR, "Unable to open primary display");
+        return -1;
+    }
+    ret = vc_dispmanx_display_get_info(display, &display_info);
+    if (ret) {
+        syslog(LOG_ERR, "Unable to get primary display information");
+        return -1;
+    }
+    syslog(LOG_INFO, "Primary display is %d x %d", display_info.width, display_info.height);
+
+
+    fbfd = open("/dev/fb1", O_RDWR);
+    if (fbfd == -1) {
+        syslog(LOG_ERR, "Unable to open secondary display");
+        return -1;
+    }
+    if (ioctl(fbfd, FBIOGET_FSCREENINFO, &finfo)) {
+        syslog(LOG_ERR, "Unable to get secondary display information");
+        return -1;
+    }
+    if (ioctl(fbfd, FBIOGET_VSCREENINFO, &vinfo)) {
+        syslog(LOG_ERR, "Unable to get secondary display information");
+        return -1;
+    }
+
+    syslog(LOG_INFO, "Second display is %d x %d %dbps\n", vinfo.xres, vinfo.yres, vinfo.bits_per_pixel);
+
+    screen_resource = vc_dispmanx_resource_create(VC_IMAGE_RGB565, vinfo.xres, vinfo.yres, &image_prt);
+    if (!screen_resource) {
+        syslog(LOG_ERR, "Unable to create screen buffer");
+        close(fbfd);
+        vc_dispmanx_display_close(display);
+        return -1;
+    }
+
+    fbp = (char*) mmap(0, finfo.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fbfd, 0);
+    if (fbp <= 0) {
+        syslog(LOG_ERR, "Unable to create memory mapping");
+        close(fbfd);
+        ret = vc_dispmanx_resource_delete(screen_resource);
+        vc_dispmanx_display_close(display);
+        return -1;
+    }
+
+    vc_dispmanx_rect_set(&rect1, 0, 0, vinfo.xres, vinfo.yres);
+
+    while (1) {
+        ret = vc_dispmanx_snapshot(display, screen_resource, 0);
+        vc_dispmanx_resource_read_data(screen_resource, &rect1, fbp, vinfo.xres * vinfo.bits_per_pixel / 8);
+        usleep(25 * 1000);
+    }
+
+    munmap(fbp, finfo.smem_len);
+    close(fbfd);
+    ret = vc_dispmanx_resource_delete(screen_resource);
+    vc_dispmanx_display_close(display);
+}
+
+int main(int argc, char **argv) {
+    setlogmask(LOG_UPTO(LOG_DEBUG));
+    openlog("fbcp", LOG_NDELAY | LOG_PID, LOG_USER);
+
+    return process();
+}
+--- /opt/LCD-show/usr/rpi-fbcp/README.md ---
+Raspberry Pi Framebuffer Copy
+=============================
+This program used for copy primary framebuffer to secondary framebuffer (eg. FBTFT). It require lastest raspberry pi firmware (> 2013-07-11) to working properly.
+
+Tested on Raspberry Pi 3
+========================
+2017-11-29-raspbian-stretch
+
+
+Requirement
+-----------
+cmake
+
+$ sudo apt-get install cmake
+
+Build
+-----
+
+    $ mkdir build
+    
+    $ cd build
+    
+    $ cmake ..
+    
+    $ make 
+
+
+How To Use
+----------
+$ ./fbcp
+
+Wanna to run from booting
+-------------------------
+$ sudo cp fbcp /usr/bin
+$ sudo chmod +x /usr/bin/fbcp
+$ sudo nano /etc/rc.local -> add new line before "exit 0" with "/usr/bin/fbcp &" without quote
+$ sudo reboot
+
+
+License
+-------
+
+
+Copyright (c) 2013 Tasanakorn Phaipool
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.--- /usr/share/X11/xorg.conf.d/99-fbdev.conf ---
+Section "Device"
+    Identifier "TFT"
+    Driver "fbdev"
+    Option "fbdev" "/dev/fb1"
+EndSection
+--- /usr/share/X11/xorg.conf.d/99-fbturbo.~ ---
+# This is a minimal sample config file, which can be copied to
+# /etc/X11/xorg.conf in order to make the Xorg server pick up
+# and load xf86-video-fbturbo driver installed in the system.
+#
+# When troubleshooting, check /var/log/Xorg.0.log for the debugging
+# output and error messages.
+#
+# Run "man fbturbo" to get additional information about the extra
+# configuration options for tuning the driver.
+
+Section "Device"
+        Identifier      "Allwinner A10/A13 FBDEV"
+        Driver          "fbturbo"
+        Option          "fbdev" "/dev/fb0"
+
+        Option          "SwapbuffersWait" "true"
+EndSection
+
+=== MATÉRIEL ET PERMISSIONS ===
+uid=1000(oryx) gid=1000(oryx) groups=1000(oryx),4(adm),20(dialout),24(cdrom),27(sudo),29(audio),44(video),46(plugdev),60(games),100(users),996(input),992(render),104(netdev),989(spi),987(i2c),986(gpio),110(lpadmin),111(ssl-cert)
+crw-rw---- 1 root video 29, 0 Jul 15 18:56 /dev/fb0
+crw-rw---- 1 root video 29, 1 Jul 15 18:56 /dev/fb1
+crw------- 1 oryx tty    4, 1 Jul 15 18:59 /dev/tty1
+crw------- 1 root tty    4, 2 Jul 15 18:56 /dev/tty2
+# file: /dev/tty2
+# owner: root
+# group: tty
+user::rw-
+group::---
+other::---
+
+# file: /dev/fb0
+# owner: root
+# group: video
+user::rw-
+group::rw-
+other::---
+
+# file: /dev/fb1
+# owner: root
+# group: video
+user::rw-
+group::rw-
+other::---
+
+0 BCM2708 FB
+1 fb_ili9486
+total 0
+drwxrwxrwt  2 root root  40 Jul 15 18:56 .
+drwxrwxrwt 12 root root 380 Jul 15 20:31 ..
+1 1000 oryx -     930  manager -    no  -
+2 1000 oryx seat0 1092 user    tty1 yes -
+oryx (1000)
+   Since: Wed 2026-07-15 18:56:23 CEST; 1h 33min ago
+   State: active
+Sessions: *2 1
+  Linger: yes
+    Unit: user-1000.slice
+          ├─session-2.scope
+          │ ├─1092 "login -- oryx"
+          │ └─1203 -bash
+          └─user@1000.service
+            ├─app.slice
+            │ └─mpris-proxy.service
+            │   └─991 /usr/bin/mpris-proxy
+            ├─init.scope
+            │ ├─930 /usr/lib/systemd/systemd --user
+            │ └─939 "(sd-pam)"
+            └─session.slice
+              ├─dbus.service
+              │ └─965 /usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only
+              └─pipewire-pulse.service
+                └─970 /usr/bin/pipewire-pulse
+
+Jul 15 18:59:07 etr-core pipewire-pulse[970]: mod.protocol-pulse: 0x557acce900: failed to connect client: Host is down
+Jul 15 18:59:07 etr-core pipewire-pulse[970]: mod.protocol-pulse: client 0x557acf63c0 [pactl]: ERROR command:9 (SET_CLIENT_NAME) tag:1 error:6 (Host is down)
+Jul 15 18:59:08 etr-core pipewire-pulse[970]: mod.protocol-pulse: 0x557acce900: failed to connect client: Host is down
+Jul 15 18:59:08 etr-core pipewire-pulse[970]: mod.protocol-pulse: client 0x557acf63c0 [pactl]: ERROR command:9 (SET_CLIENT_NAME) tag:1 error:6 (Host is down)
+Jul 15 18:59:09 etr-core pipewire-pulse[970]: mod.protocol-pulse: 0x557acce900: failed to connect client: Host is down
+Jul 15 18:59:09 etr-core pipewire-pulse[970]: mod.protocol-pulse: client 0x557acf63c0 [pactl]: ERROR command:9 (SET_CLIENT_NAME) tag:1 error:6 (Host is down)
+Jul 15 18:59:10 etr-core pipewire-pulse[970]: mod.protocol-pulse: 0x557acce900: failed to connect client: Host is down
+Jul 15 18:59:10 etr-core pipewire-pulse[970]: mod.protocol-pulse: client 0x557acf63c0 [pactl]: ERROR command:9 (SET_CLIENT_NAME) tag:1 error:6 (Host is down)
+Jul 15 18:59:11 etr-core pipewire-pulse[970]: mod.protocol-pulse: 0x557acce900: failed to connect client: Host is down
+Jul 15 18:59:11 etr-core pipewire-pulse[970]: mod.protocol-pulse: client 0x557acf63c0 [pactl]: ERROR command:9 (SET_CLIENT_NAME) tag:1 error:6 (Host is down)
+
+=== PAQUETS / COMMANDES ===
+/usr/bin/startx
+/usr/bin/Xorg
+/usr/bin/startlxde
+/usr/bin/lxsession
+$lxde-core $13.0
+$xinit $1.4.2-1+b2
+$xserver-xorg $1:7.7+24
+$xserver-xorg-video-fbdev $1:0.5.0-2+b2
+
+=== ÉTAT PROTÉGÉ ===
+failed
+inactive
+active
+active
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/mmcblk0p2   29G  6.2G   21G  23% /
+312K	/home/oryx/.config/chromium/BrowserMetrics
