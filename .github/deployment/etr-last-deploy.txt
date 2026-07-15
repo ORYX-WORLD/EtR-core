@@ -1,7 +1,7 @@
-date_utc=2026-07-15T23:06:21Z
+date_utc=2026-07-15T23:14:27Z
 job_status=failure
 host=etr-core
-installed_commit=6df8fa627f558a247eddfbbf48e5ea8d7308f423
+installed_commit=2d33c0df3209a71acc99c3d46650f1c3534b185a
 etr.service=Result=success,ActiveState=active,SubState=running
 etr-wifi-portal.service=Result=exit-code,ActiveState=activating,SubState=auto-restart
 spi-desktop.service=Result=success,ActiveState=active,SubState=running
