@@ -1,69 +1,26 @@
-name: Diagnostiquer le kiosque EtR
+name: Contrôler EtR
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/etr-contact.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  kiosk-diagnostic:
+  health-check:
     runs-on: [self-hosted, Linux, ARM64]
-    timeout-minutes: 6
+    timeout-minutes: 3
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Diagnostiquer et relancer Chromium
+      - name: Vérifier les services essentiels
         shell: bash
         run: |
-          set +e
-          report="docs/raspberry/live-kiosk-diagnostic.txt"
-          mkdir -p docs/raspberry
-          {
-            echo "Diagnostic kiosque EtR - $(date -Is)"
-            echo
-            echo "=== SERVICES AVANT ==="
-            systemctl status etr-dashboard.service etr-kiosk.service spi-desktop.service --no-pager -l || true
-            echo
-            echo "=== PROCESSUS ==="
-            ps -ef | grep -E '[c]hromium|[X]org|[s]tartlxde|[o]penbox' || true
-            echo
-            echo "=== URL TABLEAU DE BORD ==="
-            curl -sS -I --max-time 10 http://127.0.0.1:8000/ || true
-            echo
-            echo "=== FENETRES X AVANT ==="
-            DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xwininfo -root -tree 2>&1 || true
-            echo
-            echo "=== JOURNAL KIOSQUE ==="
-            journalctl -u etr-kiosk.service -n 160 --no-pager || true
-            echo
-            echo "=== RELANCE CIBLEE ==="
-            DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xset s off 2>&1 || true
-            DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xset -dpms 2>&1 || true
-            sudo -n systemctl restart etr-kiosk.service || true
-            sleep 18
-            echo
-            echo "=== SERVICES APRES ==="
-            systemctl status etr-kiosk.service --no-pager -l || true
-            echo
-            echo "=== PROCESSUS APRES ==="
-            ps -ef | grep -E '[c]hromium|[X]org|[s]tartlxde|[o]penbox' || true
-            echo
-            echo "=== FENETRES X APRES ==="
-            DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xwininfo -root -tree 2>&1 || true
-            echo
-            echo "=== JOURNAL APRES ==="
-            journalctl -u etr-kiosk.service -n 100 --no-pager || true
-          } > "$report" 2>&1
-
-      - name: Publier temporairement le diagnostic
-        shell: bash
-        run: |
-          git config user.name "EtR Core"
-          git config user.email "etr-core@users.noreply.github.com"
-          git add docs/raspberry/live-kiosk-diagnostic.txt
-          git commit -m "diag: publish temporary EtR kiosk diagnostic"
-          git push
+          set -euo pipefail
+          for service in etr.service etr-dashboard.service spi-desktop.service etr-kiosk.service; do
+            systemctl is-active --quiet "$service"
+            echo "$service : actif"
+          done
+          test -S /tmp/.X11-unix/X1
+          pgrep -u oryx -x chromium >/dev/null
+          nc -z 127.0.0.1 8000
+          nc -z 127.0.0.1 8080
+          echo "EtR : contrôle réussi"
