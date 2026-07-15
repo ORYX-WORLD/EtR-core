@@ -6,7 +6,7 @@ INSTALL_DIR="/home/oryx/EtR-core"
 
 sudo apt update
 sudo apt install -y \
-  git python3-venv python3-pip network-manager \
+  git python3-venv python3-pip network-manager psmisc \
   xserver-xorg xserver-xorg-video-fbdev xinit lxde-core dbus-x11 \
   chromium netcat-openbsd
 
@@ -46,18 +46,37 @@ echo '*/15 * * * * oryx /home/oryx/.local/bin/etr-storage-maintenance.sh' | \
 sudo chmod 644 /etc/cron.d/etr-storage-maintenance
 
 # Une ancienne exécution manuelle peut conserver le port 8081 ou le profil
-# Chromium. On arrête proprement les services puis les processus orphelins.
+# Chromium. On arrête les services puis les seuls processus concernés.
 sudo systemctl stop etr-kiosk.service etr-wifi-portal.service 2>/dev/null || true
-sudo pkill -f '/home/oryx/EtR-core/src/wifi_portal.py' 2>/dev/null || true
-sudo pkill -u oryx -x chromium 2>/dev/null || true
+sudo pkill -f 'wifi_portal.py' 2>/dev/null || true
+sudo fuser -k 8081/tcp 2>/dev/null || true
+sudo pkill -u oryx -f 'chromium.*127.0.0.1:8081|chromium.*localhost:8081' 2>/dev/null || true
 sudo systemctl reset-failed etr-wifi-portal.service etr-kiosk.service 2>/dev/null || true
 
 sudo systemctl daemon-reload
 sudo systemctl enable etr.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service
 sudo systemctl restart etr.service
-sudo systemctl restart etr-wifi-portal.service
 sudo systemctl restart spi-desktop.service
-sudo systemctl restart etr-kiosk.service
+
+# Le portail doit être réellement joignable avant de démarrer le kiosque.
+sudo systemctl start etr-wifi-portal.service
+portal_ready=false
+for attempt in $(seq 1 60); do
+  if sudo systemctl is-active --quiet etr-wifi-portal.service && \
+     curl -fsS http://127.0.0.1:8081/api/status >/dev/null; then
+    portal_ready=true
+    break
+  fi
+  sleep 2
+done
+if [ "$portal_ready" != true ]; then
+  sudo systemctl status etr-wifi-portal.service --no-pager || true
+  sudo journalctl -u etr-wifi-portal.service -n 80 --no-pager || true
+  exit 1
+fi
+
+sudo systemctl reset-failed etr-kiosk.service 2>/dev/null || true
+sudo systemctl start etr-kiosk.service
 
 echo "OK. EtR, le portail Wi-Fi tactile, l'écran SPI et le kiosque sont actifs."
 echo "Un redémarrage est recommandé pour valider le parcours hors connexion."
