@@ -1,0 +1,22 @@
+[Unit]
+Description=EtR secure outbound remote screen
+After=network-online.target etr-vnc.service
+Wants=network-online.target etr-vnc.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/etr-core/firebase-bridge.env
+WorkingDirectory=/opt/etr-core/src
+ExecStart=/opt/etr-core/.venv/bin/python /opt/etr-core/src/remote_screen_agent.py
+Restart=always
+RestartSec=5
+User=oryx
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/etr-core
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
