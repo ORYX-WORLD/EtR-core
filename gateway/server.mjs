@@ -195,11 +195,15 @@ server.on("upgrade", async (req, socket, head) => {
     socket.destroy();
   } catch (error) {
     const status = Number(error.status || 500);
+    const cause = error?.cause;
     console.error("WebSocket upgrade failed", {
       path: String(req.url || "").split("?")[0],
       name: error?.name || "Error",
       message: error?.message || String(error),
       code: error?.code || "",
+      causeName: cause?.name || "",
+      causeCode: cause?.code || "",
+      causeMessage: String(cause?.message || "").slice(0, 600),
       status
     });
     socket.write(`HTTP/1.1 ${status} Error\r\nConnection: close\r\n\r\n`);
