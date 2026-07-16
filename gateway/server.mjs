@@ -151,7 +151,7 @@ const scheme=location.protocol==="https:"?"wss":"ws";
 const url=scheme+"://"+location.host+"/client?ticket="+encodeURIComponent(ticket);
 try{
  const rfb=new RFB(document.getElementById("screen"),url,{shared:true});
- rfb.scaleViewport=true;rfb.resizeSession=false;rfb.showDotCursor=true;
+ rfb.scaleViewport=true;\n rfb.resizeSession=false;\n rfb.showDotCursor=true;\n rfb.viewOnly=false;\n rfb.qualityLevel=9;\n rfb.compressionLevel=2;
  rfb.addEventListener("connect",()=>{status.textContent="EtR connecté";setTimeout(()=>status.remove(),1200)});
  rfb.addEventListener("disconnect",(event)=>{status.textContent=event.detail.clean?"Session terminée":"Connexion interrompue"});
  rfb.addEventListener("credentialsrequired",()=>{status.textContent="Authentification locale non attendue"});
