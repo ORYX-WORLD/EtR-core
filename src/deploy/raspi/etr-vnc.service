@@ -7,7 +7,7 @@ Requires=spi-desktop.service
 Type=simple
 Environment=DISPLAY=:1
 Environment=XAUTHORITY=/home/oryx/.Xauthority
-ExecStart=/usr/bin/x11vnc -display :1 -auth /home/oryx/.Xauthority -localhost -forever -shared -nopw -rfbport 5900 -noxdamage
+ExecStart=/usr/bin/x11vnc -display :1 -auth /home/oryx/.Xauthority -localhost -forever -shared -nopw -rfbport 5901 -noxdamage
 Restart=always
 RestartSec=3
 User=oryx

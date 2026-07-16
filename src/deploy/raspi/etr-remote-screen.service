@@ -6,6 +6,8 @@ Wants=network-online.target etr-vnc.service
 [Service]
 Type=simple
 EnvironmentFile=-/etc/etr-core/firebase-bridge.env
+Environment=ETR_LOCAL_VNC_PORT=5901
+Environment=ETR_TOKEN_FILE=/var/lib/etr-core/remote-screen-auth.json
 WorkingDirectory=/home/oryx/EtR-core/src
 ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/remote_screen_agent.py
 Restart=always
