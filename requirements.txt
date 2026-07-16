@@ -4,3 +4,4 @@ pyserial
 psutil
 gpiozero
 requests>=2.31,<3
+websockets==12.0
