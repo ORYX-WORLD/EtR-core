@@ -131,10 +131,11 @@ app.post("/api/remote-session", async (req, res) => {
 
 app.get("/viewer", (req, res) => {
   const origin = [...ALLOWED_ORIGINS].map((value) => value.replace(/'/g, "")).join(" ");
+  const scriptNonce = crypto.randomBytes(18).toString("base64");
   res.setHeader("Cache-Control", "no-store");
   res.setHeader(
     "Content-Security-Policy",
-    `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss:; img-src 'self' data:; frame-ancestors ${origin}`
+    `default-src 'self'; script-src 'self' 'nonce-${scriptNonce}'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss:; img-src 'self' data:; frame-ancestors ${origin}`
   );
   res.type("html").send(`<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -142,7 +143,7 @@ app.get("/viewer", (req, res) => {
 html,body,#screen{width:100%;height:100%;margin:0;background:#03101f;overflow:hidden}
 #status{position:fixed;z-index:3;inset:16px auto auto 50%;transform:translateX(-50%);padding:9px 14px;border-radius:999px;background:#071827e8;color:#dff8ff;font:600 14px system-ui;border:1px solid #1e7890}
 </style></head><body><div id="status">Connexion sécurisée à l’EtR…</div><div id="screen"></div>
-<script type="module">
+<script type="module" nonce="${scriptNonce}">
 import RFB from "/novnc/core/rfb.js";
 const status=document.getElementById("status");
 const ticket=new URLSearchParams(location.search).get("ticket")||"";
