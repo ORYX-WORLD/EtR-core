@@ -1,5 +1,5 @@
 name: Déployer le parcours Wi-Fi EtR
-# Déploiement physique révision 9
+# Déploiement physique révision 10
 
 on:
   workflow_dispatch:
@@ -10,7 +10,6 @@ on:
       - src/wifi_portal.py
       - src/remote_screen_agent.py
       - src/firebase_bridge.py
-      - gateway/**
       - src/deploy/raspi/**
       - requirements.txt
 
@@ -29,7 +28,7 @@ jobs:
 
     steps:
       - name: Préparer le dépôt de suivi
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -77,7 +76,7 @@ jobs:
             sudo chmod 600 "$env_file"
             echo "Passerelle d'écran distant configurée"
           else
-            echo "Passerelle d'écran distant non configurée : secret ETR_REMOTE_GATEWAY_WSS absent"
+            echo "Passerelle d'écran distant conservée : secret ETR_REMOTE_GATEWAY_WSS absent"
           fi
 
       - name: Installer le portail Wi-Fi tactile
@@ -93,46 +92,89 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for service in etr.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service; do
+
+          fail_check() {
+            local title=$1
+            local message=$2
+            echo "::error title=${title}::${message}"
+            return 1
+          }
+
+          wait_for_service() {
+            local service=$1
             for attempt in $(seq 1 60); do
               if sudo systemctl is-active --quiet "$service"; then
-                break
+                echo "$service : actif"
+                return 0
               fi
               sleep 2
             done
-            sudo systemctl is-active --quiet "$service"
-            echo "$service : actif"
+            sudo systemctl status "$service" --no-pager -l || true
+            sudo journalctl -u "$service" -n 80 --no-pager || true
+            fail_check "Service EtR inactif" "$service n'est pas actif après 120 secondes"
+          }
+
+          require_text() {
+            local text=$1
+            local label=$2
+            if ! grep -Fq -- "$text" <<<"$portal_html"; then
+              fail_check "Contenu du portail incomplet" "Texte attendu absent : $label"
+            fi
+            echo "Portail : $label présent"
+          }
+
+          for service in etr.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service; do
+            wait_for_service "$service"
           done
 
+          status_ready=false
           for attempt in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:8090/api/status > /tmp/etr-wifi-status.json; then
+              status_ready=true
               break
             fi
             sleep 2
           done
-          test -s /tmp/etr-wifi-status.json
+          if [ "$status_ready" != true ] || [ ! -s /tmp/etr-wifi-status.json ]; then
+            sudo systemctl status etr-wifi-portal.service --no-pager -l || true
+            sudo journalctl -u etr-wifi-portal.service -n 80 --no-pager || true
+            fail_check "API Wi-Fi indisponible" "http://127.0.0.1:8090/api/status ne répond pas"
+          fi
           python3 -m json.tool /tmp/etr-wifi-status.json
-          portal_html=$(curl -fsS http://127.0.0.1:8090/)
-          grep -q "Connecter cet EtR" <<<"$portal_html"
-          grep -q "Afficher la clé" <<<"$portal_html"
-          grep -q "123" <<<"$portal_html"
-          grep -q "Vérifiez la clé puis appuyez sur Se connecter pour réessayer" <<<"$portal_html"
-          sudo systemctl is-enabled --quiet etr-kiosk.service
-          sudo systemctl is-active --quiet etr-kiosk.service
-          pgrep -u oryx -f 'chromium.*etr-kiosk-chromium' >/dev/null
+
+          if ! portal_html=$(curl -fsS http://127.0.0.1:8090/); then
+            fail_check "Portail Wi-Fi indisponible" "http://127.0.0.1:8090/ ne répond pas"
+          fi
+          require_text "Connecter cet EtR" "titre de connexion"
+          require_text "Afficher la clé" "commande d'affichage de la clé"
+          require_text "123/@" "bascule du clavier tactile"
+          require_text "Vérifiez la clé puis appuyez sur Se connecter pour réessayer" "message de nouvelle tentative"
+
+          if ! sudo systemctl is-enabled --quiet etr-kiosk.service; then
+            fail_check "Kiosque non activé" "etr-kiosk.service n'est pas activé au démarrage"
+          fi
+          wait_for_service etr-kiosk.service
+          if ! pgrep -u oryx -f 'chromium.*etr-kiosk-chromium' >/dev/null; then
+            sudo systemctl status etr-kiosk.service --no-pager -l || true
+            sudo journalctl -u etr-kiosk.service -n 80 --no-pager || true
+            ps -ef | grep '[c]hromium' || true
+            fail_check "Chromium kiosque absent" "Aucun processus Chromium avec le profil etr-kiosk-chromium"
+          fi
           echo "Portail Wi-Fi tactile sans clavier physique : opérationnel"
 
-          if grep -q '^ETR_REMOTE_GATEWAY_WSS=.' /etc/etr-core/firebase-bridge.env 2>/dev/null; then
-            for service in etr-vnc.service etr-remote-screen.service; do
-              sudo systemctl is-active --quiet "$service"
-              echo "$service : actif"
-            done
-            sudo ss -ltnp | grep -q '127.0.0.1:5900'
-            if sudo ss -ltnp | grep -qE '0\.0\.0\.0:5900|\[::\]:5900'; then
-              echo "Le port VNC ne doit pas être exposé" >&2
-              exit 1
+          if sudo grep -q '^ETR_REMOTE_GATEWAY_WSS=.' /etc/etr-core/firebase-bridge.env 2>/dev/null; then
+            wait_for_service etr-vnc.service
+            wait_for_service etr-remote-screen.service
+
+            if ! sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901'; then
+              sudo ss -ltnp || true
+              fail_check "VNC local indisponible" "Aucun serveur VNC EtR n'écoute localement sur le port 5901"
             fi
-            echo "Écran distant EtR : relais sortant opérationnel"
+            if sudo ss -H -ltnp | grep -qE '(0\.0\.0\.0|\[::\]):5901'; then
+              sudo ss -ltnp | grep ':5901' || true
+              fail_check "VNC EtR exposé" "Le port 5901 doit écouter uniquement sur la boucle locale"
+            fi
+            echo "Écran distant EtR : source VNC locale 5901 et relais sortant actifs"
           else
             echo "Écran distant EtR : en attente de l'URL WSS de passerelle"
           fi
