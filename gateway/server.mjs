@@ -41,7 +41,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "32kb" }));
-app.use("/novnc", express.static(path.join(__dirname, "node_modules", "@novnc", "novnc"), {
+app.use("/novnc", express.static(path.join(__dirname, "public"), {
   immutable: true,
   maxAge: "1d"
 }));
@@ -144,7 +144,7 @@ html,body,#screen{width:100%;height:100%;margin:0;background:#03101f;overflow:hi
 #status{position:fixed;z-index:3;inset:16px auto auto 50%;transform:translateX(-50%);padding:9px 14px;border-radius:999px;background:#071827e8;color:#dff8ff;font:600 14px system-ui;border:1px solid #1e7890}
 </style></head><body><div id="status">Connexion sécurisée à l’EtR…</div><div id="screen"></div>
 <script type="module" nonce="${scriptNonce}">
-import RFB from "/novnc/lib/rfb.js";
+import RFB from "/novnc/rfb.js";
 const status=document.getElementById("status");
 const ticket=new URLSearchParams(location.search).get("ticket")||"";
 const scheme=location.protocol==="https:"?"wss":"ws";
