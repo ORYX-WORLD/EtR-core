@@ -1,5 +1,5 @@
 name: Déployer le parcours Wi-Fi EtR
-# Déploiement physique révision 7
+# Déploiement physique révision 8
 
 on:
   workflow_dispatch:
@@ -62,6 +62,24 @@ jobs:
             sudo -u oryx -H git -C "$install_dir" pull --ff-only origin main
           fi
 
+      - name: Configurer la passerelle d'écran distant
+        shell: bash
+        env:
+          ETR_REMOTE_GATEWAY_WSS: ${{ secrets.ETR_REMOTE_GATEWAY_WSS }}
+        run: |
+          set -euo pipefail
+          if [ -n "${ETR_REMOTE_GATEWAY_WSS:-}" ]; then
+            env_file=/etc/etr-core/firebase-bridge.env
+            sudo install -d -m 700 /etc/etr-core
+            sudo touch "$env_file"
+            sudo sed -i '/^ETR_REMOTE_GATEWAY_WSS=/d' "$env_file"
+            printf '%s\n' "ETR_REMOTE_GATEWAY_WSS=$ETR_REMOTE_GATEWAY_WSS" | sudo tee -a "$env_file" >/dev/null
+            sudo chmod 600 "$env_file"
+            echo "Passerelle d'écran distant configurée"
+          else
+            echo "Passerelle d'écran distant non configurée : secret ETR_REMOTE_GATEWAY_WSS absent"
+          fi
+
       - name: Installer le portail Wi-Fi tactile
         shell: bash
         run: |
@@ -91,8 +109,12 @@ jobs:
           done
           test -s /tmp/etr-wifi-status.json
           python3 -m json.tool /tmp/etr-wifi-status.json
-          curl -fsS http://127.0.0.1:8090/ | grep -q "Connecter cet EtR"
-          echo "Portail Wi-Fi tactile : opérationnel"
+          portal_html=$(curl -fsS http://127.0.0.1:8090/)
+          grep -q "Connecter cet EtR" <<<"$portal_html"
+          grep -q "Afficher la clé" <<<"$portal_html"
+          grep -q "123" <<<"$portal_html"
+          sudo systemctl is-enabled --quiet etr-kiosk.service
+          echo "Portail Wi-Fi tactile sans clavier physique : opérationnel"
 
           if grep -q '^ETR_REMOTE_GATEWAY_WSS=.' /etc/etr-core/firebase-bridge.env 2>/dev/null; then
             for service in etr-vnc.service etr-remote-screen.service; do
