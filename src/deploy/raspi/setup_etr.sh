@@ -42,9 +42,9 @@ sudo install -m 644 src/deploy/raspi/etr-kiosk.service /etc/systemd/system/etr-k
 sudo install -m 644 src/deploy/raspi/etr-vnc.service /etc/systemd/system/etr-vnc.service
 sudo install -m 644 src/deploy/raspi/etr-remote-screen.service /etc/systemd/system/etr-remote-screen.service
 
-# Protection de l'espace disque
+# Protection de l'espace disque et jeton distinct du relais écran.
 sudo install -d -m 755 -o oryx -g oryx /home/oryx/.local/bin
-sudo install -d -m 755 -o root -g root /var/lib/etr-core
+sudo install -d -m 700 -o oryx -g oryx /var/lib/etr-core
 sudo install -m 755 src/deploy/raspi/etr-storage-maintenance.sh /home/oryx/.local/bin/etr-storage-maintenance.sh
 echo '*/15 * * * * oryx /home/oryx/.local/bin/etr-storage-maintenance.sh' | \
   sudo tee /etc/cron.d/etr-storage-maintenance >/dev/null
@@ -69,13 +69,14 @@ sudo systemctl restart etr.service
 sudo systemctl restart spi-desktop.service
 
 # La passerelle distante est activée uniquement lorsqu'une URL WSS a été
-# configurée. Aucun port VNC n'est exposé sur le réseau.
+# configurée. Le port VNC EtR 5901 reste limité à la boucle locale.
 remote_gateway=""
 if [ -f /etc/etr-core/firebase-bridge.env ]; then
   remote_gateway=$(sudo sed -n 's/^ETR_REMOTE_GATEWAY_WSS=//p' /etc/etr-core/firebase-bridge.env | tail -n 1)
 fi
 if [ -n "$remote_gateway" ]; then
-  sudo pkill -f '[x]11vnc.*rfbport 5900' 2>/dev/null || true
+  sudo systemctl stop etr-vnc.service 2>/dev/null || true
+  sudo pkill -f '[x]11vnc.*rfbport 5901' 2>/dev/null || true
   sudo systemctl enable etr-vnc.service etr-remote-screen.service
   sudo systemctl restart etr-vnc.service
   sudo systemctl restart etr-remote-screen.service
