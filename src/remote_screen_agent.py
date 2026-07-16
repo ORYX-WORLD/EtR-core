@@ -81,7 +81,7 @@ async def run_forever():
             LOG.info("Connecting installation %s to the remote gateway", INSTALLATION_ID)
             async with websockets.connect(
                 url,
-                additional_headers={"Authorization": f"Bearer {token}"},
+                extra_headers={"Authorization": f"Bearer {token}"},
                 max_size=2 * 1024 * 1024,
                 ping_interval=25,
                 ping_timeout=20,
