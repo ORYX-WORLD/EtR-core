@@ -51,7 +51,12 @@ sudo chmod 644 /etc/cron.d/etr-storage-maintenance
 sudo systemctl stop etr-kiosk.service etr-wifi-portal.service 2>/dev/null || true
 sudo pkill -f 'wifi_portal.py' 2>/dev/null || true
 sudo fuser -k 8090/tcp 2>/dev/null || true
-sudo pkill -u oryx -f 'chromium.*127.0.0.1:8090|chromium.*localhost:8090' 2>/dev/null || true
+sudo pkill -TERM -u oryx -f '[c]hromium.*etr-kiosk-chromium' 2>/dev/null || true
+sleep 2
+sudo pkill -KILL -u oryx -f '[c]hromium.*etr-kiosk-chromium' 2>/dev/null || true
+sudo rm -f /home/oryx/.cache/etr-kiosk-chromium/SingletonCookie \
+            /home/oryx/.cache/etr-kiosk-chromium/SingletonLock \
+            /home/oryx/.cache/etr-kiosk-chromium/SingletonSocket
 sudo systemctl reset-failed etr-wifi-portal.service etr-kiosk.service 2>/dev/null || true
 
 sudo systemctl daemon-reload
