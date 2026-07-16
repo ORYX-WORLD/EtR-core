@@ -1,0 +1,80 @@
+name: Publier les règles Firebase Realtime Database
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/firebase-database-rules.yml
+      - firebase.json
+      - firebase/database.rules.json
+
+concurrency:
+  group: firebase-database-rules-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  FIREBASE_PROJECT_ID: oryx-froid-industriel
+  FIREBASE_DATABASE_URL: https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app
+
+jobs:
+  deploy:
+    name: Valider et publier les règles
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v5
+
+      - name: Valider les fichiers de configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m json.tool firebase.json >/dev/null
+          python3 -m json.tool firebase/database.rules.json >/dev/null
+
+      - name: Authentification Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Publier les règles Realtime Database
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@15.24.0 deploy \
+            --only database \
+            --project="$FIREBASE_PROJECT_ID" \
+            --non-interactive
+
+      - name: Vérifier que les lectures anonymes restent interdites
+        shell: bash
+        run: |
+          set -euo pipefail
+          probe_url="$FIREBASE_DATABASE_URL/deviceAccess/ci-anonymous-probe.json"
+          status="$(curl --silent --show-error \
+            --output /tmp/firebase-anonymous-probe.json \
+            --write-out '%{http_code}' \
+            "$probe_url")"
+
+          if [[ "$status" != "401" && "$status" != "403" ]]; then
+            cat /tmp/firebase-anonymous-probe.json
+            echo "::error title=Règles Firebase dangereuses::Une lecture anonyme a retourné HTTP $status"
+            exit 1
+          fi
+
+          echo "### Règles Firebase publiées" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Projet : \`$FIREBASE_PROJECT_ID\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Lecture anonyme refusée : HTTP $status" >> "$GITHUB_STEP_SUMMARY"
