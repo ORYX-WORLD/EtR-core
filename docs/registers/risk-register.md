@@ -7,3 +7,4 @@
 | R-001 | Indisponibilité d'un hébergeur de passerelle | 3 | 4 | Supervision, reconnexion et procédure de migration | Exploitation | Ouvert |
 | R-002 | Divergence de configuration entre appareils | 3 | 4 | Installation automatisée et manifeste par appareil | Mainteneur | En traitement |
 | R-003 | Exposition accidentelle d'un secret | 2 | 5 | Secrets externes, revue, rotation et alertes | Sécurité | Ouvert |
+| R-004 | Vulnérabilités modérées dans `uuid`, dépendance transitive de Firebase Admin | 2 | 2 | Audit CI bloquant dès le niveau élevé, suivi des versions Firebase Admin et réévaluation mensuelle | Mainteneur | Accepté temporairement (revue 2026-08-17) |

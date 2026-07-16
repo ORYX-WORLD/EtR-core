@@ -197,6 +197,10 @@ cython_debug/
 # Local CI/deployment evidence (published as workflow artifacts)
 .artifacts/
 
+# Gateway dependencies and generated browser bundle
+gateway/node_modules/
+gateway/public/
+
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data

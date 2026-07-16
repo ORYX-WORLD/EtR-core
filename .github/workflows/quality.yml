@@ -31,4 +31,4 @@ jobs:
         run: find scripts src/deploy -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
       - name: Vérifier les dépendances de la passerelle
         working-directory: gateway
-        run: npm ci --ignore-scripts && npm audit --omit=dev --audit-level=critical
+        run: npm ci --ignore-scripts && npm audit --omit=dev --audit-level=high

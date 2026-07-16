@@ -7,7 +7,7 @@ INSTALL_DIR="/home/oryx/EtR-core"
 sudo apt update
 sudo apt install -y \
   git python3-venv python3-pip network-manager psmisc \
-  xserver-xorg xserver-xorg-video-fbdev xinit lxde-core dbus-x11 \
+  xserver-xorg xserver-xorg-video-fbdev x11-xserver-utils xinit lxde-core dbus-x11 \
   chromium netcat-openbsd x11vnc
 
 # Cloner ou actualiser le dépôt officiel

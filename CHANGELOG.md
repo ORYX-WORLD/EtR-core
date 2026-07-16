@@ -10,6 +10,11 @@ Les changements notables de ce projet sont consignés ici. Le format suit
 
 - Socle de traçabilité d'ingénierie : version, registres, ADR, incidents,
   manifestes de déploiement et contrôles CI.
+- Désactivation persistante de la veille X11 sur l'écran SPI, avec dépendance
+  déclarée et invariant vérifié par la CI.
+- Verrouillage reproductible des dépendances npm de la passerelle et mise à
+  niveau d'Express, Firebase Admin et ws pour supprimer les vulnérabilités
+  directes de sévérité haute.
 
 ## [1.0.0] - 2026-07-16
 
