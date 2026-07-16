@@ -8,7 +8,7 @@ sudo apt update
 sudo apt install -y \
   git python3-venv python3-pip network-manager psmisc \
   xserver-xorg xserver-xorg-video-fbdev xinit lxde-core dbus-x11 \
-  chromium netcat-openbsd
+  chromium netcat-openbsd x11vnc
 
 # Cloner ou actualiser le dépôt officiel
 if [ ! -d "$INSTALL_DIR/.git" ]; then
@@ -38,6 +38,10 @@ sudo install -m 755 src/deploy/raspi/etr-kiosk.sh /usr/local/bin/etr-kiosk.sh
 sudo install -m 644 src/deploy/raspi/spi-desktop.service /etc/systemd/system/spi-desktop.service
 sudo install -m 644 src/deploy/raspi/etr-kiosk.service /etc/systemd/system/etr-kiosk.service
 
+# Écran distant : VNC reste local au Raspberry et le relais est uniquement sortant.
+sudo install -m 644 src/deploy/raspi/etr-vnc.service /etc/systemd/system/etr-vnc.service
+sudo install -m 644 src/deploy/raspi/etr-remote-screen.service /etc/systemd/system/etr-remote-screen.service
+
 # Protection de l'espace disque
 sudo install -d -m 755 -o oryx -g oryx /home/oryx/.local/bin
 sudo install -d -m 755 -o root -g root /var/lib/etr-core
@@ -64,6 +68,22 @@ sudo systemctl enable etr.service etr-wifi-portal.service spi-desktop.service et
 sudo systemctl restart etr.service
 sudo systemctl restart spi-desktop.service
 
+# La passerelle distante est activée uniquement lorsqu'une URL WSS a été
+# configurée. Aucun port VNC n'est exposé sur le réseau.
+remote_gateway=""
+if [ -f /etc/etr-core/firebase-bridge.env ]; then
+  remote_gateway=$(sudo sed -n 's/^ETR_REMOTE_GATEWAY_WSS=//p' /etc/etr-core/firebase-bridge.env | tail -n 1)
+fi
+if [ -n "$remote_gateway" ]; then
+  sudo pkill -f '[x]11vnc.*rfbport 5900' 2>/dev/null || true
+  sudo systemctl enable etr-vnc.service etr-remote-screen.service
+  sudo systemctl restart etr-vnc.service
+  sudo systemctl restart etr-remote-screen.service
+else
+  sudo systemctl disable --now etr-remote-screen.service etr-vnc.service 2>/dev/null || true
+  echo "Passerelle distante non activée : définir ETR_REMOTE_GATEWAY_WSS dans /etc/etr-core/firebase-bridge.env"
+fi
+
 # Le portail doit être réellement joignable avant de démarrer le kiosque.
 sudo systemctl start etr-wifi-portal.service
 portal_ready=false
@@ -84,5 +104,5 @@ fi
 sudo systemctl reset-failed etr-kiosk.service 2>/dev/null || true
 sudo systemctl start etr-kiosk.service
 
-echo "OK. EtR, le portail Wi-Fi tactile, l'écran SPI et le kiosque sont actifs."
+echo "OK. EtR, le portail Wi-Fi tactile, l'écran SPI, le kiosque et la configuration d'écran distant sont installés."
 echo "Un redémarrage est recommandé pour valider le parcours hors connexion."
