@@ -256,7 +256,7 @@ button{border:0;border-radius:99px;padding:12px 18px;font-weight:850;cursor:poin
 <div class="actions"><button id="scan">Rechercher les réseaux</button><button id="refresh" class="secondary">Actualiser l’état</button></div><p id="message" class="message"></p><div id="networks" class="networks"></div></section>
 <section id="credentials" class="card secret"><h2 id="chosen">Réseau Wi-Fi</h2><form id="connect"><input type="hidden" id="ssid"><input type="hidden" id="security">
 <label for="password">Clé Wi-Fi</label><input id="password" type="password" autocomplete="new-password" placeholder="WPA2 / WPA3">
-<div class="actions"><button type="submit">Se connecter</button><button type="button" id="cancel" class="secondary">Annuler</button></div></form></section>
+<div class="actions"><button type="button" id="showPassword" class="secondary">Afficher la clé</button><button type="submit">Se connecter</button><button type="button" id="cancel" class="secondary">Annuler</button></div></form></section>
 <section id="keyboard" class="keyboard" hidden aria-label="Clavier tactile"></section>
 </main>
 <section id="dashboardShell" class="dashboard-shell" hidden aria-label="Tableau de bord EtR">
@@ -270,13 +270,124 @@ function showStatus(s){const items=[];items.push(`<span class="pill ${s.online?'
 function esc(v){const d=document.createElement('div');d.textContent=v;return d.innerHTML}
 async function dashboardIsReady(){try{const r=await fetch('/api/dashboard-ready',{cache:'no-store'});if(!r.ok)return false;return !!(await r.json()).ready}catch(e){return false}}
 function showDashboard(){keyboard.hidden=true;dashboardFrame.src='http://127.0.0.1:8000';dashboardShell.hidden=false}
-async function waitDashboard(retry=false){const attempts=retry?40:1;for(let i=0;i<attempts;i++){if(await dashboardIsReady()){showDashboard();return true}if(retry){msg.textContent='Connexion confirmée. Démarrage du tableau EtR…';await new Promise(r=>setTimeout(r,1000))}}msg.textContent='Le réseau est connecté. Le tableau EtR démarre encore : vous pouvez réessayer avec Actualiser.';return false}
+async function waitDashboard(retry=false){const attempts=retry?180:1;for(let i=0;i<attempts;i++){if(await dashboardIsReady()){showDashboard();return true}if(retry){msg.textContent='Connexion confirmée. Démarrage du tableau EtR…';await new Promise(r=>setTimeout(r,1000))}}msg.textContent='Le réseau est connecté. Le tableau EtR démarre encore : vous pouvez réessayer avec Actualiser.';return false}
 async function status(){try{const s=await api('/api/status');showStatus(s);if(s.commissioned&&s.online&&!s.hotspot&&location.hostname==='127.0.0.1')await waitDashboard(false)}catch(e){msg.textContent=e.message}}
 async function localInfo(){try{const r=await fetch('/api/local-info');if(!r.ok)return;const d=await r.json();pin.value=d.pin;$('#localCode').hidden=false;$('#localCode').textContent=`Réseau temporaire : ${d.hotspotSsid} · clé : ${d.hotspotPassword} · code : ${d.pin}`;}catch(e){}}
 async function scan(){msg.textContent='Recherche en cours…';networks.innerHTML='';try{const list=await api('/api/networks');list.forEach(n=>{const b=document.createElement('button');b.type='button';b.className='network';b.innerHTML=`<span><strong>${esc(n.ssid)}</strong><small>${esc(n.security)}${n.connected?' · connecté':''}</small></span><span class="signal">${n.signal}%</span>`;b.onclick=()=>selectNetwork(n,b);networks.appendChild(b)});msg.textContent=list.length?`${list.length} réseau(x) détecté(s).`:'Aucun réseau détecté.'}catch(e){msg.textContent=e.message}}
 function selectNetwork(n,b){document.querySelectorAll('.network').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');$('#ssid').value=n.ssid;$('#security').value=n.security;$('#chosen').textContent=n.ssid;const open=n.security==='Ouvert'||n.security==='--';$('#password').disabled=open;$('#password').placeholder=open?'Réseau ouvert':'Clé WPA2 / WPA3';credentials.classList.remove('secret');credentials.scrollIntoView({behavior:'smooth'})}
 function keyButton(label,value=label,wide=false){const b=document.createElement('button');b.type='button';b.className='key'+(wide?' wide':'');b.textContent=label;b.onpointerdown=e=>{e.preventDefault();keyPress(value)};return b}
-function drawKeyboard(){keyboard.innerHTML='';if(!keyTarget)return;let rows;if(keyTarget===pin){rows=[['1','2','3'],['4','5','6'],['7','8','9'],['Effacer','0','Fermer']]}else if(keySymbols){rows=[['1','2','3','4','5','6','7','8','9','0'],['@','#','%','&','*','-','_','+','='],['.',':',';','/','!','?','(',')'],['ABC','Espace','⌫','Fermer']]}else{const a=keyShift?'AZERTYUIOP':'azertyuiop',b=keyShift?'QSDFGHJKLM':'qsdfghjklm',c=keyShift?'WXCVBN':'wxcvbn';rows=[[...a],[...b],[...c],['Maj','123/@','Espace','⌫','Fermer']]}rows.forEach(row=>{const line=document.createElement('div');line.className='keyrow';row.forEach(k=>line.appendChild(keyButton(k,k,['Effacer','Espace','Fermer','123/@'].includes(k))));keyboard.appendChild(line)});keyboard.hidden=false}
+function drawKeyboard(){keyboard.innerHTML='';if(!keyTarget)return;let rows;if(keyTarget===pin){rows=[['1','2','3'],['4','5','6'],['7','8','9'],['Effacer','0','Fermer']]}else if(keySymbols){rows=[['1','2','3','4','5','6','7','8','9','0'],['@','#','%','&','*','-','_','+','='],['.',',',':',';','/','\\','!','?'],['\'','"','^','else{const a=keyShift?'AZERTYUIOP':'azertyuiop',b=keyShift?'QSDFGHJKLM':'qsdfghjklm',c=keyShift?'WXCVBN':'wxcvbn';rows=[[...a],[...b],[...c],['Maj','123/@','Espace','⌫','Fermer']]}rows.forEach(row=>{const line=document.createElement('div');line.className='keyrow';row.forEach(k=>line.appendChild(keyButton(k,k,['Effacer','Espace','Fermer','123/@'].includes(k))));keyboard.appendChild(line)});keyboard.hidden=false}
+function keyPress(k){if(!keyTarget)return;if(k==='Fermer'){keyboard.hidden=true;keyTarget.blur();return}if(k==='Maj'){keyShift=!keyShift;drawKeyboard();return}if(k==='123/@'||k==='ABC'){keySymbols=!keySymbols;drawKeyboard();return}if(k==='⌫'){keyTarget.value=keyTarget.value.slice(0,-1)}else if(k==='Effacer'){keyTarget.value=''}else if(k==='Espace'){keyTarget.value+=' '}else{keyTarget.value+=k}keyTarget.dispatchEvent(new Event('input',{bubbles:true}));keyTarget.focus({preventScroll:true})}
+function offerKeyboard(input){input.addEventListener('focus',()=>{keyTarget=input;keySymbols=false;keyShift=false;drawKeyboard()});input.addEventListener('pointerdown',()=>{keyTarget=input;drawKeyboard()})}
+offerKeyboard(pin);offerKeyboard($('#password'));
+$('#scan').onclick=scan;$('#refresh').onclick=status;$('#cancel').onclick=()=>credentials.classList.add('secret');
+$('#showPassword').onclick=()=>{const p=$('#password'),visible=p.type==='text';p.type=visible?'password':'text';$('#showPassword').textContent=visible?'Afficher la clé':'Masquer la clé';p.focus({preventScroll:true})};
+$('#useEthernet').onclick=async()=>{msg.textContent='Validation de la connexion Ethernet…';try{await api('/api/complete',{method:'POST',body:'{}'});msg.textContent='EtR configuré. Démarrage du tableau de bord…';await waitDashboard(true)}catch(e){msg.textContent=e.message}};
+$('#connect').onsubmit=async e=>{e.preventDefault();msg.textContent='Connexion en cours…';const payload={ssid:$('#ssid').value,password:$('#password').value,security:$('#security').value,pin:pin.value.trim()};try{await api('/api/connect',{method:'POST',body:JSON.stringify(payload)});$('#password').value='';keyboard.hidden=true;msg.textContent='Connexion Wi-Fi confirmée. Démarrage du tableau EtR…';await waitDashboard(true)}catch(err){msg.textContent=err.message;setTimeout(status,2500)}};
+$('#networkSettings').onclick=()=>{dashboardShell.hidden=true;dashboardFrame.src='about:blank';status()};
+localInfo().then(status);
+</script></body></html>
+"""
+
+
+@APP.get("/")
+def index():
+    return render_template_string(PAGE)
+
+
+@APP.get("/api/local-info")
+def local_info():
+    if not is_loopback():
+        return jsonify({"error": "Disponible uniquement sur l'écran EtR"}), 403
+    return jsonify({"pin": SETUP_PIN, "hotspotSsid": HOTSPOT_SSID, "hotspotPassword": HOTSPOT_PASSWORD})
+
+
+@APP.get("/api/status")
+def status():
+    # L'état n'expose ni mot de passe, ni numéro de série brut.
+    return jsonify(active_connection())
+
+
+@APP.get("/api/dashboard-ready")
+def dashboard_status():
+    return jsonify({"ready": dashboard_ready()})
+
+
+@APP.get("/api/networks")
+def networks():
+    if not authorized():
+        return jsonify({"error": "Code de configuration incorrect"}), 403
+    try:
+        return jsonify(scan_networks())
+    except Exception as exc:
+        return jsonify({"error": f"Recherche Wi-Fi impossible : {exc}"}), 503
+
+
+@APP.post("/api/complete")
+def complete():
+    payload = request.get_json(silent=True) or {}
+    if not authorized(payload):
+        return jsonify({"error": "Code de configuration incorrect"}), 403
+    state = active_connection()
+    if not state["ethernet"] and not state["wifi"]:
+        return jsonify({"error": "Aucune connexion réseau utilisable"}), 409
+    mark_commissioned()
+    return jsonify({"ok": True})
+
+
+@APP.post("/api/connect")
+def connect():
+    payload = request.get_json(silent=True) or {}
+    if not authorized(payload):
+        return jsonify({"error": "Code de configuration incorrect"}), 403
+    ssid = str(payload.get("ssid", "")).strip()
+    password = str(payload.get("password", ""))
+    security = str(payload.get("security", ""))
+    if not ssid or len(ssid.encode("utf-8")) > 32:
+        return jsonify({"error": "Nom de réseau Wi-Fi invalide"}), 400
+    if "WEP" in security.upper() and os.environ.get("ETR_ALLOW_WEP") != "1":
+        return jsonify({"error": "Le WEP est désactivé car il n'est pas sécurisé. Utilisez WPA2 ou WPA3."}), 400
+    if security not in {"", "--", "Ouvert"} and len(password) < 8:
+        return jsonify({"error": "La clé Wi-Fi doit contenir au moins 8 caractères"}), 400
+    try:
+        # Supprime un éventuel profil portant le même nom : NetworkManager
+        # ne doit jamais réutiliser silencieusement une ancienne mauvaise clé.
+        run_nmcli("radio", "wifi", "on")
+        run_nmcli("connection", "delete", "id", ssid, check=False)
+        args = ["device", "wifi", "connect", ssid, "ifname", WIFI_DEVICE]
+        if password:
+            args.extend(["password", password])
+        run_nmcli(*args, timeout=55)
+        # nmcli peut rendre la main avant que l'état actif soit stabilisé.
+        # On ne valide jamais l'EtR tant que wlan0 n'a pas réellement quitté
+        # le hotspot pour une connexion Wi-Fi active.
+        deadline = time.monotonic() + 25
+        connected_name = ""
+        while time.monotonic() < deadline:
+            state = active_connection()
+            if state["wifi"] and not state["hotspot"]:
+                connected_name = str(state["wifi"])
+                break
+            time.sleep(1)
+        if not connected_name:
+            raise RuntimeError("le réseau n'a pas confirmé la connexion")
+        mark_commissioned()
+        return jsonify({
+            "ok": True,
+            "ssid": ssid,
+            "redirect": "http://127.0.0.1:8000",
+        })
+    except Exception as exc:
+        # Une clé refusée peut couper le hotspot de configuration. Sa
+        # restauration en arrière-plan permet de réessayer sans ordinateur.
+        threading.Thread(target=restore_hotspot_after_failure, daemon=True).start()
+        return jsonify({"error": f"Connexion refusée : {exc}"}), 400
+
+
+if __name__ == "__main__":
+    threading.Thread(target=bootstrap_network, daemon=True).start()
+    APP.run(host="0.0.0.0", port=PORT, threaded=True)
+,'€','£','~','|'],['[',']','{','}','<','>','(',')'],['ABC','Espace','⌫','Fermer']]}else{const a=keyShift?'AZERTYUIOP':'azertyuiop',b=keyShift?'QSDFGHJKLM':'qsdfghjklm',c=keyShift?'WXCVBN':'wxcvbn';rows=[[...a],[...b],[...c],['Maj','123/@','Espace','⌫','Fermer']]}rows.forEach(row=>{const line=document.createElement('div');line.className='keyrow';row.forEach(k=>line.appendChild(keyButton(k,k,['Effacer','Espace','Fermer','123/@'].includes(k))));keyboard.appendChild(line)});keyboard.hidden=false}
 function keyPress(k){if(!keyTarget)return;if(k==='Fermer'){keyboard.hidden=true;keyTarget.blur();return}if(k==='Maj'){keyShift=!keyShift;drawKeyboard();return}if(k==='123/@'||k==='ABC'){keySymbols=!keySymbols;drawKeyboard();return}if(k==='⌫'){keyTarget.value=keyTarget.value.slice(0,-1)}else if(k==='Effacer'){keyTarget.value=''}else if(k==='Espace'){keyTarget.value+=' '}else{keyTarget.value+=k}keyTarget.dispatchEvent(new Event('input',{bubbles:true}));keyTarget.focus({preventScroll:true})}
 function offerKeyboard(input){input.addEventListener('focus',()=>{keyTarget=input;keySymbols=false;keyShift=false;drawKeyboard()});input.addEventListener('pointerdown',()=>{keyTarget=input;drawKeyboard()})}
 offerKeyboard(pin);offerKeyboard($('#password'));
