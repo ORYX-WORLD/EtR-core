@@ -43,8 +43,14 @@ sudo install -m 644 src/deploy/raspi/etr-vnc.service /etc/systemd/system/etr-vnc
 sudo install -m 644 src/deploy/raspi/etr-remote-screen.service /etc/systemd/system/etr-remote-screen.service
 
 # Protection de l'espace disque et jeton distinct du relais écran.
+sudo systemctl stop etr-remote-screen.service 2>/dev/null || true
 sudo install -d -m 755 -o oryx -g oryx /home/oryx/.local/bin
 sudo install -d -m 700 -o oryx -g oryx /var/lib/etr-core
+sudo rm -f /var/lib/etr-core/remote-screen-auth.tmp
+if [ -f /var/lib/etr-core/remote-screen-auth.json ]; then
+  sudo chown oryx:oryx /var/lib/etr-core/remote-screen-auth.json
+  sudo chmod 600 /var/lib/etr-core/remote-screen-auth.json
+fi
 sudo install -m 755 src/deploy/raspi/etr-storage-maintenance.sh /home/oryx/.local/bin/etr-storage-maintenance.sh
 echo '*/15 * * * * oryx /home/oryx/.local/bin/etr-storage-maintenance.sh' | \
   sudo tee /etc/cron.d/etr-storage-maintenance >/dev/null

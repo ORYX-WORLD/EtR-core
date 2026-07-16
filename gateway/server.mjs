@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import admin from "firebase-admin";
+import { createFirebaseIdTokenVerifier } from "./firebase-token-verifier.mjs";
 import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = Number(process.env.PORT || 8080);
@@ -16,9 +17,14 @@ const ALLOWED_ORIGINS = new Set(
 const DATABASE_URL =
   process.env.FIREBASE_DATABASE_URL ||
   "https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app";
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "oryx-froid-industriel";
 
 admin.initializeApp({ credential: admin.credential.applicationDefault(), databaseURL: DATABASE_URL });
 const db = admin.database();
+const verifyFirebaseIdToken = createFirebaseIdTokenVerifier({
+  projectId: FIREBASE_PROJECT_ID,
+  auth: admin.auth()
+});
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
@@ -50,8 +56,7 @@ function bearer(req) {
 }
 
 async function verifyIdToken(token) {
-  if (!token) throw Object.assign(new Error("Jeton manquant"), { status: 401 });
-  return admin.auth().verifyIdToken(token, true);
+  return verifyFirebaseIdToken(token);
 }
 
 async function clientCanView(decoded, installationId) {
