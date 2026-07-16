@@ -23,7 +23,14 @@ admin.initializeApp({ credential: admin.credential.applicationDefault(), databas
 const db = admin.database();
 const verifyFirebaseIdToken = createFirebaseIdTokenVerifier({
   projectId: FIREBASE_PROJECT_ID,
-  auth: admin.auth()
+  databaseURL: DATABASE_URL,
+  auth: admin.auth(),
+  onFallback: (error) => {
+    console.warn("Firebase JWKS unavailable; using Realtime Database token validation", {
+      code: error?.code || "",
+      message: error?.message || ""
+    });
+  }
 });
 const app = express();
 const server = http.createServer(app);

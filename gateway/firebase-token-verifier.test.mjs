@@ -82,3 +82,55 @@ test("rejects a token for another Firebase project", async () => {
     return true;
   });
 });
+
+
+test("falls back to Realtime Database when Google refuses the JWKS response", async () => {
+  const requests = [];
+  const verify = createFirebaseIdTokenVerifier({
+    projectId,
+    databaseURL: "https://example-default-rtdb.europe-west1.firebasedatabase.app",
+    jwks: async () => {
+      throw Object.assign(
+        new Error("Expected 200 OK from the JSON Web Key Set HTTP response"),
+        { code: "ERR_JOSE_GENERIC" }
+      );
+    },
+    fetchImpl: async (url) => {
+      requests.push(String(url));
+      return { ok: true, status: 200 };
+    },
+    auth: {
+      getUser: async () => {
+        throw new Error("getUser must not be called in fallback mode");
+      }
+    }
+  });
+
+  const decoded = await verify(await token());
+  assert.equal(decoded.uid, "device-uid");
+  assert.equal(requests.length, 1);
+  const requestUrl = new URL(requests[0]);
+  assert.equal(requestUrl.pathname, "/deviceAccess/device-uid.json");
+  assert.equal(requestUrl.searchParams.get("auth")?.split(".").length, 3);
+});
+
+test("rejects a token refused by Realtime Database fallback", async () => {
+  const verify = createFirebaseIdTokenVerifier({
+    projectId,
+    databaseURL: "https://example-default-rtdb.europe-west1.firebasedatabase.app",
+    jwks: async () => {
+      throw Object.assign(
+        new Error("Expected 200 OK from the JSON Web Key Set HTTP response"),
+        { code: "ERR_JOSE_GENERIC" }
+      );
+    },
+    fetchImpl: async () => ({ ok: false, status: 401 }),
+    auth: { getUser: async () => ({ disabled: false }) }
+  });
+
+  await assert.rejects(verify(await token()), (error) => {
+    assert.equal(error.status, 401);
+    assert.equal(error.code, "auth/realtime-database-401");
+    return true;
+  });
+});
