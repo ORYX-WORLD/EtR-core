@@ -1,0 +1,58 @@
+name: Déployer la passerelle distante EtR
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: Région Cloud Run
+        required: false
+        default: europe-west1
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authentification Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Installer Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Construire et déployer
+        shell: bash
+        env:
+          PROJECT_ID: oryx-froid-industriel
+          REGION: ${{ inputs.region }}
+        run: |
+          set -euo pipefail
+          gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+          gcloud run deploy etr-remote-gateway \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --source=gateway \
+            --allow-unauthenticated \
+            --min-instances=1 \
+            --max-instances=1 \
+            --concurrency=80 \
+            --timeout=3600 \
+            --set-env-vars="ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app,FIREBASE_DATABASE_URL=https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app"
+
+      - name: Publier l’URL
+        shell: bash
+        env:
+          PROJECT_ID: oryx-froid-industriel
+          REGION: ${{ inputs.region }}
+        run: |
+          set -euo pipefail
+          url=$(gcloud run services describe etr-remote-gateway --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)')
+          echo "Passerelle EtR : $url" >> "$GITHUB_STEP_SUMMARY"
+          curl -fsS "$url/healthz"
