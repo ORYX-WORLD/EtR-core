@@ -147,6 +147,9 @@ try{
 });
 
 server.on("upgrade", async (req, socket, head) => {
+  console.log("WebSocket upgrade received", {
+    path: String(req.url || "").split("?")[0]
+  });
   try {
     const url = new URL(req.url, "http://gateway.local");
     if (url.pathname === "/device") {
