@@ -18,6 +18,7 @@ const DATABASE_URL =
   process.env.FIREBASE_DATABASE_URL ||
   "https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app";
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "oryx-froid-industriel";
+const VNC_OPEN_TIMEOUT_MS = Math.max(3_000, Number(process.env.VNC_OPEN_TIMEOUT_MS || 15_000));
 
 admin.initializeApp({ credential: admin.credential.applicationDefault(), databaseURL: DATABASE_URL });
 const db = admin.database();
@@ -96,7 +97,13 @@ app.use((req, res, next) => {
 });
 
 app.get("/healthz", (_req, res) => {
-  res.json({ ok: true, devices: devices.size });
+  let viewers = 0;
+  let readyViewers = 0;
+  for (const device of devices.values()) {
+    if (device.viewer?.readyState === WebSocket.OPEN) viewers += 1;
+    if (device.viewer?.vncReady === true) readyViewers += 1;
+  }
+  res.json({ ok: true, devices: devices.size, viewers, readyViewers });
 });
 
 app.post("/api/remote-session", async (req, res) => {
@@ -222,13 +229,94 @@ server.on("upgrade", async (req, socket, head) => {
 wss.on("connection", (ws) => {
   ws.on("pong", () => { ws.isAlive = true; });
   if (ws.kind === "client") {
-    ws.device.send(JSON.stringify({ type: "open" }));
+    ws.sessionId = crypto.randomBytes(12).toString("base64url");
+    ws.vncReady = false;
+    console.log("Remote viewer connected", {
+      installationId: ws.installationId,
+      sessionId: ws.sessionId
+    });
+    ws.openTimer = setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN || ws.vncReady) return;
+      console.error("Remote VNC open timed out", {
+        installationId: ws.installationId,
+        sessionId: ws.sessionId
+      });
+      ws.close(4004, "Le Raspberry n'a pas ouvert VNC");
+    }, VNC_OPEN_TIMEOUT_MS);
+    ws.device.send(
+      JSON.stringify({ type: "open", sessionId: ws.sessionId }),
+      (error) => {
+        if (error) {
+          console.error("Remote VNC open command failed", {
+            installationId: ws.installationId,
+            sessionId: ws.sessionId,
+            message: error.message
+          });
+          if (ws.readyState === WebSocket.OPEN) ws.close(4004, "Commande VNC non transmise");
+          return;
+        }
+        console.log("Remote VNC open command sent", {
+          installationId: ws.installationId,
+          sessionId: ws.sessionId
+        });
+      }
+    );
   }
 
   ws.on("message", (data, isBinary) => {
     if (ws.kind === "device") {
       const viewer = ws.viewer;
-      if (isBinary && viewer && viewer.readyState === WebSocket.OPEN) viewer.send(data, { binary: true });
+      if (isBinary) {
+        if (viewer && viewer.readyState === WebSocket.OPEN) {
+          if (!viewer.firstVncPayloadReceived) {
+            viewer.firstVncPayloadReceived = true;
+            console.log("Remote VNC first payload received", {
+              installationId: ws.installationId,
+              sessionId: viewer.sessionId,
+              bytes: data.length
+            });
+          }
+          viewer.send(data, { binary: true });
+        }
+        return;
+      }
+
+      let message;
+      try {
+        message = JSON.parse(data.toString());
+      } catch {
+        console.warn("Remote device sent invalid control message", {
+          installationId: ws.installationId
+        });
+        return;
+      }
+      if (!viewer || viewer.readyState !== WebSocket.OPEN) return;
+      if (message.sessionId && message.sessionId !== viewer.sessionId) {
+        console.warn("Remote device response belongs to another session", {
+          installationId: ws.installationId,
+          expectedSessionId: viewer.sessionId,
+          receivedSessionId: message.sessionId
+        });
+        return;
+      }
+      if (message.type === "ready") {
+        viewer.vncReady = true;
+        clearTimeout(viewer.openTimer);
+        console.log("Remote VNC ready", {
+          installationId: ws.installationId,
+          sessionId: viewer.sessionId,
+          host: message.host || "",
+          port: message.port || ""
+        });
+      } else if (message.type === "error") {
+        clearTimeout(viewer.openTimer);
+        console.error("Remote VNC refused by device", {
+          installationId: ws.installationId,
+          sessionId: viewer.sessionId,
+          message: String(message.message || "Erreur VNC locale").slice(0, 240)
+        });
+        viewer.close(4005, "VNC local indisponible");
+      }
       return;
     }
     if (ws.kind === "client" && isBinary && ws.device?.readyState === WebSocket.OPEN) {
@@ -237,12 +325,13 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
+    if (ws.openTimer) clearTimeout(ws.openTimer);
     if (ws.kind === "device") {
       if (devices.get(ws.installationId) === ws) devices.delete(ws.installationId);
       if (ws.viewer?.readyState === WebSocket.OPEN) ws.viewer.close(4003, "EtR déconnecté");
     } else if (ws.kind === "client" && ws.device?.readyState === WebSocket.OPEN) {
       if (ws.device.viewer === ws) ws.device.viewer = null;
-      ws.device.send(JSON.stringify({ type: "close" }));
+      ws.device.send(JSON.stringify({ type: "close", sessionId: ws.sessionId }));
     }
   });
 });

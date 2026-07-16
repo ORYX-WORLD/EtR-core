@@ -15,32 +15,45 @@ from firebase_bridge import INSTALLATION_ID, authenticate
 
 LOG = logging.getLogger("etr.remote-screen")
 LOCAL_VNC_HOST = os.getenv("ETR_LOCAL_VNC_HOST", "127.0.0.1")
-LOCAL_VNC_PORT = int(os.getenv("ETR_LOCAL_VNC_PORT", "5900"))
+LOCAL_VNC_PORT = int(os.getenv("ETR_LOCAL_VNC_PORT", "5901"))
 GATEWAY = os.getenv("ETR_REMOTE_GATEWAY_WSS", "").strip()
 
 
 async def relay_vnc(ws):
     reader = writer = None
     reader_task = None
+    active_session_id = None
 
-    async def close_local():
-        nonlocal reader, writer, reader_task
+    async def close_local(reason="requested"):
+        nonlocal reader, writer, reader_task, active_session_id
+        had_connection = writer is not None
         if reader_task:
             reader_task.cancel()
-            with suppress(asyncio.CancelledError):
+            with suppress(asyncio.CancelledError, ConnectionError, OSError):
                 await reader_task
         if writer:
             writer.close()
             with suppress(Exception):
                 await writer.wait_closed()
         reader = writer = reader_task = None
+        if had_connection:
+            LOG.info("VNC local fermé (%s), session %s", reason, active_session_id or "sans identifiant")
+        active_session_id = None
 
-    async def local_to_gateway():
+    async def local_to_gateway(session_id):
         assert reader is not None
+        first_payload = True
         while True:
             chunk = await reader.read(64 * 1024)
             if not chunk:
                 raise ConnectionError("local VNC disconnected")
+            if first_payload:
+                LOG.info(
+                    "Premier flux VNC local transmis (%d octets), session %s",
+                    len(chunk),
+                    session_id or "sans identifiant",
+                )
+                first_payload = False
             await ws.send(chunk)
 
     try:
@@ -49,23 +62,59 @@ async def relay_vnc(ws):
                 try:
                     command = json.loads(payload)
                 except json.JSONDecodeError:
+                    LOG.warning("Commande distante JSON invalide ignorée")
                     continue
                 if command.get("type") == "open":
-                    await close_local()
+                    session_id = str(command.get("sessionId") or "")
+                    LOG.info(
+                        "Commande d'ouverture VNC reçue pour %s:%d, session %s",
+                        LOCAL_VNC_HOST,
+                        LOCAL_VNC_PORT,
+                        session_id or "sans identifiant",
+                    )
+                    await close_local("nouvelle session")
                     try:
                         reader, writer = await asyncio.open_connection(LOCAL_VNC_HOST, LOCAL_VNC_PORT)
-                        reader_task = asyncio.create_task(local_to_gateway())
-                        await ws.send(json.dumps({"type": "ready"}))
+                        active_session_id = session_id
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "type": "ready",
+                                    "sessionId": session_id,
+                                    "host": LOCAL_VNC_HOST,
+                                    "port": LOCAL_VNC_PORT,
+                                }
+                            )
+                        )
+                        reader_task = asyncio.create_task(local_to_gateway(session_id))
+                        LOG.info(
+                            "VNC local connecté à %s:%d, session %s",
+                            LOCAL_VNC_HOST,
+                            LOCAL_VNC_PORT,
+                            session_id or "sans identifiant",
+                        )
                     except OSError as exc:
-                        LOG.warning("VNC local indisponible: %s", exc)
-                        await ws.send(json.dumps({"type": "error", "message": "VNC local indisponible"}))
+                        LOG.warning("VNC local %s:%d indisponible: %s", LOCAL_VNC_HOST, LOCAL_VNC_PORT, exc)
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "type": "error",
+                                    "sessionId": session_id,
+                                    "message": f"VNC local {LOCAL_VNC_HOST}:{LOCAL_VNC_PORT} indisponible",
+                                }
+                            )
+                        )
                 elif command.get("type") == "close":
-                    await close_local()
+                    LOG.info(
+                        "Commande de fermeture VNC reçue, session %s",
+                        command.get("sessionId") or "sans identifiant",
+                    )
+                    await close_local("viewer fermé")
             elif writer is not None:
                 writer.write(payload)
                 await writer.drain()
     finally:
-        await close_local()
+        await close_local("passerelle déconnectée")
 
 
 async def run_forever():
