@@ -3,8 +3,7 @@ Description=EtR kiosk (Chromium on SPI)
 Requires=etr-dashboard.service spi-desktop.service etr-wifi-portal.service
 After=etr-dashboard.service spi-desktop.service etr-wifi-portal.service
 PartOf=spi-desktop.service
-StartLimitIntervalSec=180
-StartLimitBurst=10
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -15,7 +14,7 @@ Environment=DISPLAY=:1
 Environment=XAUTHORITY=/home/oryx/.Xauthority
 ExecStart=/usr/local/bin/etr-kiosk.sh
 Restart=always
-RestartSec=3
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
