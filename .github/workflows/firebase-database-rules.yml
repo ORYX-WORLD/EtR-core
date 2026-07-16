@@ -77,7 +77,8 @@ jobs:
           npx --yes firebase-tools@15.24.0 deploy \
             --only database \
             --project="$FIREBASE_PROJECT_ID" \
-            --non-interactive
+            --non-interactive \
+            --debug
 
       - name: Vérifier que les lectures anonymes restent interdites
         shell: bash
