@@ -6,8 +6,8 @@ Wants=network-online.target etr-vnc.service
 [Service]
 Type=simple
 EnvironmentFile=-/etc/etr-core/firebase-bridge.env
-WorkingDirectory=/opt/etr-core/src
-ExecStart=/opt/etr-core/.venv/bin/python /opt/etr-core/src/remote_screen_agent.py
+WorkingDirectory=/home/oryx/EtR-core/src
+ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/remote_screen_agent.py
 Restart=always
 RestartSec=5
 User=oryx
