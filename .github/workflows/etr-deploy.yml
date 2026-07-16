@@ -154,11 +154,19 @@ jobs:
             fail_check "Kiosque non activé" "etr-kiosk.service n'est pas activé au démarrage"
           fi
           wait_for_service etr-kiosk.service
-          if ! pgrep -u oryx -f 'chromium.*etr-kiosk-chromium' >/dev/null; then
+          chromium_ready=false
+          for attempt in $(seq 1 30); do
+            if pgrep -u oryx -f 'chromium.*etr-kiosk-chromium' >/dev/null; then
+              chromium_ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$chromium_ready" != true ]; then
             sudo systemctl status etr-kiosk.service --no-pager -l || true
             sudo journalctl -u etr-kiosk.service -n 80 --no-pager || true
             ps -ef | grep '[c]hromium' || true
-            fail_check "Chromium kiosque absent" "Aucun processus Chromium avec le profil etr-kiosk-chromium"
+            fail_check "Chromium kiosque absent" "Aucun processus Chromium avec le profil etr-kiosk-chromium après 60 secondes"
           fi
           echo "Portail Wi-Fi tactile sans clavier physique : opérationnel"
 
