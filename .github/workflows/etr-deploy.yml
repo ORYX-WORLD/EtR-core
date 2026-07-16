@@ -1,5 +1,5 @@
 name: Déployer le parcours Wi-Fi EtR
-# Déploiement physique révision 8
+# Déploiement physique révision 9
 
 on:
   workflow_dispatch:
@@ -84,6 +84,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 -m py_compile \
+            /home/oryx/EtR-core/src/wifi_portal.py \
+            /home/oryx/EtR-core/src/remote_screen_agent.py
           sudo -u oryx -H bash /home/oryx/EtR-core/src/deploy/raspi/setup_etr.sh
 
       - name: Vérifier le fonctionnement
@@ -113,7 +116,10 @@ jobs:
           grep -q "Connecter cet EtR" <<<"$portal_html"
           grep -q "Afficher la clé" <<<"$portal_html"
           grep -q "123" <<<"$portal_html"
+          grep -q "Vérifiez la clé puis appuyez sur Se connecter pour réessayer" <<<"$portal_html"
           sudo systemctl is-enabled --quiet etr-kiosk.service
+          sudo systemctl is-active --quiet etr-kiosk.service
+          pgrep -u oryx -f 'chromium.*etr-kiosk-chromium' >/dev/null
           echo "Portail Wi-Fi tactile sans clavier physique : opérationnel"
 
           if grep -q '^ETR_REMOTE_GATEWAY_WSS=.' /etc/etr-core/firebase-bridge.env 2>/dev/null; then
