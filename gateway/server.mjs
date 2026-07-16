@@ -159,6 +159,7 @@ server.on("upgrade", async (req, socket, head) => {
       return;
     }
     if (url.pathname === "/client") {
+      if (!originAllowed(req.headers.origin)) throw Object.assign(new Error("Origine refusée"), { status: 403 });
       const ticketValue = String(url.searchParams.get("ticket") || "");
       const session = tickets.get(ticketValue);
       tickets.delete(ticketValue);
@@ -193,11 +194,11 @@ wss.on("connection", (ws) => {
   ws.on("message", (data, isBinary) => {
     if (ws.kind === "device") {
       const viewer = ws.viewer;
-      if (viewer && viewer.readyState === WebSocket.OPEN) viewer.send(data, { binary: isBinary });
+      if (isBinary && viewer && viewer.readyState === WebSocket.OPEN) viewer.send(data, { binary: true });
       return;
     }
-    if (ws.kind === "client" && ws.device?.readyState === WebSocket.OPEN) {
-      ws.device.send(data, { binary: isBinary });
+    if (ws.kind === "client" && isBinary && ws.device?.readyState === WebSocket.OPEN) {
+      ws.device.send(data, { binary: true });
     }
   });
 
