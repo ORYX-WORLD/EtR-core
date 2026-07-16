@@ -42,6 +42,16 @@ fi
 
 install -d -m 700 /home/oryx/.cache/etr-kiosk-chromium
 
+# Un ancien Chromium peut survivre à un redémarrage de service et conserver le
+# profil kiosque. Le nouveau processus quitterait alors immédiatement en
+# laissant apparaître le bureau Linux.
+pkill -TERM -u oryx -f '[c]hromium.*etr-kiosk-chromium' 2>/dev/null || true
+sleep 2
+pkill -KILL -u oryx -f '[c]hromium.*etr-kiosk-chromium' 2>/dev/null || true
+rm -f /home/oryx/.cache/etr-kiosk-chromium/SingletonCookie \
+      /home/oryx/.cache/etr-kiosk-chromium/SingletonLock \
+      /home/oryx/.cache/etr-kiosk-chromium/SingletonSocket
+
 exec /usr/bin/chromium \
   --kiosk \
   --ozone-platform=x11 \
