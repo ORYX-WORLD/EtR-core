@@ -1,0 +1,14 @@
+[Unit]
+Description=EtR local VNC screen source
+After=graphical.target display-manager.service
+Wants=graphical.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/x11vnc -display :0 -auth guess -localhost -forever -shared -nopw -rfbport 5900 -noxdamage
+Restart=always
+RestartSec=3
+User=oryx
+
+[Install]
+WantedBy=graphical.target
