@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import socket
 import subprocess
 import threading
 import time
@@ -183,6 +184,15 @@ def active_connection() -> dict[str, Any]:
         "commissioned": COMMISSIONED_FILE.exists(),
     }
 
+def dashboard_ready() -> bool:
+    """Vérifie localement que le tableau EtR répond avant de l'afficher."""
+    try:
+        with socket.create_connection(("127.0.0.1", 8000), timeout=1.5):
+            return True
+    except OSError:
+        return False
+
+
 
 def mark_commissioned() -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -235,7 +245,8 @@ button{border:0;border-radius:99px;padding:12px 18px;font-weight:850;cursor:poin
 .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.networks{display:grid;gap:10px;margin-top:14px}.network{width:100%;border-radius:15px;background:#071d2e;border:1px solid var(--line);color:var(--text);display:grid;grid-template-columns:1fr auto;gap:8px;text-align:left;padding:13px 15px}.network strong{display:block}.network small{color:var(--muted)}
 .network.selected{outline:2px solid var(--cyan)}.signal{color:var(--cyan)}.message{min-height:1.5em;color:var(--muted)}.warning{color:#ffd28a}.secret{display:none}.local-code{border-left:3px solid var(--cyan);padding-left:12px;color:var(--muted)}
 .keyboard{position:sticky;bottom:8px;z-index:20;margin-top:18px;padding:10px;background:#03101bd9;border:1px solid var(--line);border-radius:16px;backdrop-filter:blur(12px)}.keyrow{display:flex;justify-content:center;gap:6px;margin:6px 0}.key{min-width:42px;min-height:44px;padding:8px 10px;border-radius:10px;background:#13344c;color:var(--text);border:1px solid #2d607d}.key.wide{min-width:86px}.key.active{outline:2px solid var(--cyan)}
-@media(max-width:520px){main{padding-top:20px}.card{padding:16px;border-radius:17px}.actions button{width:100%}}
+.dashboard-shell{position:fixed;inset:0;z-index:50;background:#041321}.dashboard-shell iframe{width:100%;height:100%;border:0;background:#041321}.network-settings{position:fixed;z-index:51;right:18px;top:18px;background:#0c263bee;color:var(--text);border:1px solid var(--cyan);box-shadow:0 8px 30px #0008}
+@media(max-width:520px){main{padding-top:20px}.card{padding:16px;border-radius:17px}.actions button{width:100%}.network-settings{width:auto!important;right:10px;top:10px;padding:10px 14px}}
 </style></head><body><main>
 <div class="brand"><span>ORYX</span> · EtR PROJECT</div><h1>Connecter cet EtR</h1>
 <p class="intro">Ethernet est prioritaire. Pour utiliser le Wi-Fi, choisissez un réseau puis saisissez sa clé. La clé reste uniquement dans NetworkManager sur cet EtR.</p>
@@ -247,12 +258,20 @@ button{border:0;border-radius:99px;padding:12px 18px;font-weight:850;cursor:poin
 <label for="password">Clé Wi-Fi</label><input id="password" type="password" autocomplete="new-password" placeholder="WPA2 / WPA3">
 <div class="actions"><button type="submit">Se connecter</button><button type="button" id="cancel" class="secondary">Annuler</button></div></form></section>
 <section id="keyboard" class="keyboard" hidden aria-label="Clavier tactile"></section>
-</main><script>
-const $=s=>document.querySelector(s), pin=$('#pin'), msg=$('#message'), networks=$('#networks'), credentials=$('#credentials'), keyboard=$('#keyboard');let keyTarget=null,keyShift=false,keySymbols=false;
+</main>
+<section id="dashboardShell" class="dashboard-shell" hidden aria-label="Tableau de bord EtR">
+  <iframe id="dashboardFrame" title="Écran de supervision EtR" src="about:blank"></iframe>
+  <button id="networkSettings" class="network-settings" type="button">Réseau</button>
+</section>
+<script>
+const $=s=>document.querySelector(s), pin=$('#pin'), msg=$('#message'), networks=$('#networks'), credentials=$('#credentials'), keyboard=$('#keyboard'), dashboardShell=$('#dashboardShell'), dashboardFrame=$('#dashboardFrame');let keyTarget=null,keyShift=false,keySymbols=false;
 async function api(path,options={}){const body=options.body?JSON.parse(options.body):{};body.pin=pin.value.trim();options.body=options.body?JSON.stringify(body):undefined;options.headers={'Content-Type':'application/json',...(options.headers||{})};const r=await fetch(path,options);const data=await r.json();if(!r.ok)throw new Error(data.error||'Opération impossible');return data}
 function showStatus(s){const items=[];items.push(`<span class="pill ${s.online?'ok':''}">${s.online?'En ligne':'Hors ligne'}</span>`);if(s.ethernet)items.push('<span class="pill ok">Ethernet connecté</span>');if(s.wifi)items.push(`<span class="pill ok">Wi-Fi : ${esc(s.wifi)}</span>`);if(s.hotspot)items.push('<span class="pill">Mode configuration actif</span>');if(s.commissioned)items.push('<span class="pill ok">EtR configuré</span>');$('#status').innerHTML=items.join('');$('#useEthernet').hidden=!s.ethernet||s.commissioned}
 function esc(v){const d=document.createElement('div');d.textContent=v;return d.innerHTML}
-async function status(){try{const s=await api('/api/status');showStatus(s);if(s.commissioned&&s.online&&!s.hotspot&&location.hostname==='127.0.0.1')setTimeout(()=>location.href='http://127.0.0.1:8000',1200)}catch(e){msg.textContent=e.message}}
+async function dashboardIsReady(){try{const r=await fetch('/api/dashboard-ready',{cache:'no-store'});if(!r.ok)return false;return !!(await r.json()).ready}catch(e){return false}}
+function showDashboard(){keyboard.hidden=true;dashboardFrame.src='http://127.0.0.1:8000';dashboardShell.hidden=false}
+async function waitDashboard(retry=false){const attempts=retry?40:1;for(let i=0;i<attempts;i++){if(await dashboardIsReady()){showDashboard();return true}if(retry){msg.textContent='Connexion confirmée. Démarrage du tableau EtR…';await new Promise(r=>setTimeout(r,1000))}}msg.textContent='Le réseau est connecté. Le tableau EtR démarre encore : vous pouvez réessayer avec Actualiser.';return false}
+async function status(){try{const s=await api('/api/status');showStatus(s);if(s.commissioned&&s.online&&!s.hotspot&&location.hostname==='127.0.0.1')await waitDashboard(false)}catch(e){msg.textContent=e.message}}
 async function localInfo(){try{const r=await fetch('/api/local-info');if(!r.ok)return;const d=await r.json();pin.value=d.pin;$('#localCode').hidden=false;$('#localCode').textContent=`Réseau temporaire : ${d.hotspotSsid} · clé : ${d.hotspotPassword} · code : ${d.pin}`;}catch(e){}}
 async function scan(){msg.textContent='Recherche en cours…';networks.innerHTML='';try{const list=await api('/api/networks');list.forEach(n=>{const b=document.createElement('button');b.type='button';b.className='network';b.innerHTML=`<span><strong>${esc(n.ssid)}</strong><small>${esc(n.security)}${n.connected?' · connecté':''}</small></span><span class="signal">${n.signal}%</span>`;b.onclick=()=>selectNetwork(n,b);networks.appendChild(b)});msg.textContent=list.length?`${list.length} réseau(x) détecté(s).`:'Aucun réseau détecté.'}catch(e){msg.textContent=e.message}}
 function selectNetwork(n,b){document.querySelectorAll('.network').forEach(x=>x.classList.remove('selected'));b.classList.add('selected');$('#ssid').value=n.ssid;$('#security').value=n.security;$('#chosen').textContent=n.ssid;const open=n.security==='Ouvert'||n.security==='--';$('#password').disabled=open;$('#password').placeholder=open?'Réseau ouvert':'Clé WPA2 / WPA3';credentials.classList.remove('secret');credentials.scrollIntoView({behavior:'smooth'})}
@@ -262,8 +281,9 @@ function keyPress(k){if(!keyTarget)return;if(k==='Fermer'){keyboard.hidden=true;
 function offerKeyboard(input){input.addEventListener('focus',()=>{keyTarget=input;keySymbols=false;keyShift=false;drawKeyboard()});input.addEventListener('pointerdown',()=>{keyTarget=input;drawKeyboard()})}
 offerKeyboard(pin);offerKeyboard($('#password'));
 $('#scan').onclick=scan;$('#refresh').onclick=status;$('#cancel').onclick=()=>credentials.classList.add('secret');
-$('#useEthernet').onclick=async()=>{msg.textContent='Validation de la connexion Ethernet…';try{await api('/api/complete',{method:'POST',body:'{}'});msg.textContent='EtR configuré. Ouverture du tableau de bord…';setTimeout(()=>location.href='http://127.0.0.1:8000',900)}catch(e){msg.textContent=e.message}};
-$('#connect').onsubmit=async e=>{e.preventDefault();msg.textContent='Connexion en cours…';const payload={ssid:$('#ssid').value,password:$('#password').value,security:$('#security').value,pin:pin.value.trim()};try{const result=await api('/api/connect',{method:'POST',body:JSON.stringify(payload)});$('#password').value='';keyboard.hidden=true;msg.textContent='Connexion Wi-Fi confirmée. Ouverture du tableau EtR…';setTimeout(()=>location.replace(result.redirect||'http://127.0.0.1:8000'),1200)}catch(err){msg.textContent=err.message;setTimeout(status,2500)}};
+$('#useEthernet').onclick=async()=>{msg.textContent='Validation de la connexion Ethernet…';try{await api('/api/complete',{method:'POST',body:'{}'});msg.textContent='EtR configuré. Démarrage du tableau de bord…';await waitDashboard(true)}catch(e){msg.textContent=e.message}};
+$('#connect').onsubmit=async e=>{e.preventDefault();msg.textContent='Connexion en cours…';const payload={ssid:$('#ssid').value,password:$('#password').value,security:$('#security').value,pin:pin.value.trim()};try{await api('/api/connect',{method:'POST',body:JSON.stringify(payload)});$('#password').value='';keyboard.hidden=true;msg.textContent='Connexion Wi-Fi confirmée. Démarrage du tableau EtR…';await waitDashboard(true)}catch(err){msg.textContent=err.message;setTimeout(status,2500)}};
+$('#networkSettings').onclick=()=>{dashboardShell.hidden=true;dashboardFrame.src='about:blank';status()};
 localInfo().then(status);
 </script></body></html>
 """
@@ -285,6 +305,11 @@ def local_info():
 def status():
     # L'état n'expose ni mot de passe, ni numéro de série brut.
     return jsonify(active_connection())
+
+
+@APP.get("/api/dashboard-ready")
+def dashboard_status():
+    return jsonify({"ready": dashboard_ready()})
 
 
 @APP.get("/api/networks")
