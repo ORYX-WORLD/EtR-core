@@ -1,14 +1,21 @@
 [Unit]
 Description=EtR local VNC screen source
-After=graphical.target display-manager.service
-Wants=graphical.target
+After=spi-desktop.service
+Requires=spi-desktop.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/x11vnc -display :0 -auth guess -localhost -forever -shared -nopw -rfbport 5900 -noxdamage
+Environment=DISPLAY=:1
+Environment=XAUTHORITY=/home/oryx/.Xauthority
+ExecStart=/usr/bin/x11vnc -display :1 -auth /home/oryx/.Xauthority -localhost -forever -shared -nopw -rfbport 5900 -noxdamage
 Restart=always
 RestartSec=3
 User=oryx
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 
 [Install]
-WantedBy=graphical.target
+WantedBy=multi-user.target
