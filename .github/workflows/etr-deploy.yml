@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   deploy:
@@ -141,7 +141,6 @@ jobs:
             fail_check "API Wi-Fi indisponible" "http://127.0.0.1:8090/api/status ne répond pas"
           fi
           python3 -m json.tool /tmp/etr-wifi-status.json
-
           if ! portal_html=$(curl -fsS http://127.0.0.1:8090/); then
             fail_check "Portail Wi-Fi indisponible" "http://127.0.0.1:8090/ ne répond pas"
           fi
@@ -192,22 +191,42 @@ jobs:
         shell: bash
         run: |
           set +e
-          mkdir -p .github/deployment
+          mkdir -p .artifacts
+          installed_commit=$(sudo -u oryx -H git -C /home/oryx/EtR-core rev-parse HEAD 2>/dev/null || echo unavailable)
+          python3 scripts/build_metadata.py \
+            --output .artifacts/etr-deployment-manifest.json \
+            --target raspberry-etr-core \
+            --status "${{ job.status }}" \
+            --commit "$installed_commit" \
+            --host "$(hostname)"
           {
             echo "date_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "job_status=${{ job.status }}"
             echo "host=$(hostname)"
-            echo "installed_commit=$(sudo -u oryx -H git -C /home/oryx/EtR-core rev-parse HEAD 2>/dev/null || echo unavailable)"
+            echo "installed_commit=$installed_commit"
             for service in etr.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service etr-vnc.service etr-remote-screen.service; do
               state=$(sudo systemctl show "$service" -p ActiveState -p SubState -p Result --no-pager 2>/dev/null | tr '\n' ',' | sed 's/,$//')
               echo "$service=$state"
             done
             echo "wifi_portal_http=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/ 2>/dev/null || echo 000)"
-          } > .github/deployment/etr-last-deploy.txt
+          } > .artifacts/service-status.txt
 
-          git config user.name "EtR deployment agent"
-          git config user.email "actions@users.noreply.github.com"
-          git add .github/deployment/etr-last-deploy.txt
-          git commit -m "chore: record EtR deployment result" || exit 0
-          git pull --rebase origin main
-          git push origin HEAD:main
+          {
+            echo "## Déploiement Raspberry EtR"
+            echo
+            echo "- Statut : **${{ job.status }}**"
+            echo "- Version : **$(tr -d '[:space:]' < VERSION)**"
+            echo "- Commit installé : \`$installed_commit\`"
+            echo "- Hôte : \`$(hostname)\`"
+            echo
+            echo "Le manifeste et l'état détaillé des services sont joints comme artefact immuable du run."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Archiver le registre de déploiement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etr-deployment-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .artifacts/
+          if-no-files-found: error
+          retention-days: 90

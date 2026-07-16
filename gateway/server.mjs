@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +18,13 @@ const ALLOWED_ORIGINS = new Set(
 const DATABASE_URL =
   process.env.FIREBASE_DATABASE_URL ||
   "https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const packageMetadata = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8"));
+const BUILD_VERSION = process.env.ETR_VERSION || packageMetadata.version || "unknown";
+const BUILD_COMMIT = String(
+  process.env.ETR_COMMIT || process.env.RENDER_GIT_COMMIT || process.env.GITHUB_SHA || "unknown"
+).slice(0, 40);
+const BUILD_DEPLOYED_AT = process.env.ETR_DEPLOYED_AT || process.env.RENDER_DEPLOY_ID || "unknown";
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "oryx-froid-industriel";
 const VNC_OPEN_TIMEOUT_MS = Math.max(3_000, Number(process.env.VNC_OPEN_TIMEOUT_MS || 15_000));
 
@@ -38,7 +46,6 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
 const devices = new Map();
 const tickets = new Map();
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "32kb" }));
@@ -103,7 +110,16 @@ app.get("/healthz", (_req, res) => {
     if (device.viewer?.readyState === WebSocket.OPEN) viewers += 1;
     if (device.viewer?.vncReady === true) readyViewers += 1;
   }
-  res.json({ ok: true, devices: devices.size, viewers, readyViewers });
+  res.json({
+    ok: true,
+    service: "etr-remote-gateway",
+    version: BUILD_VERSION,
+    commit: BUILD_COMMIT,
+    deployedAt: BUILD_DEPLOYED_AT,
+    devices: devices.size,
+    viewers,
+    readyViewers
+  });
 });
 
 app.post("/api/remote-session", async (req, res) => {

@@ -6,6 +6,7 @@ After=network-online.target
 User=oryx
 WorkingDirectory=/home/oryx/EtR-core
 Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=-/etc/etr-core/release.env
 ExecStart=/home/oryx/EtR-core/.venv/bin/python -m flask --app src/app.py run --host=0.0.0.0 --port=8080
 Restart=always
 

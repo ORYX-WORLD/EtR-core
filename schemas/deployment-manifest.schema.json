@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oryx-world.github.io/EtR-core/schemas/deployment-manifest.schema.json",
+  "title": "EtR deployment manifest",
+  "type": "object",
+  "required": ["schema_version", "project", "version", "commit", "target", "status", "deployed_at_utc", "host"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "project": { "const": "EtR-core" },
+    "version": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$" },
+    "commit": { "type": "string", "minLength": 7 },
+    "branch": { "type": "string" },
+    "target": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "minLength": 1 },
+    "deployed_at_utc": { "type": "string", "format": "date-time" },
+    "deployed_by": { "type": "string" },
+    "workflow_run_id": { "type": "string" },
+    "host": { "type": "string", "minLength": 1 }
+  }
+}
