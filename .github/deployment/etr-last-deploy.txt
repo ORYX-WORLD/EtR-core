@@ -1,11 +1,11 @@
-date_utc=2026-07-16T09:23:08Z
+date_utc=2026-07-16T09:44:36Z
 job_status=failure
 host=etr-core
-installed_commit=931274edee8eefce017af4179c6b6f38a3e11b76
+installed_commit=416d53292f4a9faf0c2f4e21f461ae6faa372c06
 etr.service=Result=success,ActiveState=active,SubState=running
 etr-wifi-portal.service=Result=success,ActiveState=active,SubState=running
 spi-desktop.service=Result=success,ActiveState=active,SubState=running
 etr-kiosk.service=Result=success,ActiveState=active,SubState=running
-etr-vnc.service=Result=exit-code,ActiveState=activating,SubState=auto-restart
+etr-vnc.service=Result=success,ActiveState=active,SubState=running
 etr-remote-screen.service=Result=success,ActiveState=active,SubState=running
 wifi_portal_http=200
