@@ -7,7 +7,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build:novnc": "esbuild node_modules/@novnc/novnc/lib/rfb.js --bundle --format=esm --platform=browser --outfile=public/rfb.js",
+    "build:novnc": "esbuild novnc-entry.mjs --bundle --format=esm --platform=browser --outfile=public/rfb-browser.js",
     "start": "node server.mjs",
     "test": "node --test"
   },
