@@ -8,6 +8,9 @@ on:
     paths:
       - .github/workflows/etr-deploy.yml
       - src/wifi_portal.py
+      - src/remote_screen_agent.py
+      - src/firebase_bridge.py
+      - gateway/**
       - src/deploy/raspi/**
       - requirements.txt
 
@@ -91,6 +94,21 @@ jobs:
           curl -fsS http://127.0.0.1:8090/ | grep -q "Connecter cet EtR"
           echo "Portail Wi-Fi tactile : opérationnel"
 
+          if grep -q '^ETR_REMOTE_GATEWAY_WSS=.' /etc/etr-core/firebase-bridge.env 2>/dev/null; then
+            for service in etr-vnc.service etr-remote-screen.service; do
+              sudo systemctl is-active --quiet "$service"
+              echo "$service : actif"
+            done
+            sudo ss -ltnp | grep -q '127.0.0.1:5900'
+            if sudo ss -ltnp | grep -qE '0\.0\.0\.0:5900|\[::\]:5900'; then
+              echo "Le port VNC ne doit pas être exposé" >&2
+              exit 1
+            fi
+            echo "Écran distant EtR : relais sortant opérationnel"
+          else
+            echo "Écran distant EtR : en attente de l'URL WSS de passerelle"
+          fi
+
       - name: Publier le compte rendu
         if: always()
         shell: bash
@@ -102,7 +120,7 @@ jobs:
             echo "job_status=${{ job.status }}"
             echo "host=$(hostname)"
             echo "installed_commit=$(sudo -u oryx -H git -C /home/oryx/EtR-core rev-parse HEAD 2>/dev/null || echo unavailable)"
-            for service in etr.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service; do
+            for service in etr.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service etr-vnc.service etr-remote-screen.service; do
               state=$(sudo systemctl show "$service" -p ActiveState -p SubState -p Result --no-pager 2>/dev/null | tr '\n' ',' | sed 's/,$//')
               echo "$service=$state"
             done
