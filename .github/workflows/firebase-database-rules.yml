@@ -2,6 +2,13 @@ name: Publier les règles Firebase Realtime Database
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/firebase-database-rules.yml
+      - firebase.json
+      - firebase/database.rules.json
   push:
     branches:
       - main
@@ -11,33 +18,46 @@ on:
       - firebase/database.rules.json
 
 concurrency:
-  group: firebase-database-rules-production
+  group: firebase-database-rules-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   FIREBASE_PROJECT_ID: oryx-froid-industriel
   FIREBASE_DATABASE_URL: https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app
 
 jobs:
-  deploy:
-    name: Valider et publier les règles
+  validate:
+    name: Valider la configuration Firebase
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
 
     steps:
       - name: Récupérer le dépôt
         uses: actions/checkout@v5
 
-      - name: Valider les fichiers de configuration
+      - name: Valider les fichiers JSON
         shell: bash
         run: |
           set -euo pipefail
           python3 -m json.tool firebase.json >/dev/null
           python3 -m json.tool firebase/database.rules.json >/dev/null
+
+  deploy:
+    name: Publier les règles
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v5
 
       - name: Authentification Google Cloud
         uses: google-github-actions/auth@v2
