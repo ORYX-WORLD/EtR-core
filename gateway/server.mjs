@@ -37,6 +37,13 @@ function originAllowed(origin) {
   return !origin || ALLOWED_ORIGINS.has(origin);
 }
 
+function viewerOriginAllowed(req) {
+  const origin = req.headers.origin || "";
+  if (originAllowed(origin)) return true;
+  const ownHttpsOrigin = `https://${req.headers.host || ""}`;
+  return origin === ownHttpsOrigin;
+}
+
 function bearer(req) {
   const value = req.headers.authorization || "";
   return value.startsWith("Bearer ") ? value.slice(7) : "";
@@ -159,7 +166,7 @@ server.on("upgrade", async (req, socket, head) => {
       return;
     }
     if (url.pathname === "/client") {
-      if (!originAllowed(req.headers.origin)) throw Object.assign(new Error("Origine refusée"), { status: 403 });
+      if (!viewerOriginAllowed(req)) throw Object.assign(new Error("Origine refusée"), { status: 403 });
       const ticketValue = String(url.searchParams.get("ticket") || "");
       const session = tickets.get(ticketValue);
       tickets.delete(ticketValue);
