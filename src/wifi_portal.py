@@ -172,7 +172,9 @@ def active_connection() -> dict[str, Any]:
             hotspot = name == HOTSPOT_NAME
             if not hotspot:
                 wifi_name = name
-    # Une connexion exploitable signifie ici une liaison active réelle, et non\n    # simplement que NetworkManager a terminé son démarrage.\n    online = ethernet or bool(wifi_name)
+    # Une connexion exploitable signifie ici une liaison active réelle, et non
+    # simplement que NetworkManager a terminé son démarrage.
+    online = ethernet or bool(wifi_name)
     return {
         "online": online,
         "ethernet": ethernet,
