@@ -9,6 +9,10 @@ EnvironmentFile=-/etc/etr-core/firebase-bridge.env
 Environment=ETR_LOCAL_VNC_PORT=5901
 Environment=ETR_TOKEN_FILE=/var/lib/etr-core/remote-screen-auth.json
 WorkingDirectory=/home/oryx/EtR-core/src
+# Le préfixe « + » exécute uniquement ces préparatifs avec les privilèges root,
+# même si l'agent principal reste isolé sous l'utilisateur oryx.
+ExecStartPre=+/usr/bin/install -d -o oryx -g oryx -m 700 /var/lib/etr-core
+ExecStartPre=+/bin/sh -c 'rm -f /var/lib/etr-core/remote-screen-auth.tmp; if [ -f /var/lib/etr-core/remote-screen-auth.json ]; then chown oryx:oryx /var/lib/etr-core/remote-screen-auth.json; chmod 600 /var/lib/etr-core/remote-screen-auth.json; fi'
 ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/remote_screen_agent.py
 Restart=always
 RestartSec=5
