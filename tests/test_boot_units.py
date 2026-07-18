@@ -55,6 +55,18 @@ class BootUnitDependencyTests(unittest.TestCase):
             "whenever the anti-blanking script raced X11 on cold boot.",
         )
 
+    def test_disable_blanking_exhausts_retries_without_failing(self):
+        script = (RASPI_DEPLOY_DIR / "etr-disable-blanking.sh").read_text(encoding="utf-8")
+        self.assertNotIn(
+            "exit 1",
+            script,
+            "etr-disable-blanking.sh must not exit 1 after exhausting its retries: "
+            "as an ExecStartPost, that failure used to be enough to mark "
+            "spi-desktop.service failed on cold boot even though the desktop "
+            "itself was still starting normally.",
+        )
+        self.assertIn("exit 0", script)
+
 
 if __name__ == "__main__":
     unittest.main()
