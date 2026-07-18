@@ -184,6 +184,61 @@ def active_connection() -> dict[str, Any]:
         "commissioned": COMMISSIONED_FILE.exists(),
     }
 
+
+def wifi_key_management(security: str) -> str:
+    """Return the NetworkManager key management for a scanned network."""
+    normalized = security.strip().upper()
+    if normalized in {"", "--", "OUVERT"}:
+        return ""
+    if ("SAE" in normalized or "WPA3" in normalized) and "WPA2" not in normalized:
+        return "sae"
+    return "wpa-psk"
+
+
+def is_enterprise_security(security: str) -> bool:
+    normalized = security.upper()
+    return "802.1X" in normalized or "802.1X" in normalized.replace("-", ".") or "EAP" in normalized
+
+
+def configure_wifi_connection(ssid: str, password: str, security: str) -> None:
+    """Create an explicit NetworkManager profile and activate it."""
+    run_nmcli("radio", "wifi", "on")
+    run_nmcli("connection", "delete", "id", ssid, check=False)
+    run_nmcli(
+        "connection", "add", "type", "wifi", "ifname", WIFI_DEVICE,
+        "con-name", ssid, "ssid", ssid,
+    )
+    args = [
+        "connection", "modify", "id", ssid,
+        "connection.autoconnect", "yes",
+        "connection.interface-name", WIFI_DEVICE,
+        "802-11-wireless.mode", "infrastructure",
+    ]
+    key_management = wifi_key_management(security)
+    if key_management:
+        args.extend([
+            "802-11-wireless-security.key-mgmt", key_management,
+            "802-11-wireless-security.psk", password,
+        ])
+    run_nmcli(*args)
+    try:
+        run_nmcli("connection", "up", "id", ssid, "ifname", WIFI_DEVICE, timeout=55)
+    except Exception:
+        run_nmcli("connection", "delete", "id", ssid, check=False)
+        raise
+
+
+def wait_for_wifi_connection(connection_name: str, timeout: int = 25) -> bool:
+    """Wait until the selected profile, not an unrelated fallback, is active."""
+    deadline = time.monotonic() + timeout
+    while True:
+        state = active_connection()
+        if state["wifi"] == connection_name and not state["hotspot"]:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(1)
+
 def dashboard_ready() -> bool:
     """Vérifie localement que le tableau EtR répond avant de l'afficher."""
     try:
@@ -347,31 +402,16 @@ def connect():
         return jsonify({"error": "Nom de réseau Wi-Fi invalide"}), 400
     if "WEP" in security.upper() and os.environ.get("ETR_ALLOW_WEP") != "1":
         return jsonify({"error": "Le WEP est désactivé car il n'est pas sécurisé. Utilisez WPA2 ou WPA3."}), 400
+    if is_enterprise_security(security):
+        return jsonify({"error": "Les réseaux Wi-Fi d'entreprise 802.1X/EAP ne sont pas encore pris en charge."}), 400
     if security not in {"", "--", "Ouvert"} and len(password) < 8:
         return jsonify({"error": "La clé Wi-Fi doit contenir au moins 8 caractères"}), 400
     COMMISSIONED_FILE.unlink(missing_ok=True)
     try:
-        # Supprime un éventuel profil portant le même nom : NetworkManager
-        # ne doit jamais réutiliser silencieusement une ancienne mauvaise clé.
-        run_nmcli("radio", "wifi", "on")
-        run_nmcli("connection", "delete", "id", ssid, check=False)
-        args = ["device", "wifi", "connect", ssid, "ifname", WIFI_DEVICE]
-        if password:
-            args.extend(["password", password])
-        run_nmcli(*args, timeout=55)
-        # nmcli peut rendre la main avant que l'état actif soit stabilisé.
-        # On ne valide jamais l'EtR tant que wlan0 n'a pas réellement quitté
-        # le hotspot pour une connexion Wi-Fi active.
-        deadline = time.monotonic() + 25
-        connected_name = ""
-        while time.monotonic() < deadline:
-            state = active_connection()
-            if state["wifi"] and not state["hotspot"]:
-                connected_name = str(state["wifi"])
-                break
-            time.sleep(1)
-        if not connected_name:
-            raise RuntimeError("le réseau n'a pas confirmé la connexion")
+        configure_wifi_connection(ssid, password, security)
+        if not wait_for_wifi_connection(ssid):
+            run_nmcli("connection", "delete", "id", ssid, check=False)
+            raise RuntimeError("le réseau sélectionné n'a pas confirmé la connexion")
         mark_commissioned()
         return jsonify({
             "ok": True,

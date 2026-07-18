@@ -60,3 +60,11 @@ sudo cat /var/lib/etr-core/wifi-setup.pin
 
 Le dernier affichage permet de retrouver le code de configuration depuis une
 session SSH autorisée. Ne pas publier ce code.
+
+## Registre avant mise en production
+
+À effectuer après les essais terrain et avant toute utilisation réelle :
+
+- [ ] Régénérer le code de configuration local et les identifiants du hotspot temporaire.
+- [ ] Invalider toutes les valeurs exposées pendant les tests et vérifier que les fichiers sont en mode `0600`.
+- [ ] Vérifier qu'aucun secret n'a été copié dans la documentation, les tickets, les journaux ou les captures d'écran.
