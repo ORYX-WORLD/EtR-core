@@ -39,6 +39,22 @@ class BootUnitDependencyTests(unittest.TestCase):
                 after = " ".join(unit.get("After", []))
                 self.assertIn("spi-desktop.service", after)
 
+    def test_blanking_dropin_cannot_fail_spi_desktop(self):
+        dropin = RASPI_DEPLOY_DIR / "spi-desktop.service.d" / "blanking.conf"
+        service = unit_section(dropin, "Service")
+        exec_start_post = [v for v in service.get("ExecStartPost", []) if v]
+        self.assertTrue(
+            exec_start_post,
+            "blanking.conf must still run the anti-blanking script after a reset",
+        )
+        self.assertTrue(
+            exec_start_post[-1].startswith("-"),
+            "ExecStartPost for etr-disable-blanking.sh must be prefixed with '-' "
+            "so systemd ignores its exit status: it previously made "
+            "spi-desktop.service (and etr-kiosk/etr-vnc through it) fail "
+            "whenever the anti-blanking script raced X11 on cold boot.",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
