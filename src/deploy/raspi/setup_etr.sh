@@ -36,6 +36,9 @@ sudo install -m 644 src/deploy/raspi/etr-wifi-portal.service /etc/systemd/system
 sudo install -m 755 src/deploy/raspi/start_spi_desktop.sh /usr/local/bin/start_spi_desktop.sh
 sudo install -m 755 src/deploy/raspi/etr-kiosk.sh /usr/local/bin/etr-kiosk.sh
 sudo install -m 644 src/deploy/raspi/spi-desktop.service /etc/systemd/system/spi-desktop.service
+sudo install -m 755 src/deploy/raspi/etr-disable-blanking.sh /usr/local/bin/etr-disable-blanking.sh
+sudo install -d -m 755 /etc/systemd/system/spi-desktop.service.d
+sudo install -m 644 src/deploy/raspi/spi-desktop.service.d/blanking.conf /etc/systemd/system/spi-desktop.service.d/blanking.conf
 sudo install -m 644 src/deploy/raspi/etr-kiosk.service /etc/systemd/system/etr-kiosk.service
 
 # Écran distant : VNC reste local au Raspberry et le relais est uniquement sortant.
