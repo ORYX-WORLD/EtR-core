@@ -1,7 +1,7 @@
 [Unit]
 Description=EtR local VNC screen source
 After=spi-desktop.service
-Requires=spi-desktop.service
+Wants=spi-desktop.service
 
 [Service]
 Type=simple
