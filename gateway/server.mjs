@@ -6,6 +6,7 @@ import express from "express";
 import admin from "firebase-admin";
 import { createFirebaseIdTokenVerifier } from "./firebase-token-verifier.mjs";
 import { installEnrollmentRoutes } from "./enrollment-http.mjs";
+import { installAdminRoutes } from "./admin.mjs";
 import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = Number(process.env.PORT || 8080);
@@ -69,7 +70,7 @@ async function verifyIdToken(token) {
 }
 
 async function clientCanView(decoded, installationId) {
-  if (decoded.oryxStaff === true || decoded.oryxDeveloper === true) return true;
+  if (decoded.oryxAdmin === true || decoded.oryxStaff === true || decoded.oryxDeveloper === true) return true;
   const snap = await db.ref(`memberships/${decoded.uid}/${installationId}`).get();
   return snap.child("active").val() === true;
 }
@@ -104,6 +105,14 @@ installEnrollmentRoutes({
   verifyIdToken
 });
 
+installAdminRoutes({
+  app,
+  db,
+  auth: admin.auth(),
+  verifyIdToken,
+  getConnectedInstallations: () => [...devices.keys()]
+});
+
 app.get("/healthz", (_req, res) => {
   let viewers = 0;
   let readyViewers = 0;
@@ -111,7 +120,7 @@ app.get("/healthz", (_req, res) => {
     if (device.viewer?.readyState === WebSocket.OPEN) viewers += 1;
     if (device.viewer?.vncReady === true) readyViewers += 1;
   }
-  res.json({ ok: true, devices: devices.size, viewers, readyViewers, enrollment: "v1" });
+  res.json({ ok: true, devices: devices.size, viewers, readyViewers, enrollment: "v1", admin: "v1" });
 });
 
 app.post("/api/remote-session", async (req, res) => {
@@ -166,7 +175,12 @@ const scheme=location.protocol==="https:"?"wss":"ws";
 const url=scheme+"://"+location.host+"/client?ticket="+encodeURIComponent(ticket);
 try{
  const rfb=new RFB(document.getElementById("screen"),url,{shared:true});
- rfb.scaleViewport=true;\n rfb.resizeSession=false;\n rfb.showDotCursor=true;\n rfb.viewOnly=false;\n rfb.qualityLevel=9;\n rfb.compressionLevel=2;
+ rfb.scaleViewport=true;
+ rfb.resizeSession=false;
+ rfb.showDotCursor=true;
+ rfb.viewOnly=false;
+ rfb.qualityLevel=9;
+ rfb.compressionLevel=2;
  rfb.addEventListener("connect",()=>{status.textContent="EtR connecté";setTimeout(()=>status.remove(),1200)});
  rfb.addEventListener("disconnect",(event)=>{status.textContent=event.detail.clean?"Session terminée":"Connexion interrompue"});
  rfb.addEventListener("credentialsrequired",()=>{status.textContent="Authentification locale non attendue"});
