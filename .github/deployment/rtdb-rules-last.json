@@ -1,11 +1,11 @@
 {
-  "checkedAt": "2026-07-26T13:04:17.830293+00:00",
-  "commit": "55d65af6b7eb96cb36f6accb7446d38ec1893360",
+  "checkedAt": "2026-07-26T15:14:26.892119+00:00",
+  "commit": "c4f37cd8fa23f3bc68384195e292ebbe7d1152a4",
   "project": "oryx-froid-industriel",
   "status": "success",
   "method": "google_wif_management_discovery_and_rest_readback",
-  "rulesSha256": "70e0b2741796a211d11485f8708af8c2f73abf16e3e60233587a78acf5b4ae79",
-  "readbackSha256": "70e0b2741796a211d11485f8708af8c2f73abf16e3e60233587a78acf5b4ae79",
+  "rulesSha256": "aa5e4c1b33e4c62b5ad4f0fa5851b94c63d25e472cd3be9be37d9850d3336c9d",
+  "readbackSha256": "aa5e4c1b33e4c62b5ad4f0fa5851b94c63d25e472cd3be9be37d9850d3336c9d",
   "databaseUrl": "https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app",
   "verified": true,
   "discovery": {
@@ -27,7 +27,7 @@
       "putStatus": 200,
       "getStatus": 200,
       "error": null,
-      "readbackSha256": "70e0b2741796a211d11485f8708af8c2f73abf16e3e60233587a78acf5b4ae79"
+      "readbackSha256": "aa5e4c1b33e4c62b5ad4f0fa5851b94c63d25e472cd3be9be37d9850d3336c9d"
     }
   ],
   "error": null,
