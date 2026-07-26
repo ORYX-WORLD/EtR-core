@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 
-const ACTIVATION_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+// Crockford Base32: 32 symbols, no I/L/O/U. Twenty characters encode exactly
+// 100 bits and remain readable on a small commissioning display.
+const ACTIVATION_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const ACTIVATION_LENGTH = 20;
 const REQUEST_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_ATTEMPTS = 8;
@@ -23,7 +25,11 @@ export function normalizeSerial(value) {
 }
 
 export function normalizeActivationCode(value) {
-  const code = String(value || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  const code = String(value || "")
+    .replace(/[^A-Za-z0-9]/g, "")
+    .toUpperCase()
+    .replaceAll("O", "0")
+    .replace(/[IL]/g, "1");
   if (code.length !== ACTIVATION_LENGTH || [...code].some(character => !ACTIVATION_ALPHABET.includes(character))) {
     throw new EnrollmentError(400, "invalid_activation_code", "Code d’activation invalide");
   }
@@ -276,7 +282,7 @@ export function createEnrollmentService({
     async claim({ serial, activationCode, decodedUser } = {}) {
       const user = verifiedUser(decodedUser);
       const verified = await readAndVerifyCode(serial, activationCode);
-      if (!['pending', 'claimed'].includes(verified.request.status)) {
+      if (!["pending", "claimed"].includes(verified.request.status)) {
         throw new EnrollmentError(409, "request_not_claimable", "Cette demande ne peut plus être associée");
       }
       if (verified.request.status === "claimed" && verified.request.ownerUid !== user.uid) {
