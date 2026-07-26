@@ -60,6 +60,39 @@ jobs:
           grep -Fq '/api/enrollment/signing-health' enrollment-http.mjs
           grep -Fq 'auth.createCustomToken' enrollment-http.mjs
 
+      - name: Construire et démarrer l'image Docker exacte
+        working-directory: gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull -t etr-gateway-ci:${GITHUB_SHA} .
+          docker run --rm -d \
+            --name etr-gateway-ci \
+            -p 127.0.0.1:18080:8080 \
+            -e FIREBASE_PROJECT_ID=oryx-froid-industriel \
+            -e FIREBASE_DATABASE_URL=https://example-default-rtdb.europe-west1.firebasedatabase.app \
+            -e ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app \
+            etr-gateway-ci:${GITHUB_SHA}
+          cleanup() {
+            docker logs etr-gateway-ci 2>&1 || true
+            docker stop etr-gateway-ci >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          ready=false
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/healthz > /tmp/etr-docker-health.json; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          [ "$ready" = true ] || { echo "::error::L'image Docker ne démarre pas"; exit 1; }
+          python3 -m json.tool /tmp/etr-docker-health.json
+          python3 -c 'import json; data=json.load(open("/tmp/etr-docker-health.json")); assert data.get("ok") is True; assert data.get("enrollment")=="v1"'
+          for module in server.mjs firebase-token-verifier.mjs enrollment.mjs enrollment-http.mjs device-bootstrap.mjs; do
+            docker exec etr-gateway-ci test -s "/app/${module}"
+          done
+
       - name: Authentification Google Cloud
         id: google_auth
         if: github.event_name != 'pull_request'

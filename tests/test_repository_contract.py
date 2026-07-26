@@ -24,7 +24,7 @@ class RepositoryContractTests(unittest.TestCase):
         required = [
             "gateway/enrollment.mjs", "gateway/enrollment-http.mjs", "gateway/enrollment.test.mjs",
             "gateway/enrollment-policy.test.mjs", "gateway/device-bootstrap.mjs", "gateway/device-bootstrap.test.mjs",
-            "gateway/signing-health.test.mjs", "src/device_identity.py", "src/firebase_bridge.py",
+            "gateway/signing-health.test.mjs", "gateway/Dockerfile", "src/device_identity.py", "src/firebase_bridge.py",
             "src/deploy/raspi/etr-firebase-bridge.service", "tests/test_app.py", "tests/test_device_identity.py",
             "tests/test_firebase_bridge_enrollment.py", "docs/SECURE_ENROLLMENT.md",
             ".github/workflows/etr-gateway-cloudrun.yml", ".github/workflows/etr-deploy.yml",
@@ -50,6 +50,21 @@ class RepositoryContractTests(unittest.TestCase):
             self.assertIn(marker, local_api)
         for marker in ["data-enrollment", "Associer cet EtR"]:
             self.assertIn(marker, dashboard)
+
+    def test_gateway_docker_image_contains_every_runtime_module(self):
+        dockerfile = (ROOT / "gateway/Dockerfile").read_text(encoding="utf-8")
+        for marker in [
+            "COPY server.mjs ./",
+            "COPY firebase-token-verifier.mjs ./",
+            "COPY enrollment.mjs ./",
+            "COPY enrollment-http.mjs ./",
+            "COPY device-bootstrap.mjs ./",
+            "USER node",
+            "ENV NODE_ENV=production",
+            'CMD ["node", "server.mjs"]',
+        ]:
+            self.assertIn(marker, dockerfile)
+        self.assertNotIn("COPY server.mjs firebase-token-verifier.mjs ./", dockerfile)
 
     def test_firebase_bridge_is_non_privileged_and_versioned(self):
         unit = (ROOT / "src/deploy/raspi/etr-firebase-bridge.service").read_text(encoding="utf-8")
@@ -78,12 +93,14 @@ class RepositoryContractTests(unittest.TestCase):
         ]:
             self.assertIn(marker, workflow)
 
-    def test_gateway_deploy_tests_and_proves_enrollment_and_signing(self):
+    def test_gateway_deploy_tests_exact_image_and_proves_signing(self):
         workflow = (ROOT / ".github/workflows/etr-gateway-cloudrun.yml").read_text(encoding="utf-8")
         for marker in [
-            "pull_request:", "gateway/**", "npm test", "node --check device-bootstrap.mjs", "iamcredentials.googleapis.com",
-            "/api/enrollment/request", "/api/enrollment/bootstrap", "/api/enrollment/signing-health",
-            "audience=etr-bootstrap", "firebaseSigning", "customTokenSigning", "gateway-last-deploy.json",
+            "pull_request:", "gateway/**", "npm test", "node --check device-bootstrap.mjs", "docker build --pull",
+            "docker run --rm -d", "127.0.0.1:18080/healthz", "docker exec etr-gateway-ci test -s",
+            "iamcredentials.googleapis.com", "/api/enrollment/request", "/api/enrollment/bootstrap",
+            "/api/enrollment/signing-health", "audience=etr-bootstrap", "firebaseSigning", "customTokenSigning",
+            "gateway-last-deploy.json",
         ]:
             self.assertIn(marker, workflow)
         self.assertNotIn("add-iam-policy-binding", workflow)
