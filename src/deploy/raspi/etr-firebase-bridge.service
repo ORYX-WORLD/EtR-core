@@ -1,0 +1,40 @@
+[Unit]
+Description=EtR Firebase telemetry and secure enrollment bridge
+Wants=network-online.target
+After=network-online.target etr.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=oryx
+Group=oryx
+WorkingDirectory=/home/oryx/EtR-core
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=ETR_LOCAL_API_URL=http://127.0.0.1:8080/api/v1/status
+Environment=ETR_TOKEN_FILE=/var/lib/etr-core/firebase-auth.json
+Environment=ETR_ENROLLMENT_FILE=/var/lib/etr-core/enrollment.json
+EnvironmentFile=-/etc/etr-core/firebase-bridge.env
+ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/firebase_bridge.py
+Restart=always
+RestartSec=10
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/etr-core
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
