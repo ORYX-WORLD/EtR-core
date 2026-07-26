@@ -78,13 +78,11 @@ export function createFirebaseDeviceSessionIssuer({
   }
 
   async function issue(uid, claims = {}) {
+    // This password exists only in this request scope. It is immediately rotated
+    // on the next issuance and is never returned to the Raspberry or logged.
     const password = randomBytes(48).toString("base64url");
     const email = await ensureDeviceUser(uid, claims, password);
-    try {
-      return await signIn(email, password);
-    } finally {
-      password.replace(/./g, "0");
-    }
+    return signIn(email, password);
   }
 
   async function health(runId) {
