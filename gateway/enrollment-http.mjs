@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import {
   EnrollmentError,
   createEnrollmentService,
@@ -49,11 +48,17 @@ export function installEnrollmentRoutes({
   db,
   auth,
   verifyIdToken,
+  deviceSessionIssuer,
   deviceBootstrap = createDeviceBootstrapService({ db, now: () => Date.now() }),
   now = () => Date.now()
 }) {
   if (!deviceBootstrap?.verifyDeviceRequest || !deviceBootstrap?.verifyWorkflowToken) throw new Error("Enrollment routes require device bootstrap verification");
-  const enrollment = createEnrollmentService({ store: createFirebaseEnrollmentStore(db), auth, now });
+  if (!deviceSessionIssuer?.issue || !deviceSessionIssuer?.probe) throw new Error("Enrollment routes require a device session issuer");
+  const enrollment = createEnrollmentService({
+    store: createFirebaseEnrollmentStore(db),
+    issueDeviceSession: deviceSessionIssuer.issue,
+    now
+  });
   const enforceRate = createRateLimiter(now);
   installDeviceBootstrapRoute({ app, service: deviceBootstrap });
 
@@ -61,14 +66,10 @@ export function installEnrollmentRoutes({
     try {
       enforceRate(req, "signing-health", 20);
       const claims = await deviceBootstrap.verifyWorkflowToken(bearer(req));
-      const healthUid = `etrhealth_${crypto.createHash("sha256").update(String(claims.run_id)).digest("hex").slice(0, 32)}`;
-      const customToken = await auth.createCustomToken(healthUid, {
-        etrSigningHealth: true,
-        workflowRunId: String(claims.run_id)
-      });
-      if (typeof customToken !== "string" || customToken.split(".").length !== 3) throw new Error("custom_token_invalid");
+      const result = await deviceSessionIssuer.probe(String(claims.run_id));
+      if (result?.ok !== true || result?.credentialsReturned !== false) throw new Error("device_session_probe_invalid");
       res.setHeader("Cache-Control", "no-store");
-      return res.json({ ok: true, signer: "firebase-admin", algorithm: "RS256" });
+      return res.json(result);
     } catch (error) {
       return safeError(res, error);
     }
