@@ -151,17 +151,13 @@ jobs:
           test -n "$GATEWAY_URL"
           mkdir -p /tmp/etr-gateway-check
 
-          health_status=000
+          request_status=000
           for attempt in $(seq 1 18); do
-            health_status=$(curl -sS -o /tmp/etr-gateway-check/health.json -w '%{http_code}' "$GATEWAY_URL/healthz" || echo 000)
-            if [ "$health_status" = "200" ]; then break; fi
+            request_status=$(curl -sS -o /tmp/etr-gateway-check/request.json -w '%{http_code}' \
+              -X POST "$GATEWAY_URL/api/enrollment/request" -H 'Content-Type: application/json' -d '{}' || echo 000)
+            if [ "$request_status" = "400" ]; then break; fi
             sleep 5
           done
-          echo "health_status=$health_status"
-          cat /tmp/etr-gateway-check/health.json 2>/dev/null | python3 -m json.tool || cat /tmp/etr-gateway-check/health.json 2>/dev/null || true
-
-          request_status=$(curl -sS -o /tmp/etr-gateway-check/request.json -w '%{http_code}' \
-            -X POST "$GATEWAY_URL/api/enrollment/request" -H 'Content-Type: application/json' -d '{}' || echo 000)
           echo "request_status=$request_status"
           cat /tmp/etr-gateway-check/request.json 2>/dev/null | python3 -m json.tool || cat /tmp/etr-gateway-check/request.json 2>/dev/null || true
 
@@ -169,6 +165,9 @@ jobs:
             -X POST "$GATEWAY_URL/api/enrollment/bootstrap" -H 'Content-Type: application/json' -d '{}' || echo 000)
           echo "bootstrap_status=$bootstrap_status"
           cat /tmp/etr-gateway-check/bootstrap.json 2>/dev/null | python3 -m json.tool || cat /tmp/etr-gateway-check/bootstrap.json 2>/dev/null || true
+
+          health_status=$(curl -sS -o /tmp/etr-gateway-check/health.json -w '%{http_code}' "$GATEWAY_URL/healthz" || echo 000)
+          echo "health_status=$health_status (diagnostic non bloquant)"
 
           GATEWAY_URL="$GATEWAY_URL" \
           HEALTH_STATUS="$health_status" \
@@ -183,7 +182,9 @@ jobs:
                   return None
           diagnostic={
               'url': os.environ['GATEWAY_URL'],
+              'serviceVerifiedBy': 'enrollment-routes',
               'healthStatus': int(os.environ['HEALTH_STATUS']),
+              'healthEndpointSupported': os.environ['HEALTH_STATUS']=='200',
               'requestStatus': int(os.environ['REQUEST_STATUS']),
               'bootstrapStatus': int(os.environ['BOOTSTRAP_STATUS']),
               'healthBody': body('health'),
@@ -191,10 +192,8 @@ jobs:
               'bootstrapBody': body('bootstrap'),
           }
           json.dump(diagnostic, open('/tmp/etr-gateway-verification.json','w',encoding='utf-8'), ensure_ascii=False, indent=2)
-          health=diagnostic['healthBody'] or {}
-          assert diagnostic['healthStatus']==200, diagnostic
-          assert health.get('ok') is True and health.get('enrollment')=='v1', diagnostic
           assert diagnostic['requestStatus']==400, diagnostic
+          assert (diagnostic['requestBody'] or {}).get('code')=='invalid_serial', diagnostic
           assert diagnostic['bootstrapStatus']==401, diagnostic
           assert (diagnostic['bootstrapBody'] or {}).get('code')=='github_oidc_missing', diagnostic
           PY
