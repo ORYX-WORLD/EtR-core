@@ -1,15 +1,18 @@
 {
-  "checkedAt": "2026-07-26T11:20:39.667749+00:00",
-  "commit": "0ad420b5058f1b2f4618e6e129e31efbf216d9c3",
+  "checkedAt": "2026-07-26T12:39:07.090452+00:00",
+  "commit": "e2d48f7c1167523ccff6fa2dce50e884a514c262",
   "status": "failure",
   "project": "oryx-froid-industriel",
   "region": "europe-west1",
   "service": "etr-remote-gateway",
   "url": null,
   "enrollment": "v1",
+  "deviceBootstrap": "github-oidc-ed25519",
+  "customTokenSigning": false,
   "outcomes": {
-    "tokenSigner": "failure",
-    "deploy": "skipped",
-    "verify": "skipped"
+    "authentication": "success",
+    "deploy": "failure",
+    "verify": "skipped",
+    "firebaseSigning": "skipped"
   }
 }
