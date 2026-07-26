@@ -4,6 +4,7 @@ import {
   createFirebaseEnrollmentStore
 } from "./enrollment.mjs";
 import { createDeviceBootstrapService, installDeviceBootstrapRoute } from "./device-bootstrap.mjs";
+import { createDefaultDeviceSessionIssuer } from "./session-config.mjs";
 
 const WINDOW_MS = 15 * 60 * 1000;
 
@@ -48,7 +49,7 @@ export function installEnrollmentRoutes({
   db,
   auth,
   verifyIdToken,
-  deviceSessionIssuer,
+  deviceSessionIssuer = createDefaultDeviceSessionIssuer(auth),
   deviceBootstrap = createDeviceBootstrapService({ db, now: () => Date.now() }),
   now = () => Date.now()
 }) {
