@@ -20,16 +20,20 @@ def _base64url(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
 
 
-def canonical_enrollment_request(
+def canonical_device_request(
     *,
+    action: str,
     serial: str,
-    hostname: str,
+    activation_code: str = "",
+    hostname: str = "",
     rotation_token: str = "",
     timestamp: str,
     nonce: str,
 ) -> bytes:
     body = json.dumps(
         {
+            "action": str(action or ""),
+            "activationCode": str(activation_code or ""),
             "hostname": str(hostname or ""),
             "rotationToken": str(rotation_token or ""),
             "serial": str(serial or ""),
@@ -96,10 +100,12 @@ def public_key_fingerprint(public_key_pem: str | bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def sign_enrollment_request(
+def sign_device_request(
     *,
+    action: str,
     serial: str,
-    hostname: str,
+    activation_code: str = "",
+    hostname: str = "",
     rotation_token: str = "",
     private_path: Path = DEFAULT_PRIVATE_KEY,
     now: Callable[[], float] = time.time,
@@ -110,8 +116,10 @@ def sign_enrollment_request(
         raise RuntimeError("La clé bootstrap privée n'est pas Ed25519")
     timestamp = str(int(now()))
     nonce = _base64url(nonce_factory(18))
-    payload = canonical_enrollment_request(
+    payload = canonical_device_request(
+        action=action,
         serial=serial,
+        activation_code=activation_code,
         hostname=hostname,
         rotation_token=rotation_token,
         timestamp=timestamp,
