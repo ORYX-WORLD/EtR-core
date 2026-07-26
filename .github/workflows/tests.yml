@@ -1,4 +1,4 @@
-name: Tests Python
+name: Tests Python et contrat EtR
 
 on:
   pull_request:
@@ -16,13 +16,29 @@ concurrency:
 
 jobs:
   unit-tests:
-    name: Tests unitaires
+    name: Tests unitaires et gouvernance
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
 
     steps:
       - name: Récupérer le dépôt
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Vérifier la mise à jour du suivi sur les PR fonctionnelles
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="origin/${{ github.base_ref }}"
+          changed=$(git diff --name-only "$base"...HEAD)
+          echo "$changed"
+          if grep -Eq '^(src/|dashboard/|gateway/|firebase/|requirements\.txt|\.github/workflows/)' <<<"$changed" && \
+             ! grep -Fxq 'docs/PROJECT_TRACKER.md' <<<"$changed"; then
+            echo "::error::Toute modification fonctionnelle EtR doit mettre à jour docs/PROJECT_TRACKER.md"
+            exit 1
+          fi
 
       - name: Installer Python
         uses: actions/setup-python@v5
@@ -34,6 +50,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
+          python -m pip install -r dashboard/requirements.txt
+
+      - name: Vérifier la syntaxe Python
+        run: python -m compileall -q src dashboard tests
 
       - name: Exécuter les tests
         run: python -m unittest discover -s tests -v
