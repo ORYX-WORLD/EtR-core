@@ -6,12 +6,14 @@ on:
     paths:
       - firebase/database.rules.json
       - scripts/deploy_rtdb_rules.py
+      - tests/test_firebase_rules.py
       - .github/workflows/etr-rtdb-rules.yml
   push:
     branches: [main]
     paths:
       - firebase/database.rules.json
       - scripts/deploy_rtdb_rules.py
+      - tests/test_firebase_rules.py
       - .github/workflows/etr-rtdb-rules.yml
 
 concurrency:
@@ -37,19 +39,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Vérifier la syntaxe locale
+      - name: Vérifier la syntaxe et le contrat local
         run: |
           set -euo pipefail
           python3 -m json.tool firebase/database.rules.json >/dev/null
-          python3 -m py_compile scripts/deploy_rtdb_rules.py
+          python3 -m py_compile scripts/deploy_rtdb_rules.py tests/test_firebase_rules.py
+          python3 -m unittest tests.test_firebase_rules -v
           python3 - <<'PY'
           import json
           rules=json.load(open('firebase/database.rules.json', encoding='utf-8'))['rules']
           assert rules['.read'] is False and rules['.write'] is False
+          assert 'email_verified === true' in rules['installations']['$installationId']['.read']
           for branch in ('deviceBootstrap','activationCodes','enrollmentRequests'):
               assert rules[branch]['.read'] is False
               assert rules[branch]['.write'] is False
-          print('Règles RTDB EtR : default deny et branches d’enrôlement fermées')
+          print('Règles RTDB EtR : default deny, comptes vérifiés et branches d’enrôlement fermées')
           PY
 
       - name: Authentification Google Cloud WIF
@@ -64,25 +68,19 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: google-github-actions/setup-gcloud@v3
 
-      - name: Préparer les droits Realtime Database
-        id: prepare_iam
+      - name: Activer l'API Realtime Database
+        id: enable_api
         if: github.event_name != 'pull_request'
+        continue-on-error: true
         shell: bash
-        env:
-          DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
-          gcloud services enable firebasedatabase.googleapis.com --project="$PROJECT_ID"
-          gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-            --member="serviceAccount:${DEPLOY_SERVICE_ACCOUNT}" \
-            --role="roles/firebasedatabase.admin" \
-            --condition=None \
-            --quiet >/tmp/etr-rtdb-iam.json
-          echo "Rôle roles/firebasedatabase.admin confirmé pour l'identité WIF"
+          gcloud services enable firebasedatabase.googleapis.com --project="$PROJECT_ID" --quiet
 
       - name: Publier et relire les règles
         id: deploy_rules
         if: github.event_name != 'pull_request'
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -95,22 +93,36 @@ jobs:
             firebase/database.rules.json \
             .github/deployment/rtdb-rules-last.json
           unset access_token
+
+      - name: Vérifier la preuve locale du déploiement
+        id: verify_report
+        if: github.event_name != 'pull_request'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 - <<'PY'
           import json
           report=json.load(open('.github/deployment/rtdb-rules-last.json', encoding='utf-8'))
-          assert report['status']=='success'
-          assert report['verified'] is True
-          assert report['rulesSha256']==report['readbackSha256']
+          assert report['status']=='success', report
+          assert report['verified'] is True, report
+          assert report['rulesSha256']==report['readbackSha256'], report
+          assert report['databaseUrl'].startswith('https://'), report
           print('Règles RTDB publiées et relues :', report['databaseUrl'])
           PY
 
       - name: Enregistrer la preuve
         if: always() && github.event_name != 'pull_request'
         shell: bash
+        env:
+          AUTH_OUTCOME: ${{ steps.google_auth.outcome }}
+          API_OUTCOME: ${{ steps.enable_api.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy_rules.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify_report.outcome }}
         run: |
           set -euo pipefail
+          mkdir -p .github/deployment
           if [ ! -f .github/deployment/rtdb-rules-last.json ]; then
-            mkdir -p .github/deployment
             python3 - <<'PY'
           import json, os
           from datetime import datetime, timezone
@@ -119,14 +131,33 @@ jobs:
             'commit': os.getenv('GITHUB_SHA'),
             'status': 'failure',
             'verified': False,
-            'error': 'Le déploiement ne s’est pas exécuté jusqu’au rapport.',
+            'error': 'Le déploiement n’a pas atteint la publication des règles.',
           }
           json.dump(report, open('.github/deployment/rtdb-rules-last.json','w',encoding='utf-8'), ensure_ascii=False, indent=2)
           PY
           fi
+          python3 - <<'PY'
+          import json, os
+          path='.github/deployment/rtdb-rules-last.json'
+          report=json.load(open(path, encoding='utf-8'))
+          report['workflow']={
+            'authentication': os.getenv('AUTH_OUTCOME','skipped'),
+            'apiEnablement': os.getenv('API_OUTCOME','skipped'),
+            'deployment': os.getenv('DEPLOY_OUTCOME','skipped'),
+            'verification': os.getenv('VERIFY_OUTCOME','skipped'),
+          }
+          json.dump(report, open(path,'w',encoding='utf-8'), ensure_ascii=False, indent=2)
+          open(path,'a',encoding='utf-8').write('\n')
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
           git config user.name "EtR RTDB deployment agent"
           git config user.email "actions@users.noreply.github.com"
           git add .github/deployment/rtdb-rules-last.json
-          git commit -m "chore: record EtR RTDB rules deployment [skip ci]" || exit 0
+          git commit -m "chore: record EtR RTDB rules deployment [skip ci]" || true
           git pull --rebase origin main
           git push origin HEAD:main
+          python3 - <<'PY'
+          import json
+          report=json.load(open('.github/deployment/rtdb-rules-last.json', encoding='utf-8'))
+          raise SystemExit(0 if report.get('verified') is True and report.get('status')=='success' else 1)
+          PY
