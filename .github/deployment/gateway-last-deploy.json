@@ -1,6 +1,6 @@
 {
-  "checkedAt": "2026-07-26T12:59:56.252391+00:00",
-  "commit": "7cd18e34a9c29339a2897469c937925dc36c8ef5",
+  "checkedAt": "2026-07-26T13:13:26.565923+00:00",
+  "commit": "3bb5c373b037f0bb143c474b6fa5f41678578002",
   "status": "failure",
   "project": "oryx-froid-industriel",
   "region": "europe-west1",
@@ -12,12 +12,14 @@
   "outcomes": {
     "authentication": "success",
     "deploy": "success",
-    "verify": "failure",
-    "firebaseSigning": "skipped"
+    "verify": "success",
+    "firebaseSigning": "failure"
   },
   "verification": {
     "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
+    "serviceVerifiedBy": "enrollment-routes",
     "healthStatus": 404,
+    "healthEndpointSupported": false,
     "requestStatus": 400,
     "bootstrapStatus": 401,
     "healthBody": null,
