@@ -2,7 +2,7 @@
 """Passerelle sortante EtR vers Firebase Realtime Database.
 
 Modes d'authentification :
-- enrôlement automatique par numéro de série + code physique à usage unique ;
+- enrôlement automatique par identité Ed25519 + code physique à usage unique ;
 - compte technique e-mail/mot de passe conservé uniquement pour la transition.
 
 Les secrets restent dans /etc/etr-core et les jetons/états locaux dans
@@ -22,8 +22,13 @@ from urllib.parse import quote
 
 import requests
 
+try:
+    from src.device_identity import ensure_device_keypair, sign_device_request
+except ModuleNotFoundError:  # Exécution directe de src/firebase_bridge.py sur le Raspberry.
+    from device_identity import ensure_device_keypair, sign_device_request
+
 LOG = logging.getLogger("etr-firebase-bridge")
-BRIDGE_VERSION = "3.0"
+BRIDGE_VERSION = "3.1"
 
 
 def required(name: str) -> str:
@@ -41,7 +46,13 @@ def normalize_serial(value: str) -> str:
 
 
 def normalize_activation_code(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9]", "", value).upper()
+    return (
+        re.sub(r"[^A-Za-z0-9]", "", value)
+        .upper()
+        .replace("O", "0")
+        .replace("I", "1")
+        .replace("L", "1")
+    )
 
 
 def raspberry_serial() -> str:
@@ -76,6 +87,8 @@ AUTH_EMAIL = os.getenv("FIREBASE_AUTH_EMAIL", "").strip()
 AUTH_PASSWORD = os.getenv("FIREBASE_AUTH_PASSWORD", "").strip()
 TOKEN_FILE = Path(os.getenv("ETR_TOKEN_FILE", "/var/lib/etr-core/firebase-auth.json"))
 ENROLLMENT_FILE = Path(os.getenv("ETR_ENROLLMENT_FILE", "/var/lib/etr-core/enrollment.json"))
+BOOTSTRAP_PRIVATE_KEY = Path(os.getenv("ETR_BOOTSTRAP_PRIVATE_KEY", "/var/lib/etr-core/bootstrap-private.pem"))
+BOOTSTRAP_PUBLIC_KEY = Path(os.getenv("ETR_BOOTSTRAP_PUBLIC_KEY", "/var/lib/etr-core/bootstrap-public.pem"))
 INTERVAL_SECONDS = max(5, int(os.getenv("ETR_BRIDGE_INTERVAL", "15")))
 ENROLLMENT_RETRY_SECONDS = max(5, int(os.getenv("ETR_ENROLLMENT_RETRY", "15")))
 TIMEOUT_SECONDS = max(2, int(os.getenv("ETR_HTTP_TIMEOUT", "8")))
@@ -132,6 +145,24 @@ def clear_enrollment() -> None:
         pass
 
 
+def signed_device_headers(
+    *,
+    action: str,
+    activation_code: str = "",
+    hostname: str = "",
+    rotation_token: str = "",
+) -> dict[str, str]:
+    ensure_device_keypair(BOOTSTRAP_PRIVATE_KEY, BOOTSTRAP_PUBLIC_KEY)
+    return sign_device_request(
+        action=action,
+        serial=DEVICE_SERIAL,
+        activation_code=activation_code,
+        hostname=hostname,
+        rotation_token=rotation_token,
+        private_path=BOOTSTRAP_PRIVATE_KEY,
+    )
+
+
 def sign_in_password() -> dict:
     response = session.post(
         "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword",
@@ -170,15 +201,26 @@ def request_enrollment(existing: dict | None = None) -> dict:
     if not ENROLLMENT_URL:
         raise RuntimeError("URL d'enrôlement absente")
     existing = existing or {}
+    hostname = socket.gethostname()
+    rotation_token = str(existing.get("rotationToken") or "")
     payload = {
         "action": "request",
         "serial": DEVICE_SERIAL,
-        "hostname": socket.gethostname(),
+        "hostname": hostname,
         "installationId": INSTALLATION_ID,
     }
-    if existing.get("rotationToken"):
-        payload["rotationToken"] = existing["rotationToken"]
-    response = session.post(ENROLLMENT_URL, json=payload, timeout=TIMEOUT_SECONDS)
+    if rotation_token:
+        payload["rotationToken"] = rotation_token
+    response = session.post(
+        ENROLLMENT_URL,
+        json=payload,
+        headers=signed_device_headers(
+            action="request",
+            hostname=hostname,
+            rotation_token=rotation_token,
+        ),
+        timeout=TIMEOUT_SECONDS,
+    )
     response.raise_for_status()
     data = response.json()
     code = str(data.get("activationCode") or "").strip()
@@ -193,9 +235,11 @@ def request_enrollment(existing: dict | None = None) -> dict:
 
 
 def exchange_activation_code(code: str) -> dict:
+    normalized_code = normalize_activation_code(code)
     response = session.post(
         required("FIREBASE_ENROLLMENT_URL"),
-        json={"action": "exchange", "serial": DEVICE_SERIAL, "code": code},
+        json={"action": "exchange", "serial": DEVICE_SERIAL, "code": normalized_code},
+        headers=signed_device_headers(action="exchange", activation_code=normalized_code),
         timeout=TIMEOUT_SECONDS,
     )
     if response.status_code == 409:
@@ -231,10 +275,11 @@ def authenticate(force: bool = False) -> str:
         clear_enrollment()
         enrollment = {}
 
+    clear_after_save = False
     code = ACTIVATION_CODE or normalize_activation_code(enrollment.get("activationCode", ""))
     if code and ENROLLMENT_URL:
         data = exchange_activation_code(code)
-        clear_enrollment()
+        clear_after_save = True
     elif AUTH_EMAIL and AUTH_PASSWORD:
         data = sign_in_password()
     else:
@@ -242,6 +287,8 @@ def authenticate(force: bool = False) -> str:
         raise RuntimeError("awaiting_claim")
 
     save_tokens({"idToken": data["idToken"], "refreshToken": data["refreshToken"]})
+    if clear_after_save:
+        clear_enrollment()
     return data["idToken"]
 
 
