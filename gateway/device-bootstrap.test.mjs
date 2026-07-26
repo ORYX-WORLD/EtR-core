@@ -69,8 +69,12 @@ function signedRequest({ privateKey, action, serial, activationCode = "", hostna
   };
 }
 
+function currentTimestampMs() {
+  return Date.now();
+}
+
 test("registers an Ed25519 device key only from the trusted GitHub main workflow", async () => {
-  const timestamp = 1_722_000_000_000;
+  const timestamp = currentTimestampMs();
   const database = memoryDatabase();
   const github = await githubFixture(Math.floor(timestamp / 1000));
   const service = createDeviceBootstrapService({ db: database, now: () => timestamp, githubJwks: github.jwks });
@@ -92,7 +96,7 @@ test("registers an Ed25519 device key only from the trusted GitHub main workflow
 });
 
 test("verifies a signed activation request and rejects replay", async () => {
-  const timestampMs = 1_722_000_000_000;
+  const timestampMs = currentTimestampMs();
   const database = memoryDatabase();
   const github = await githubFixture(Math.floor(timestampMs / 1000));
   const service = createDeviceBootstrapService({ db: database, now: () => timestampMs, githubJwks: github.jwks });
@@ -119,7 +123,7 @@ test("verifies a signed activation request and rejects replay", async () => {
 });
 
 test("binds the signature to the request action and activation code", async () => {
-  const timestampMs = 1_722_000_000_000;
+  const timestampMs = currentTimestampMs();
   const database = memoryDatabase();
   const github = await githubFixture(Math.floor(timestampMs / 1000));
   const service = createDeviceBootstrapService({ db: database, now: () => timestampMs, githubJwks: github.jwks });
@@ -160,7 +164,7 @@ test("binds the signature to the request action and activation code", async () =
 });
 
 test("rejects expired, unsigned and unregistered device requests", async () => {
-  const timestampMs = 1_722_000_000_000;
+  const timestampMs = currentTimestampMs();
   const database = memoryDatabase();
   const github = await githubFixture(Math.floor(timestampMs / 1000));
   const service = createDeviceBootstrapService({ db: database, now: () => timestampMs, githubJwks: github.jwks });
