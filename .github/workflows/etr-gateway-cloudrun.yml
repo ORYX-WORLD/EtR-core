@@ -56,6 +56,9 @@ jobs:
           node --check server.mjs
           node --check enrollment.mjs
           node --check enrollment-http.mjs
+          node --check device-bootstrap.mjs
+          grep -Fq '/api/enrollment/signing-health' enrollment-http.mjs
+          grep -Fq 'auth.createCustomToken' enrollment-http.mjs
 
       - name: Authentification Google Cloud
         id: google_auth
@@ -69,25 +72,6 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: google-github-actions/setup-gcloud@v3
 
-      - name: Autoriser la signature des jetons Firebase
-        id: token_signer
-        if: github.event_name != 'pull_request'
-        shell: bash
-        env:
-          RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-        run: |
-          set -euo pipefail
-          if [ -z "${RUNTIME_SERVICE_ACCOUNT:-}" ]; then
-            echo "::error::GCP_SERVICE_ACCOUNT doit contenir l'adresse du compte de service Cloud Run"
-            exit 1
-          fi
-          gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SERVICE_ACCOUNT" \
-            --project="$PROJECT_ID" \
-            --member="serviceAccount:$RUNTIME_SERVICE_ACCOUNT" \
-            --role="roles/iam.serviceAccountTokenCreator" \
-            --quiet >/tmp/etr-token-signer-policy.json
-          echo "Signature IAM activée pour l'identité d'exécution"
-
       - name: Construire et déployer
         id: deploy_gateway
         if: github.event_name != 'pull_request'
@@ -96,6 +80,7 @@ jobs:
           RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
+          test -n "${RUNTIME_SERVICE_ACCOUNT:-}"
           gcloud services enable \
             run.googleapis.com \
             cloudbuild.googleapis.com \
@@ -112,10 +97,10 @@ jobs:
             --max-instances=1 \
             --concurrency=80 \
             --timeout=3600 \
-            --set-env-vars="ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app,FIREBASE_PROJECT_ID=oryx-froid-industriel,FIREBASE_DATABASE_URL=https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app" \
+            --set-env-vars="ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app,FIREBASE_PROJECT_ID=oryx-froid-industriel,FIREBASE_DATABASE_URL=https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app,ETR_GITHUB_REPOSITORY=ORYX-WORLD/EtR-core" \
             --quiet
 
-      - name: Vérifier la passerelle publiée
+      - name: Vérifier les routes publiées
         id: verify_gateway
         if: github.event_name != 'pull_request'
         shell: bash
@@ -129,22 +114,50 @@ jobs:
           health=$(curl --retry 12 --retry-delay 5 --retry-all-errors -fsS "$url/healthz")
           printf '%s\n' "$health" | python3 -m json.tool
           printf '%s\n' "$health" | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("enrollment")=="v1"'
-          status=$(curl -sS -o /tmp/enrollment-smoke.json -w '%{http_code}' \
-            -X POST "$url/api/enrollment/request" \
-            -H 'Content-Type: application/json' \
-            -d '{}')
-          cat /tmp/enrollment-smoke.json | python3 -m json.tool
-          [ "$status" = "400" ] || { echo "::error::Route d'enrôlement inattendue : HTTP $status"; exit 1; }
+
+          request_status=$(curl -sS -o /tmp/enrollment-smoke.json -w '%{http_code}' \
+            -X POST "$url/api/enrollment/request" -H 'Content-Type: application/json' -d '{}')
+          [ "$request_status" = "400" ] || { cat /tmp/enrollment-smoke.json; echo "::error::Route de demande inattendue : HTTP $request_status"; exit 1; }
+
+          bootstrap_status=$(curl -sS -o /tmp/bootstrap-smoke.json -w '%{http_code}' \
+            -X POST "$url/api/enrollment/bootstrap" -H 'Content-Type: application/json' -d '{}')
+          [ "$bootstrap_status" = "401" ] || { cat /tmp/bootstrap-smoke.json; echo "::error::Route bootstrap inattendue : HTTP $bootstrap_status"; exit 1; }
+          python3 -c 'import json; assert json.load(open("/tmp/bootstrap-smoke.json"))["code"]=="github_oidc_missing"'
+
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Passerelle EtR : $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Vérifier la signature des identités techniques
+        id: verify_signing
+        if: github.event_name != 'pull_request' && steps.verify_gateway.outcome == 'success'
+        shell: bash
+        env:
+          GATEWAY_URL: ${{ steps.verify_gateway.outputs.url }}
+        run: |
+          set -euo pipefail
+          oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=etr-bootstrap"
+          curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$oidc_url" > /tmp/etr-signing-oidc.json
+          oidc_token=$(python3 -c 'import json; print(json.load(open("/tmp/etr-signing-oidc.json"))["value"])')
+          rm -f /tmp/etr-signing-oidc.json
+          test -n "$oidc_token"
+          status=$(curl -sS -o /tmp/etr-signing-health.json -w '%{http_code}' \
+            -X POST "${GATEWAY_URL}/api/enrollment/signing-health" \
+            -H "Authorization: Bearer ${oidc_token}" \
+            -H 'Content-Type: application/json' \
+            -d '{}')
+          unset oidc_token
+          cat /tmp/etr-signing-health.json | python3 -m json.tool
+          [ "$status" = "200" ] || { echo "::error::Signature Firebase impossible : HTTP $status"; exit 1; }
+          python3 -c 'import json; data=json.load(open("/tmp/etr-signing-health.json")); assert data=={"ok":True,"signer":"firebase-admin","algorithm":"RS256"}'
 
       - name: Enregistrer la preuve du déploiement
         if: always() && github.event_name != 'pull_request'
         shell: bash
         env:
-          TOKEN_SIGNER_OUTCOME: ${{ steps.token_signer.outcome }}
+          AUTH_OUTCOME: ${{ steps.google_auth.outcome }}
           DEPLOY_OUTCOME: ${{ steps.deploy_gateway.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify_gateway.outcome }}
+          SIGNING_OUTCOME: ${{ steps.verify_signing.outcome }}
           GATEWAY_URL: ${{ steps.verify_gateway.outputs.url }}
         run: |
           set -euo pipefail
@@ -153,9 +166,10 @@ jobs:
           import json, os
           from datetime import datetime, timezone
           outcomes = {
-              "tokenSigner": os.getenv("TOKEN_SIGNER_OUTCOME", "skipped"),
+              "authentication": os.getenv("AUTH_OUTCOME", "skipped"),
               "deploy": os.getenv("DEPLOY_OUTCOME", "skipped"),
               "verify": os.getenv("VERIFY_OUTCOME", "skipped"),
+              "firebaseSigning": os.getenv("SIGNING_OUTCOME", "skipped"),
           }
           report = {
               "checkedAt": datetime.now(timezone.utc).isoformat(),
@@ -166,6 +180,8 @@ jobs:
               "service": os.getenv("SERVICE_NAME"),
               "url": os.getenv("GATEWAY_URL") or None,
               "enrollment": "v1",
+              "deviceBootstrap": "github-oidc-ed25519",
+              "customTokenSigning": outcomes["firebaseSigning"] == "success",
               "outcomes": outcomes,
           }
           with open(".github/deployment/gateway-last-deploy.json", "w", encoding="utf-8") as file:
