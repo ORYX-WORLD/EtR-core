@@ -54,17 +54,26 @@ class RepositoryContractTests(unittest.TestCase):
     def test_gateway_docker_image_contains_every_runtime_module(self):
         dockerfile = (ROOT / "gateway/Dockerfile").read_text(encoding="utf-8")
         for marker in [
-            "COPY server.mjs ./",
-            "COPY firebase-token-verifier.mjs ./",
-            "COPY enrollment.mjs ./",
-            "COPY enrollment-http.mjs ./",
-            "COPY device-bootstrap.mjs ./",
-            "USER node",
-            "ENV NODE_ENV=production",
-            'CMD ["node", "server.mjs"]',
+            "COPY server.mjs ./", "COPY firebase-token-verifier.mjs ./", "COPY enrollment.mjs ./",
+            "COPY enrollment-http.mjs ./", "COPY device-bootstrap.mjs ./", "USER node",
+            "ENV NODE_ENV=production", 'CMD ["node", "server.mjs"]',
         ]:
             self.assertIn(marker, dockerfile)
         self.assertNotIn("COPY server.mjs firebase-token-verifier.mjs ./", dockerfile)
+
+    def test_gateway_verifier_blocks_unverified_humans_but_preserves_devices(self):
+        verifier = (ROOT / "gateway/firebase-token-verifier.mjs").read_text(encoding="utf-8")
+        verifier_tests = (ROOT / "gateway/firebase-token-verifier.test.mjs").read_text(encoding="utf-8")
+        for marker in [
+            "principalHasVerifiedAccess", "payload?.email_verified === true", "payload?.etrDevice === true",
+            '"auth/email-not-verified"', "enforceVerifiedHumanOrBoundDevice", "deviceAccess/",
+        ]:
+            self.assertIn(marker, verifier)
+        for marker in [
+            "rejects an unverified human", "accepts an EtR custom-token identity",
+            "accepts a legacy technical account", "accepts an ORYX privileged token",
+        ]:
+            self.assertIn(marker, verifier_tests)
 
     def test_firebase_bridge_is_non_privileged_and_versioned(self):
         unit = (ROOT / "src/deploy/raspi/etr-firebase-bridge.service").read_text(encoding="utf-8")
