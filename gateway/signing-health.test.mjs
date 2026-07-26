@@ -53,9 +53,10 @@ test("session health is protected by GitHub OIDC and never exposes Firebase toke
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body, { ok: true, mode: "firebase-password-session", tokenExchange: true });
   assert.deepEqual(healthCalls, ["123456789"]);
-  assert.equal(JSON.stringify(res.body).includes("Token"), true);
-  assert.equal(JSON.stringify(res.body).includes("header.payload.signature"), false);
-  assert.equal(JSON.stringify(res.body).includes("refreshToken"), false);
+  const publicBody = JSON.stringify(res.body);
+  assert.equal(publicBody.includes("idToken"), false);
+  assert.equal(publicBody.includes("refreshToken"), false);
+  assert.equal(publicBody.includes("header.payload.signature"), false);
   assert.equal(res.headers["Cache-Control"], "no-store");
 });
 
