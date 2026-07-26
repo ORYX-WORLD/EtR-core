@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO_URL="https://github.com/ORYX-WORLD/EtR-core.git"
 INSTALL_DIR="/home/oryx/EtR-core"
+ENV_FILE="/etc/etr-core/firebase-bridge.env"
 
 sudo apt update
 sudo apt install -y \
@@ -28,16 +29,56 @@ python3 -m venv .venv
 
 # Répertoires d'état locaux avant activation des sandbox systemd.
 sudo install -d -m 700 -o oryx -g oryx /var/lib/etr-core
-sudo install -d -m 700 /etc/etr-core
+sudo install -d -m 750 -o root -g oryx /etc/etr-core
+sudo touch "$ENV_FILE"
+sudo chown root:oryx "$ENV_FILE"
+sudo chmod 640 "$ENV_FILE"
+for state_file in \
+  /var/lib/etr-core/firebase-auth.json \
+  /var/lib/etr-core/enrollment.json \
+  /var/lib/etr-core/telemetry.json \
+  /var/lib/etr-core/remote-screen-auth.json \
+  /var/lib/etr-core/bootstrap-private.pem; do
+  if [ -f "$state_file" ]; then
+    sudo chown oryx:oryx "$state_file"
+    sudo chmod 600 "$state_file"
+  fi
+done
+
+# Identité asymétrique persistante du Raspberry. La clé privée ne quitte jamais
+# l'équipement ; seule la clé publique sera enregistrée par le runner GitHub.
+sudo -u oryx -H "$INSTALL_DIR/.venv/bin/python" - <<'PY'
+from pathlib import Path
+from src.device_identity import ensure_device_keypair
+ensure_device_keypair(
+    Path('/var/lib/etr-core/bootstrap-private.pem'),
+    Path('/var/lib/etr-core/bootstrap-public.pem'),
+)
+PY
+sudo chown oryx:oryx /var/lib/etr-core/bootstrap-private.pem /var/lib/etr-core/bootstrap-public.pem
+sudo chmod 600 /var/lib/etr-core/bootstrap-private.pem
+sudo chmod 644 /var/lib/etr-core/bootstrap-public.pem
+
+# Si la passerelle WSS est déjà configurée, dériver automatiquement l'URL HTTPS
+# d'enrôlement sans stocker une seconde origine manuellement.
+remote_gateway=$(sudo sed -n 's/^ETR_REMOTE_GATEWAY_WSS=//p' "$ENV_FILE" | tail -n 1)
+if [ -n "$remote_gateway" ] && ! sudo grep -q '^FIREBASE_ENROLLMENT_URL=.' "$ENV_FILE"; then
+  enrollment_origin=${remote_gateway/wss:\/\//https:\/\/}
+  enrollment_origin=${enrollment_origin%%\?*}
+  enrollment_origin=${enrollment_origin%/device}
+  enrollment_origin=${enrollment_origin%/}
+  printf '%s\n' "FIREBASE_ENROLLMENT_URL=${enrollment_origin}/api/enrollment" | sudo tee -a "$ENV_FILE" >/dev/null
+fi
 
 # NetworkManager gère Ethernet, les profils Wi-Fi et le hotspot temporaire.
 sudo systemctl enable NetworkManager.service
 
 # Services principaux. L'ancienne unité dashboard éventuellement installée sous
 # /opt/etr/dashboard est remplacée par l'unité versionnée dans ce dépôt.
-sudo systemctl stop etr-dashboard.service 2>/dev/null || true
+sudo systemctl stop etr-dashboard.service etr-firebase-bridge.service 2>/dev/null || true
 sudo install -m 644 src/deploy/etr.service /etc/systemd/system/etr.service
 sudo install -m 644 src/deploy/raspi/etr-dashboard.service /etc/systemd/system/etr-dashboard.service
+sudo install -m 644 src/deploy/raspi/etr-firebase-bridge.service /etc/systemd/system/etr-firebase-bridge.service
 sudo install -m 644 src/deploy/raspi/etr-wifi-portal.service /etc/systemd/system/etr-wifi-portal.service
 
 # Affichage SPI et kiosque.
@@ -57,10 +98,6 @@ sudo install -m 644 src/deploy/raspi/etr-remote-screen.service /etc/systemd/syst
 sudo systemctl stop etr-remote-screen.service 2>/dev/null || true
 sudo install -d -m 755 -o oryx -g oryx /home/oryx/.local/bin
 sudo rm -f /var/lib/etr-core/remote-screen-auth.tmp
-if [ -f /var/lib/etr-core/remote-screen-auth.json ]; then
-  sudo chown oryx:oryx /var/lib/etr-core/remote-screen-auth.json
-  sudo chmod 600 /var/lib/etr-core/remote-screen-auth.json
-fi
 sudo install -m 755 src/deploy/raspi/etr-storage-maintenance.sh /home/oryx/.local/bin/etr-storage-maintenance.sh
 echo '*/15 * * * * oryx /home/oryx/.local/bin/etr-storage-maintenance.sh' | \
   sudo tee /etc/cron.d/etr-storage-maintenance >/dev/null
@@ -76,7 +113,7 @@ sudo pkill -KILL -u oryx -f '[c]hromium.*etr-kiosk-chromium' 2>/dev/null || true
 sudo rm -f /home/oryx/.cache/etr-kiosk-chromium/SingletonCookie \
             /home/oryx/.cache/etr-kiosk-chromium/SingletonLock \
             /home/oryx/.cache/etr-kiosk-chromium/SingletonSocket
-sudo systemctl reset-failed etr-dashboard.service etr-wifi-portal.service etr-kiosk.service 2>/dev/null || true
+sudo systemctl reset-failed etr-dashboard.service etr-firebase-bridge.service etr-wifi-portal.service etr-kiosk.service 2>/dev/null || true
 
 sudo systemctl daemon-reload
 sudo systemctl enable etr.service etr-dashboard.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service
@@ -94,6 +131,18 @@ if [ "$api_ready" != true ]; then
   sudo systemctl status etr.service --no-pager || true
   sudo journalctl -u etr.service -n 80 --no-pager || true
   exit 1
+fi
+
+# Le bridge démarre dès que la configuration Firebase minimale existe. Il reste
+# actif en attente d'association et n'accepte un code qu'après enregistrement de
+# sa clé publique par le workflow GitHub authentifié.
+if sudo grep -q '^FIREBASE_API_KEY=.' "$ENV_FILE" && \
+   sudo grep -q '^FIREBASE_DATABASE_URL=.' "$ENV_FILE"; then
+  sudo systemctl enable etr-firebase-bridge.service
+  sudo systemctl restart etr-firebase-bridge.service
+else
+  sudo systemctl disable --now etr-firebase-bridge.service 2>/dev/null || true
+  echo "Bridge Firebase non activé : FIREBASE_API_KEY et FIREBASE_DATABASE_URL sont requis dans $ENV_FILE"
 fi
 
 sudo systemctl restart etr-dashboard.service
@@ -114,10 +163,7 @@ fi
 sudo systemctl restart spi-desktop.service
 
 # La passerelle distante est activée uniquement lorsqu'une URL WSS a été configurée.
-remote_gateway=""
-if [ -f /etc/etr-core/firebase-bridge.env ]; then
-  remote_gateway=$(sudo sed -n 's/^ETR_REMOTE_GATEWAY_WSS=//p' /etc/etr-core/firebase-bridge.env | tail -n 1)
-fi
+remote_gateway=$(sudo sed -n 's/^ETR_REMOTE_GATEWAY_WSS=//p' "$ENV_FILE" | tail -n 1)
 if [ -n "$remote_gateway" ]; then
   sudo systemctl stop etr-vnc.service 2>/dev/null || true
   sudo pkill -f '[x]11vnc.*rfbport 5901' 2>/dev/null || true
@@ -126,7 +172,7 @@ if [ -n "$remote_gateway" ]; then
   sudo systemctl restart etr-remote-screen.service
 else
   sudo systemctl disable --now etr-remote-screen.service etr-vnc.service 2>/dev/null || true
-  echo "Passerelle distante non activée : définir ETR_REMOTE_GATEWAY_WSS dans /etc/etr-core/firebase-bridge.env"
+  echo "Passerelle distante non activée : définir ETR_REMOTE_GATEWAY_WSS dans $ENV_FILE"
 fi
 
 # Le portail doit être réellement joignable avant de démarrer le kiosque.
@@ -149,5 +195,5 @@ fi
 sudo systemctl reset-failed etr-kiosk.service 2>/dev/null || true
 sudo systemctl start etr-kiosk.service
 
-echo "OK. API EtR, dashboard versionné, portail Wi-Fi tactile, écran SPI, kiosque et configuration d'écran distant sont installés."
+echo "OK. API EtR, identité Ed25519, bridge Firebase, enrôlement sécurisé, dashboard versionné, portail Wi-Fi tactile, écran SPI, kiosque et configuration d'écran distant sont installés."
 echo "Un redémarrage est recommandé pour valider le parcours hors connexion."

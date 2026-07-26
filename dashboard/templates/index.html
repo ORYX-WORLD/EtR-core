@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#071827">
+  <meta name="theme-color" content="#061a2e">
   <title>EtR — Tableau de bord local</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
   <script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>
@@ -29,6 +29,21 @@
         <span>État général</span>
         <strong data-health-label>Contrôle…</strong>
         <small data-last-update>Aucune donnée reçue</small>
+      </div>
+    </section>
+
+    <section class="enrollment-card" data-enrollment hidden aria-labelledby="enrollment-title">
+      <div class="enrollment-copy">
+        <p class="eyebrow">Première mise en service</p>
+        <h2 id="enrollment-title">Associer cet EtR à votre compte</h2>
+        <p>Depuis un téléphone ou un ordinateur, connectez-vous à l'espace EtR ORYX puis saisissez le numéro de série et le code affiché ici.</p>
+        <p class="enrollment-url">oryx-froid-industriel.web.app/etr-project/</p>
+      </div>
+      <div class="activation-panel" data-enrollment-state="loading">
+        <span>Code d'activation</span>
+        <strong data-enrollment-code>Génération…</strong>
+        <small data-enrollment-expiry>Connexion au service d'activation…</small>
+        <b data-enrollment-installation></b>
       </div>
     </section>
 

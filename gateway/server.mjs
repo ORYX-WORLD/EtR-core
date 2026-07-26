@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import admin from "firebase-admin";
 import { createFirebaseIdTokenVerifier } from "./firebase-token-verifier.mjs";
+import { installEnrollmentRoutes } from "./enrollment-http.mjs";
 import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = Number(process.env.PORT || 8080);
@@ -96,6 +97,13 @@ app.use((req, res, next) => {
   next();
 });
 
+installEnrollmentRoutes({
+  app,
+  db,
+  auth: admin.auth(),
+  verifyIdToken
+});
+
 app.get("/healthz", (_req, res) => {
   let viewers = 0;
   let readyViewers = 0;
@@ -103,7 +111,7 @@ app.get("/healthz", (_req, res) => {
     if (device.viewer?.readyState === WebSocket.OPEN) viewers += 1;
     if (device.viewer?.vncReady === true) readyViewers += 1;
   }
-  res.json({ ok: true, devices: devices.size, viewers, readyViewers });
+  res.json({ ok: true, devices: devices.size, viewers, readyViewers, enrollment: "v1" });
 });
 
 app.post("/api/remote-session", async (req, res) => {
