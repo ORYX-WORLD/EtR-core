@@ -3,12 +3,16 @@
   const connection = one('[data-connection]');
   const connectionLabel = one('[data-connection-label]');
   const health = one('[data-health]');
+  const enrollmentPanel = one('[data-enrollment]');
+  const enrollmentState = one('[data-enrollment-state]');
   const fields = {
     installation: one('[data-installation]'), hostname: one('[data-hostname]'), health: one('[data-health-label]'),
     updated: one('[data-last-update]'), cpu: one('[data-cpu]'), memory: one('[data-memory]'), disk: one('[data-disk]'),
     uptime: one('[data-uptime]'), api: one('[data-api-state]'), schema: one('[data-schema]'),
     measurements: one('[data-measurements]'), states: one('[data-states]'), alerts: one('[data-alerts]'),
-    telemetryBadge: one('[data-telemetry-badge]'), alertCount: one('[data-alert-count]')
+    telemetryBadge: one('[data-telemetry-badge]'), alertCount: one('[data-alert-count]'),
+    enrollmentCode: one('[data-enrollment-code]'), enrollmentExpiry: one('[data-enrollment-expiry]'),
+    enrollmentInstallation: one('[data-enrollment-installation]')
   };
 
   const labels = value => String(value).replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
@@ -26,6 +30,12 @@
     const hours = Math.floor((total % 86400) / 3600);
     const minutes = Math.floor((total % 3600) / 60);
     return days ? `${days} j ${hours} h` : hours ? `${hours} h ${minutes} min` : `${minutes} min`;
+  };
+  const remaining = seconds => {
+    const total = Math.max(0, Number(seconds) || 0);
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    return hours ? `${hours} h ${minutes} min` : `${minutes} min`;
   };
   const renderMap = (root, values, emptyText) => {
     if (!root) return;
@@ -55,6 +65,31 @@
       fields.alerts.append(alert);
     }
   };
+  const renderEnrollment = enrollment => {
+    if (!enrollmentPanel) return;
+    if (!enrollment || enrollment.required !== true) {
+      enrollmentPanel.hidden = true;
+      return;
+    }
+    enrollmentPanel.hidden = false;
+    const code = String(enrollment.activation_code || '').trim();
+    const status = String(enrollment.status || 'unconfigured');
+    enrollmentState.dataset.enrollmentState = status;
+    setText(fields.enrollmentInstallation, enrollment.installation_id ? `Installation : ${enrollment.installation_id}` : 'Identification de l’installation…');
+    if (code) {
+      setText(fields.enrollmentCode, code);
+      if (status === 'expired') {
+        setText(fields.enrollmentExpiry, 'Code expiré — un nouveau code va être généré automatiquement.');
+      } else if (Number.isFinite(Number(enrollment.expires_in_seconds))) {
+        setText(fields.enrollmentExpiry, `Valable encore ${remaining(enrollment.expires_in_seconds)}.`);
+      } else {
+        setText(fields.enrollmentExpiry, 'Code temporaire à usage unique.');
+      }
+    } else {
+      setText(fields.enrollmentCode, status === 'expired' ? 'Renouvellement…' : 'Génération…');
+      setText(fields.enrollmentExpiry, 'Connexion au service d’activation ORYX en cours.');
+    }
+  };
 
   const render = payload => {
     const data = payload.data || {};
@@ -73,6 +108,7 @@
     setText(fields.disk, `${formatValue(system.disk_percent)} %`); setMeter('[data-disk-meter]', system.disk_percent);
     setText(fields.uptime, uptime(system.uptime_seconds)); setText(fields.schema, data.schema_version || '—');
     setText(fields.telemetryBadge, telemetry.online ? 'Source connectée' : 'Source en attente');
+    renderEnrollment(data.enrollment);
     renderMap(fields.measurements, telemetry.measurements, 'Aucune mesure instrumentée publiée.');
     renderMap(fields.states, telemetry.states, 'Aucun état métier publié.');
     renderAlerts(telemetry.alerts);
