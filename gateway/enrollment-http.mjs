@@ -43,7 +43,15 @@ function safeError(res, error) {
   return res.status(500).json({ error: "Erreur d’activation EtR", code: "enrollment_error" });
 }
 
-export function installEnrollmentRoutes({ app, db, auth, verifyIdToken, now = () => Date.now() }) {
+export function installEnrollmentRoutes({
+  app,
+  db,
+  auth,
+  verifyIdToken,
+  deviceBootstrap,
+  now = () => Date.now()
+}) {
+  if (!deviceBootstrap?.verifyDeviceRequest) throw new Error("Enrollment routes require device bootstrap verification");
   const enrollment = createEnrollmentService({
     store: createFirebaseEnrollmentStore(db),
     auth,
@@ -54,6 +62,7 @@ export function installEnrollmentRoutes({ app, db, auth, verifyIdToken, now = ()
   async function requestEnrollment(req, res) {
     try {
       enforceRate(req, "request", 12);
+      await deviceBootstrap.verifyDeviceRequest(req, "request");
       const result = await enrollment.request({
         serial: req.body?.serial,
         hostname: req.body?.hostname,
@@ -85,6 +94,7 @@ export function installEnrollmentRoutes({ app, db, auth, verifyIdToken, now = ()
   async function exchangeEnrollment(req, res) {
     try {
       enforceRate(req, "exchange", 60);
+      await deviceBootstrap.verifyDeviceRequest(req, "exchange");
       const result = await enrollment.exchange({
         serial: req.body?.serial,
         activationCode: req.body?.activationCode || req.body?.code
