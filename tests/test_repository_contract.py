@@ -142,7 +142,7 @@ class RepositoryContractTests(unittest.TestCase):
             "node --check firebase-device-session.mjs", "node --check admin.mjs", "docker build --pull", "docker run --rm -d",
             "FIREBASE_API_KEY", "ETR_ADMIN_EMAILS", "127.0.0.1:18080/healthz", "docker exec etr-gateway-ci test -s",
             "/api/enrollment/request", "/api/enrollment/bootstrap", "/api/enrollment/session-health",
-            "/api/admin/session", 'admin: "v1"', "audience=etr-bootstrap", "firebaseSession", "deviceSessionIssuance",
+            "/api/admin/session", '"admin": "v1"', "audience=etr-bootstrap", "firebaseSession", "deviceSessionIssuance",
             '"password_session"', "gateway-last-deploy.json",
         ]:
             self.assertIn(marker, workflow)
