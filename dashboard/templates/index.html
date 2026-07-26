@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#071827">
+  <title>EtR — Tableau de bord local</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+  <script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>
+</head>
+<body data-etr-dashboard-version="{{ dashboard_version }}">
+  <a class="skip-link" href="#main">Aller aux données</a>
+  <header class="topbar">
+    <div class="brand" aria-label="EtR">
+      <span class="brand-mark" aria-hidden="true">EtR</span>
+      <span><strong>Tableau de bord local</strong><small>Système frigorifique connecté</small></span>
+    </div>
+    <div class="connection" data-connection="loading"><i aria-hidden="true"></i><span data-connection-label>Initialisation…</span></div>
+  </header>
+
+  <main id="main" class="dashboard" aria-live="polite">
+    <section class="hero-card">
+      <div>
+        <p class="eyebrow">Équipement Edge</p>
+        <h1 data-installation>EtR local</h1>
+        <p data-hostname>Lecture de l'identité de l'équipement…</p>
+      </div>
+      <div class="health" data-health="loading">
+        <span>État général</span>
+        <strong data-health-label>Contrôle…</strong>
+        <small data-last-update>Aucune donnée reçue</small>
+      </div>
+    </section>
+
+    <section class="metrics" aria-label="État du Raspberry Pi">
+      <article class="metric"><span>CPU</span><strong data-cpu>— %</strong><meter data-cpu-meter min="0" max="100" value="0">0 %</meter></article>
+      <article class="metric"><span>Mémoire</span><strong data-memory>— %</strong><meter data-memory-meter min="0" max="100" value="0">0 %</meter></article>
+      <article class="metric"><span>Stockage</span><strong data-disk>— %</strong><meter data-disk-meter min="0" max="100" value="0">0 %</meter></article>
+      <article class="metric"><span>Disponibilité</span><strong data-uptime>—</strong><small>Depuis le dernier démarrage</small></article>
+    </section>
+
+    <section class="panel-grid">
+      <article class="panel">
+        <div class="panel-head"><div><p class="eyebrow">Mesures terrain</p><h2>Instrumentation</h2></div><span class="badge" data-telemetry-badge>En attente</span></div>
+        <div class="data-list" data-measurements><p class="empty">Aucune mesure instrumentée publiée.</p></div>
+      </article>
+      <article class="panel">
+        <div class="panel-head"><div><p class="eyebrow">États & alarmes</p><h2>Exploitation</h2></div><span class="badge" data-alert-count>0 alarme</span></div>
+        <div class="data-list" data-states><p class="empty">Aucun état métier publié.</p></div>
+        <div class="alerts" data-alerts><p class="empty">Aucune alarme active.</p></div>
+      </article>
+    </section>
+
+    <footer class="footer-line">
+      <span>API locale <b data-api-state>contrôle…</b></span>
+      <span>Contrat de données <b data-schema>—</b></span>
+      <span>Dashboard <b>v{{ dashboard_version }}</b></span>
+    </footer>
+  </main>
+</body>
+</html>

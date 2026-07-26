@@ -1,17 +1,18 @@
 [Unit]
-Description=EtR local API
-After=network.target
+Description=EtR local dashboard (versioned)
+Wants=etr.service
+After=etr.service network.target
 StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=oryx
 Group=oryx
-WorkingDirectory=/home/oryx/EtR-core
+WorkingDirectory=/home/oryx/EtR-core/dashboard
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-Environment=ETR_TELEMETRY_FILE=/var/lib/etr-core/telemetry.json
-ExecStart=/home/oryx/EtR-core/.venv/bin/gunicorn --workers 2 --threads 2 --timeout 30 --access-logfile - --error-logfile - --bind 127.0.0.1:8080 src.app:app
+Environment=ETR_LOCAL_API_URL=http://127.0.0.1:8080/api/v1/status
+ExecStart=/home/oryx/EtR-core/.venv/bin/gunicorn --workers 2 --threads 2 --timeout 30 --access-logfile - --error-logfile - --bind 127.0.0.1:8000 app:app
 Restart=always
 RestartSec=3
 TimeoutStopSec=15
@@ -29,7 +30,6 @@ LockPersonality=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadWritePaths=/var/lib/etr-core
 UMask=0077
 
 [Install]

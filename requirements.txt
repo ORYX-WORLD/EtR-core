@@ -1,7 +1,8 @@
-flask
+Flask>=3.0,<4
+gunicorn>=22,<24
 pymodbus==3.6.6
-pyserial
-psutil
-gpiozero
+pyserial>=3.5,<4
+psutil>=5.9,<8
+gpiozero>=2.0,<3
 requests>=2.31,<3
 websockets==12.0
