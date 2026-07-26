@@ -28,7 +28,7 @@ except ModuleNotFoundError:  # Exécution directe de src/firebase_bridge.py sur 
     from device_identity import ensure_device_keypair, sign_device_request
 
 LOG = logging.getLogger("etr-firebase-bridge")
-BRIDGE_VERSION = "3.1"
+BRIDGE_VERSION = "3.2"
 
 
 def required(name: str) -> str:
@@ -251,8 +251,17 @@ def exchange_activation_code(code: str) -> dict:
     if response.status_code in (401, 410, 429):
         clear_enrollment()
     response.raise_for_status()
-    custom_token = response.json()["customToken"]
-    return sign_in_custom_token(custom_token)
+    data = response.json()
+    if data.get("idToken") and data.get("refreshToken"):
+        return {
+            "idToken": str(data["idToken"]),
+            "refreshToken": str(data["refreshToken"]),
+            "expiresIn": int(data.get("expiresIn") or 3600),
+        }
+    custom_token = str(data.get("customToken") or "")
+    if custom_token:
+        return sign_in_custom_token(custom_token)
+    raise RuntimeError("Réponse d'identité technique incomplète")
 
 
 def enrollment_expired(state: dict) -> bool:

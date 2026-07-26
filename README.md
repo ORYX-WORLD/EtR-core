@@ -20,7 +20,9 @@ Aucun service HTTP ou VNC métier n'est volontairement exposé sur `0.0.0.0`. L'
 
 ## Première mise en service autonome
 
-Un EtR neuf demande automatiquement un code temporaire à la passerelle Cloud. Le code Crockford Base32 de 100 bits est affiché sur le dashboard tactile pendant 24 heures. Le client se connecte à l'espace EtR, saisit le numéro de série et ce code, puis le Raspberry échange le code une seule fois contre une identité Firebase technique.
+Un EtR neuf génère localement sa clé Ed25519 puis demande automatiquement un code temporaire à la passerelle Cloud. Le code Crockford Base32 de 100 bits est affiché sur le dashboard tactile pendant 24 heures. Le client se connecte à l'espace EtR avec une adresse e-mail vérifiée, saisit le numéro de série et ce code, puis le Raspberry échange le code une seule fois contre une session Firebase technique.
+
+La session appareil est émise sans `signBlob` : la passerelle crée ou renouvelle un compte technique déterministe avec un mot de passe éphémère aléatoire de 384 bits, applique les claims EtR, effectue la connexion Firebase et remet uniquement l'ID token et le refresh token au Raspberry authentifié. Le mot de passe n'est ni retourné ni conservé par EtR.
 
 Le protocole, ses propriétés cryptographiques, ses données et ses preuves de déploiement sont décrits dans [`docs/SECURE_ENROLLMENT.md`](docs/SECURE_ENROLLMENT.md).
 
@@ -45,7 +47,7 @@ Le déploiement GitHub Actions sur le runner ARM64 vérifie ensuite :
 - l'écran distant lorsque sa passerelle est configurée ;
 - le statut d'enrôlement dans le rapport physique.
 
-La passerelle Cloud possède un workflow distinct qui exécute les tests Node, construit noVNC, déploie Cloud Run et vérifie que `/healthz` annonce `enrollment: "v1"`.
+La passerelle Cloud possède un workflow distinct qui exécute les tests Node, construit et démarre l'image Docker exacte, déploie Cloud Run, vérifie les routes d'enrôlement puis prouve l'émission d'une session Firebase appareil via GitHub OIDC sans exposer les jetons.
 
 ## Tests et règle anti-oubli
 
@@ -57,10 +59,10 @@ npm install --no-audit --no-fund
 npm test
 ```
 
-`tests/test_repository_contract.py` bloque la CI si le dashboard, l'enrôlement, leurs dépendances, unités systemd, tests, workflows ou preuves sont supprimés. Toute pull request fonctionnelle doit également mettre à jour [`docs/PROJECT_TRACKER.md`](docs/PROJECT_TRACKER.md).
+`tests/test_repository_contract.py` bloque la CI si le dashboard, l'enrôlement, l'émetteur de session Firebase, leurs dépendances, unités systemd, tests, workflows ou preuves sont supprimés. Toute pull request fonctionnelle doit également mettre à jour [`docs/PROJECT_TRACKER.md`](docs/PROJECT_TRACKER.md).
 
 ## Secrets et état local
 
 Les secrets ne sont jamais versionnés. Les variables restent dans `/etc/etr-core/firebase-bridge.env`, propriété `root:oryx` avec le mode `0640`. Les jetons, codes temporaires et états d'exécution restent dans `/var/lib/etr-core`, propriété `oryx:oryx` avec le mode `0600`.
 
-Le bridge Firebase fonctionne sous l'utilisateur non privilégié `oryx`. Aucun mot de passe, jeton Firebase, clé WSS, code d'activation ou jeton de rotation ne doit être ajouté au dépôt.
+Le bridge Firebase fonctionne sous l'utilisateur non privilégié `oryx`. Aucun mot de passe, jeton Firebase, clé WSS, code d'activation, jeton de rotation ou clé privée ne doit être ajouté au dépôt.
