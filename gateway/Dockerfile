@@ -14,6 +14,7 @@ COPY enrollment.mjs ./
 COPY enrollment-http.mjs ./
 COPY device-bootstrap.mjs ./
 COPY firebase-device-session.mjs ./
+COPY admin.mjs ./
 
 USER node
 ENV NODE_ENV=production
