@@ -1,0 +1,42 @@
+import unittest
+from unittest.mock import Mock, patch
+
+import requests
+
+from dashboard.app import create_app
+
+
+class DashboardTests(unittest.TestCase):
+    def setUp(self):
+        self.app = create_app({"TESTING": True, "ETR_API_URL": "http://local.test/status"})
+        self.client = self.app.test_client()
+
+    def test_dashboard_is_rendered_from_versioned_sources(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"data-etr-dashboard-version", response.data)
+        self.assertIn(b"Tableau de bord local", response.data)
+        self.assertIn("script-src 'self'", response.headers["Content-Security-Policy"])
+
+    @patch("dashboard.app.requests.get")
+    def test_status_proxy_returns_local_api_payload(self, get):
+        upstream = Mock()
+        upstream.raise_for_status.return_value = None
+        upstream.json.return_value = {"schema_version": "1.0", "health": "ok"}
+        get.return_value = upstream
+        response = self.client.get("/api/status")
+        payload = response.get_json()
+        self.assertTrue(payload["api_online"])
+        self.assertEqual(payload["data"]["schema_version"], "1.0")
+
+    @patch("dashboard.app.requests.get", side_effect=requests.ConnectionError("network"))
+    def test_status_proxy_fails_closed_without_trace(self, _get):
+        response = self.client.get("/api/status")
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(payload["api_online"])
+        self.assertEqual(payload["error"], "local_api_unavailable")
+
+
+if __name__ == "__main__":
+    unittest.main()

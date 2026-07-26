@@ -10,7 +10,7 @@
         },
         "latest": {
           ".write": "auth != null && root.child('deviceAccess').child(auth.uid).val() === $installationId",
-          ".validate": "newData.hasChildren(['installation_id', 'updated_at']) && newData.child('installation_id').val() === $installationId"
+          ".validate": "newData.hasChildren(['installation_id', 'updated_at']) && newData.child('installation_id').isString() && newData.child('installation_id').val() === $installationId && newData.child('updated_at').isString()"
         },
         "telemetry": {
           ".write": "auth != null && root.child('deviceAccess').child(auth.uid).val() === $installationId"
@@ -39,7 +39,7 @@
         ".read": "auth != null && ($uid === auth.uid || auth.token.oryxStaff === true || auth.token.oryxDeveloper === true)",
         "$installationId": {
           ".write": false,
-          ".validate": "newData.hasChildren(['role', 'active']) && newData.child('role').isString() && (newData.child('role').val() === 'owner' || newData.child('role').val() === 'administrator' || newData.child('role').val() === 'installer' || newData.child('role').val() === 'maintenance' || newData.child('role').val() === 'operator' || newData.child('role').val() === 'viewer')"
+          ".validate": "newData.hasChildren(['role', 'active']) && newData.child('role').isString() && newData.child('active').isBoolean() && (newData.child('role').val() === 'owner' || newData.child('role').val() === 'administrator' || newData.child('role').val() === 'installer' || newData.child('role').val() === 'maintenance' || newData.child('role').val() === 'operator' || newData.child('role').val() === 'viewer')"
         }
       }
     },
@@ -52,7 +52,8 @@
     "deviceAccess": {
       "$uid": {
         ".read": "auth != null && ($uid === auth.uid || auth.token.oryxStaff === true || auth.token.oryxDeveloper === true)",
-        ".write": false
+        ".write": false,
+        ".validate": "newData.isString()"
       }
     },
     "activationCodes": {

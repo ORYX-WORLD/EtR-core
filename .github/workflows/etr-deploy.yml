@@ -1,5 +1,5 @@
-name: Déployer le parcours Wi-Fi EtR
-# Déploiement physique révision 10
+name: Déployer l'application EtR complète
+# Déploiement physique révision 11
 
 on:
   workflow_dispatch:
@@ -7,10 +7,14 @@ on:
     branches: [main]
     paths:
       - .github/workflows/etr-deploy.yml
+      - src/app.py
       - src/wifi_portal.py
       - src/remote_screen_agent.py
       - src/firebase_bridge.py
+      - src/deploy/etr.service
       - src/deploy/raspi/**
+      - dashboard/**
+      - tests/**
       - requirements.txt
 
 concurrency:
@@ -22,9 +26,9 @@ permissions:
 
 jobs:
   deploy:
-    name: Installer sur le Raspberry EtR
+    name: Installer et vérifier sur le Raspberry EtR
     runs-on: [self-hosted, Linux, ARM64]
-    timeout-minutes: 35
+    timeout-minutes: 40
 
     steps:
       - name: Préparer le dépôt de suivi
@@ -79,13 +83,22 @@ jobs:
             echo "Passerelle d'écran distant conservée : secret ETR_REMOTE_GATEWAY_WSS absent"
           fi
 
-      - name: Installer le portail Wi-Fi tactile
+      - name: Vérifier les sources avant installation
         shell: bash
         run: |
           set -euo pipefail
           python3 -m py_compile \
+            /home/oryx/EtR-core/src/app.py \
             /home/oryx/EtR-core/src/wifi_portal.py \
-            /home/oryx/EtR-core/src/remote_screen_agent.py
+            /home/oryx/EtR-core/src/remote_screen_agent.py \
+            /home/oryx/EtR-core/dashboard/app.py
+          test -s /home/oryx/EtR-core/dashboard/requirements.txt
+          test -s /home/oryx/EtR-core/src/deploy/raspi/etr-dashboard.service
+
+      - name: Installer l'application EtR complète
+        shell: bash
+        run: |
+          set -euo pipefail
           sudo -u oryx -H bash /home/oryx/EtR-core/src/deploy/raspi/setup_etr.sh
 
       - name: Vérifier le fonctionnement
@@ -123,8 +136,29 @@ jobs:
             echo "Portail : $label présent"
           }
 
-          for service in etr.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service; do
+          for service in etr.service etr-dashboard.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service; do
             wait_for_service "$service"
+          done
+
+          curl -fsS http://127.0.0.1:8080/healthz | python3 -m json.tool
+          curl -fsS http://127.0.0.1:8080/api/v1/status > /tmp/etr-api-status.json
+          python3 -m json.tool /tmp/etr-api-status.json
+          python3 -c 'import json; data=json.load(open("/tmp/etr-api-status.json")); assert data.get("schema_version")=="1.0"' || fail_check "Contrat API absent" "schema_version 1.0 non publié"
+
+          curl -fsS http://127.0.0.1:8000/healthz | python3 -m json.tool
+          dashboard_html=$(curl -fsS http://127.0.0.1:8000/)
+          grep -Fq 'data-etr-dashboard-version' <<<"$dashboard_html" || fail_check "Dashboard non versionné" "Marqueur du dashboard GitHub absent"
+          grep -Fq 'Tableau de bord local' <<<"$dashboard_html" || fail_check "Dashboard incomplet" "Titre du dashboard absent"
+
+          for port in 8000 8080; do
+            if ! sudo ss -H -ltnp | grep -qE "(127\\.0\\.0\\.1|\\[::1\\]):${port}"; then
+              sudo ss -ltnp || true
+              fail_check "Service local indisponible" "Aucun service EtR local n'écoute sur ${port}"
+            fi
+            if sudo ss -H -ltnp | grep -qE "(0\\.0\\.0\\.0|\\[::\\]):${port}"; then
+              sudo ss -ltnp | grep ":${port}" || true
+              fail_check "Service EtR exposé" "Le port ${port} doit rester limité à la boucle locale"
+            fi
           done
 
           status_ready=false
@@ -153,7 +187,6 @@ jobs:
           if ! sudo systemctl is-enabled --quiet etr-kiosk.service; then
             fail_check "Kiosque non activé" "etr-kiosk.service n'est pas activé au démarrage"
           fi
-          wait_for_service etr-kiosk.service
           chromium_ready=false
           for attempt in $(seq 1 30); do
             if pgrep -u oryx -f 'chromium.*etr-kiosk-chromium' >/dev/null; then
@@ -168,12 +201,11 @@ jobs:
             ps -ef | grep '[c]hromium' || true
             fail_check "Chromium kiosque absent" "Aucun processus Chromium avec le profil etr-kiosk-chromium après 60 secondes"
           fi
-          echo "Portail Wi-Fi tactile sans clavier physique : opérationnel"
+          echo "Dashboard et portail Wi-Fi tactile sans clavier physique : opérationnels"
 
           if sudo grep -q '^ETR_REMOTE_GATEWAY_WSS=.' /etc/etr-core/firebase-bridge.env 2>/dev/null; then
             wait_for_service etr-vnc.service
             wait_for_service etr-remote-screen.service
-
             if ! sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901'; then
               sudo ss -ltnp || true
               fail_check "VNC local indisponible" "Aucun serveur VNC EtR n'écoute localement sur le port 5901"
@@ -198,10 +230,12 @@ jobs:
             echo "job_status=${{ job.status }}"
             echo "host=$(hostname)"
             echo "installed_commit=$(sudo -u oryx -H git -C /home/oryx/EtR-core rev-parse HEAD 2>/dev/null || echo unavailable)"
-            for service in etr.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service etr-vnc.service etr-remote-screen.service; do
+            for service in etr.service etr-dashboard.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service etr-vnc.service etr-remote-screen.service; do
               state=$(sudo systemctl show "$service" -p ActiveState -p SubState -p Result --no-pager 2>/dev/null | tr '\n' ',' | sed 's/,$//')
               echo "$service=$state"
             done
+            echo "etr_api_http=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/healthz 2>/dev/null || echo 000)"
+            echo "etr_dashboard_http=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/healthz 2>/dev/null || echo 000)"
             echo "wifi_portal_http=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/ 2>/dev/null || echo 000)"
           } > .github/deployment/etr-last-deploy.txt
 
