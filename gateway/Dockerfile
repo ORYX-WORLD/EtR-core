@@ -13,6 +13,8 @@ COPY firebase-token-verifier.mjs ./
 COPY enrollment.mjs ./
 COPY enrollment-http.mjs ./
 COPY device-bootstrap.mjs ./
+COPY device-session.mjs ./
+COPY session-config.mjs ./
 
 USER node
 ENV NODE_ENV=production
