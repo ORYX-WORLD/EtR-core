@@ -1,0 +1,15 @@
+{
+  "checkedAt": "2026-07-26T11:20:39.667749+00:00",
+  "commit": "0ad420b5058f1b2f4618e6e129e31efbf216d9c3",
+  "status": "failure",
+  "project": "oryx-froid-industriel",
+  "region": "europe-west1",
+  "service": "etr-remote-gateway",
+  "url": null,
+  "enrollment": "v1",
+  "outcomes": {
+    "tokenSigner": "failure",
+    "deploy": "skipped",
+    "verify": "skipped"
+  }
+}
