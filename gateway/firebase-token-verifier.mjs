@@ -12,6 +12,13 @@ function unavailable(message, code, cause) {
   return Object.assign(new Error(message, { cause }), { status: 503, code });
 }
 
+export function principalHasVerifiedAccess(payload) {
+  return payload?.oryxStaff === true ||
+    payload?.oryxDeveloper === true ||
+    payload?.etrDevice === true ||
+    payload?.email_verified === true;
+}
+
 function validateFallbackClaims(token, projectId) {
   let header;
   let payload;
@@ -87,6 +94,24 @@ async function verifyThroughRealtimeDatabase({
       "Jeton Firebase refusé par Realtime Database",
       `auth/realtime-database-${response.status}`
     );
+  }
+}
+
+async function enforceVerifiedHumanOrBoundDevice({ token, payload, databaseURL, fetchImpl }) {
+  if (principalHasVerifiedAccess(payload)) return;
+  try {
+    // Compatibility path for a legacy technical account already bound in
+    // deviceAccess but created before the etrDevice custom claim existed.
+    await verifyThroughRealtimeDatabase({ token, payload, databaseURL, fetchImpl });
+  } catch (error) {
+    if (error?.status === 401) {
+      throw unauthorized(
+        "Adresse e-mail Firebase non vérifiée",
+        "auth/email-not-verified",
+        error
+      );
+    }
+    throw error;
   }
 }
 
@@ -172,6 +197,8 @@ export function createFirebaseIdTokenVerifier({
       if (Number.isFinite(tokensValidAfter) && payload.auth_time < tokensValidAfter) {
         throw unauthorized("Jeton Firebase révoqué", "auth/id-token-revoked");
       }
+
+      await enforceVerifiedHumanOrBoundDevice({ token, payload, databaseURL, fetchImpl });
     }
 
     return { ...payload, uid: payload.sub };
