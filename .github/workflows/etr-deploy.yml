@@ -1,5 +1,5 @@
 name: Déployer l'application EtR complète
-# Déploiement physique révision 12
+# Déploiement physique révision 13
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ on:
     paths:
       - .github/workflows/etr-deploy.yml
       - src/app.py
+      - src/device_identity.py
       - src/wifi_portal.py
       - src/remote_screen_agent.py
       - src/firebase_bridge.py
@@ -23,6 +24,7 @@ concurrency:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   deploy:
@@ -45,6 +47,8 @@ jobs:
           uname -a
           sudo -n true
           id oryx
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}"
+          test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
 
       - name: Actualiser le code installé
         shell: bash
@@ -96,7 +100,8 @@ jobs:
             set_value FIREBASE_ENROLLMENT_URL "${enrollment_origin}/api/enrollment"
             echo "Passerelle distante et enrôlement configurés"
           else
-            echo "URL de passerelle conservée : secret ETR_REMOTE_GATEWAY_WSS absent"
+            echo "::error::ETR_REMOTE_GATEWAY_WSS est requis pour l'enrôlement autonome"
+            exit 1
           fi
           sudo chown root:oryx "$env_file"
           sudo chmod 640 "$env_file"
@@ -107,6 +112,7 @@ jobs:
           set -euo pipefail
           python3 -m py_compile \
             /home/oryx/EtR-core/src/app.py \
+            /home/oryx/EtR-core/src/device_identity.py \
             /home/oryx/EtR-core/src/wifi_portal.py \
             /home/oryx/EtR-core/src/firebase_bridge.py \
             /home/oryx/EtR-core/src/remote_screen_agent.py \
@@ -120,6 +126,130 @@ jobs:
         run: |
           set -euo pipefail
           sudo -u oryx -H bash /home/oryx/EtR-core/src/deploy/raspi/setup_etr.sh
+
+      - name: Enregistrer la clé publique du Raspberry par GitHub OIDC
+        id: register_device
+        shell: bash
+        env:
+          ETR_REMOTE_GATEWAY_WSS: ${{ secrets.ETR_REMOTE_GATEWAY_WSS }}
+        run: |
+          set -euo pipefail
+          gateway_origin=${ETR_REMOTE_GATEWAY_WSS/wss:\/\//https:\/\/}
+          gateway_origin=${gateway_origin%%\?*}
+          gateway_origin=${gateway_origin%/device}
+          gateway_origin=${gateway_origin%/}
+          test -n "$gateway_origin"
+
+          sudo -u oryx -H /home/oryx/EtR-core/.venv/bin/python - <<'PY'
+          from pathlib import Path
+          from src.device_identity import ensure_device_keypair
+          ensure_device_keypair(
+              Path('/var/lib/etr-core/bootstrap-private.pem'),
+              Path('/var/lib/etr-core/bootstrap-public.pem'),
+          )
+          PY
+
+          serial=$(python3 - <<'PY'
+          from pathlib import Path
+          import re
+          candidates = [
+              Path('/sys/firmware/devicetree/base/serial-number'),
+              Path('/proc/device-tree/serial-number'),
+          ]
+          value = ''
+          for path in candidates:
+              try:
+                  value = path.read_bytes().replace(b'\x00', b'').decode('ascii').strip()
+                  if value:
+                      break
+              except (OSError, UnicodeDecodeError):
+                  pass
+          if not value:
+              try:
+                  for line in Path('/proc/cpuinfo').read_text(encoding='utf-8').splitlines():
+                      if line.lower().startswith('serial'):
+                          value = line.split(':', 1)[1]
+                          break
+              except OSError:
+                  pass
+          serial = re.sub(r'[^A-Za-z0-9]', '', value).upper()
+          if len(serial) < 8:
+              raise SystemExit('Numéro de série Raspberry introuvable')
+          print(serial[-64:])
+          PY
+          )
+          installation_id="etr-${serial: -12}"
+          installation_id=$(printf '%s' "$installation_id" | tr '[:upper:]' '[:lower:]')
+          SERIAL="$serial" INSTALLATION_ID="$installation_id" python3 - <<'PY' > /tmp/etr-bootstrap-payload.json
+          import json, os
+          from pathlib import Path
+          print(json.dumps({
+              'serial': os.environ['SERIAL'],
+              'installationId': os.environ['INSTALLATION_ID'],
+              'publicKey': Path('/var/lib/etr-core/bootstrap-public.pem').read_text(encoding='ascii'),
+          }))
+          PY
+
+          oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=etr-bootstrap"
+          curl -fsS \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "$oidc_url" > /tmp/etr-github-oidc.json
+          oidc_token=$(python3 -c 'import json; print(json.load(open("/tmp/etr-github-oidc.json"))["value"])')
+          test -n "$oidc_token"
+          rm -f /tmp/etr-github-oidc.json
+
+          registered=false
+          for attempt in $(seq 1 60); do
+            http_code=$(curl -sS -o /tmp/etr-bootstrap-response.json -w '%{http_code}' \
+              -X POST "${gateway_origin}/api/enrollment/bootstrap" \
+              -H "Authorization: Bearer ${oidc_token}" \
+              -H 'Content-Type: application/json' \
+              -H 'Accept: application/json' \
+              --data-binary @/tmp/etr-bootstrap-payload.json || echo 000)
+            if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+              registered=true
+              break
+            fi
+            if [ "$http_code" != "404" ] && [ "$http_code" != "000" ] && [ "$http_code" != "502" ] && [ "$http_code" != "503" ]; then
+              cat /tmp/etr-bootstrap-response.json | python3 -m json.tool || cat /tmp/etr-bootstrap-response.json
+              echo "::error::Enregistrement de l'identité EtR refusé : HTTP $http_code"
+              exit 1
+            fi
+            echo "Passerelle d'enrôlement pas encore publiée (HTTP $http_code), essai $attempt/60"
+            sleep 10
+          done
+          [ "$registered" = true ] || { echo "::error::Passerelle d'enrôlement indisponible après 10 minutes"; exit 1; }
+          cat /tmp/etr-bootstrap-response.json | python3 -m json.tool
+          fingerprint=$(python3 -c 'import json; print(json.load(open("/tmp/etr-bootstrap-response.json"))["publicKeyFingerprint"])')
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          echo "installation_id=$installation_id" >> "$GITHUB_OUTPUT"
+          rm -f /tmp/etr-bootstrap-payload.json
+          sudo systemctl restart etr-firebase-bridge.service
+
+          enrollment_ready=false
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8080/api/v1/enrollment > /tmp/etr-enrollment-after-bootstrap.json; then
+              status=$(python3 -c 'import json; print(json.load(open("/tmp/etr-enrollment-after-bootstrap.json"))["enrollment"]["status"])')
+              if [ "$status" = "pending" ] || [ "$status" = "claimed" ] || [ "$status" = "enrolled" ]; then
+                enrollment_ready=true
+                break
+              fi
+            fi
+            sleep 5
+          done
+          [ "$enrollment_ready" = true ] || {
+            sudo journalctl -u etr-firebase-bridge.service -n 120 --no-pager || true
+            echo "::error::Le Raspberry n'a pas obtenu son état d'enrôlement"
+            exit 1
+          }
+          python3 -m json.tool /tmp/etr-enrollment-after-bootstrap.json
+          python3 - <<'PY'
+          import json, re
+          data=json.load(open('/tmp/etr-enrollment-after-bootstrap.json'))['enrollment']
+          if data['status'] == 'pending':
+              assert re.fullmatch(r'[0-9A-HJKMNP-TV-Z]{5}(?:-[0-9A-HJKMNP-TV-Z]{5}){3}', data.get('activation_code') or '')
+          assert 'rotationToken' not in json.dumps(data)
+          PY
 
       - name: Vérifier le fonctionnement
         shell: bash
@@ -156,12 +286,16 @@ jobs:
             echo "Portail : $label présent"
           }
 
-          for service in etr.service etr-dashboard.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service; do
+          for service in etr.service etr-dashboard.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service etr-firebase-bridge.service; do
             wait_for_service "$service"
           done
 
           env_permissions=$(sudo stat -c '%U:%G %a' /etc/etr-core/firebase-bridge.env)
           [ "$env_permissions" = "root:oryx 640" ] || fail_check "Permissions Firebase incorrectes" "Attendu root:oryx 640, obtenu $env_permissions"
+          private_permissions=$(sudo stat -c '%U:%G %a' /var/lib/etr-core/bootstrap-private.pem)
+          public_permissions=$(sudo stat -c '%U:%G %a' /var/lib/etr-core/bootstrap-public.pem)
+          [ "$private_permissions" = "oryx:oryx 600" ] || fail_check "Clé privée EtR exposée" "Attendu oryx:oryx 600, obtenu $private_permissions"
+          [ "$public_permissions" = "oryx:oryx 644" ] || fail_check "Clé publique EtR invalide" "Attendu oryx:oryx 644, obtenu $public_permissions"
 
           curl -fsS http://127.0.0.1:8080/healthz | python3 -m json.tool
           curl -fsS http://127.0.0.1:8080/api/v1/status > /tmp/etr-api-status.json
@@ -176,6 +310,7 @@ jobs:
           assert status.get('capabilities', {}).get('secure_enrollment') is True
           assert isinstance(enrollment.get('enrollment'), dict)
           assert 'rotationToken' not in json.dumps(enrollment)
+          assert enrollment['enrollment']['status'] in {'pending', 'claimed', 'enrolled'}
           PY
 
           curl -fsS http://127.0.0.1:8000/healthz | python3 -m json.tool
@@ -195,14 +330,8 @@ jobs:
             fi
           done
 
-          if sudo grep -q '^FIREBASE_API_KEY=.' /etc/etr-core/firebase-bridge.env && \
-             sudo grep -q '^FIREBASE_DATABASE_URL=.' /etc/etr-core/firebase-bridge.env; then
-            wait_for_service etr-firebase-bridge.service
-            bridge_user=$(sudo systemctl show etr-firebase-bridge.service -p User --value)
-            [ "$bridge_user" = "oryx" ] || fail_check "Bridge Firebase privilégié" "Le service doit fonctionner sous oryx, pas $bridge_user"
-          else
-            echo "Bridge Firebase : configuration minimale absente, activation différée"
-          fi
+          bridge_user=$(sudo systemctl show etr-firebase-bridge.service -p User --value)
+          [ "$bridge_user" = "oryx" ] || fail_check "Bridge Firebase privilégié" "Le service doit fonctionner sous oryx, pas $bridge_user"
 
           for state_file in /var/lib/etr-core/firebase-auth.json /var/lib/etr-core/enrollment.json; do
             if [ -f "$state_file" ]; then
@@ -251,7 +380,7 @@ jobs:
             ps -ef | grep '[c]hromium' || true
             fail_check "Chromium kiosque absent" "Aucun processus Chromium avec le profil etr-kiosk-chromium après 60 secondes"
           fi
-          echo "Dashboard, enrôlement et portail Wi-Fi tactile sans clavier physique : opérationnels"
+          echo "Dashboard, identité Ed25519, enrôlement et portail Wi-Fi tactile : opérationnels"
 
           if sudo grep -q '^ETR_REMOTE_GATEWAY_WSS=.' /etc/etr-core/firebase-bridge.env 2>/dev/null; then
             wait_for_service etr-vnc.service
@@ -266,12 +395,16 @@ jobs:
             fi
             echo "Écran distant EtR : source VNC locale 5901 et relais sortant actifs"
           else
-            echo "Écran distant EtR : en attente de l'URL WSS de passerelle"
+            fail_check "Écran distant non configuré" "ETR_REMOTE_GATEWAY_WSS est absent"
           fi
 
       - name: Publier le compte rendu
         if: always()
         shell: bash
+        env:
+          BOOTSTRAP_FINGERPRINT: ${{ steps.register_device.outputs.fingerprint }}
+          BOOTSTRAP_INSTALLATION_ID: ${{ steps.register_device.outputs.installation_id }}
+          BOOTSTRAP_REGISTRATION_OUTCOME: ${{ steps.register_device.outcome }}
         run: |
           set +e
           mkdir -p .github/deployment
@@ -280,6 +413,9 @@ jobs:
             echo "job_status=${{ job.status }}"
             echo "host=$(hostname)"
             echo "installed_commit=$(sudo -u oryx -H git -C /home/oryx/EtR-core rev-parse HEAD 2>/dev/null || echo unavailable)"
+            echo "bootstrap_registration=$BOOTSTRAP_REGISTRATION_OUTCOME"
+            echo "bootstrap_installation_id=$BOOTSTRAP_INSTALLATION_ID"
+            echo "bootstrap_public_key_fingerprint=$BOOTSTRAP_FINGERPRINT"
             for service in etr.service etr-dashboard.service etr-firebase-bridge.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service etr-vnc.service etr-remote-screen.service; do
               state=$(sudo systemctl show "$service" -p ActiveState -p SubState -p Result -p User --no-pager 2>/dev/null | tr '\n' ',' | sed 's/,$//')
               echo "$service=$state"
