@@ -51,8 +51,6 @@ class RepositoryContractTests(unittest.TestCase):
             'authMode: "password_session"', "passwordEntropyBits: 384"
         ]:
             self.assertIn(marker, session_issuer)
-        # The enrollment domain service still exposes a compatibility method named
-        # createCustomToken, but no Firebase Admin call may remain in the gateway.
         self.assertNotIn("auth.createCustomToken", enrollment_http + session_issuer)
         for marker in ["Ed25519", "token.actions.githubusercontent.com", "etr-bootstrap", "deviceBootstrap/", "device_signature_replayed"]:
             self.assertIn(marker, bootstrap)
@@ -61,12 +59,37 @@ class RepositoryContractTests(unittest.TestCase):
         for marker in ["data-enrollment", "Associer cet EtR"]:
             self.assertIn(marker, dashboard)
 
+    def test_admin_backoffice_contract_is_complete(self):
+        required = [
+            "gateway/admin.mjs",
+            "gateway/admin.test.mjs",
+            "firebase/database.rules.json",
+            ".github/workflows/etr-gateway-cloudrun.yml",
+            "docs/PROJECT_TRACKER.md",
+        ]
+        missing = [path for path in required if not (ROOT / path).is_file()]
+        self.assertEqual(missing, [], f"Admin contract incomplete: {missing}")
+        server = (ROOT / "gateway/server.mjs").read_text(encoding="utf-8")
+        admin = (ROOT / "gateway/admin.mjs").read_text(encoding="utf-8")
+        rules = (ROOT / "firebase/database.rules.json").read_text(encoding="utf-8")
+        for marker in ["installAdminRoutes", 'admin: "v1"', "decoded.oryxAdmin === true"]:
+            self.assertIn(marker, server)
+        for marker in [
+            "/api/admin/session", "/api/admin/overview", "/api/admin/installations", "/api/admin/users",
+            "/api/admin/enrollments", "/api/admin/audit", "/api/admin/membership",
+            "/api/admin/transfer-owner", "/api/admin/user-status", "/api/admin/revoke-sessions",
+            "ETR_ADMIN_EMAILS", "oryxAdmin: true", "RECENT_AUTH_SECONDS", "adminAudit"
+        ]:
+            self.assertIn(marker, admin)
+        for marker in ['"adminProfiles"', '"adminAudit"']:
+            self.assertIn(marker, rules)
+
     def test_gateway_docker_image_contains_every_runtime_module(self):
         dockerfile = (ROOT / "gateway/Dockerfile").read_text(encoding="utf-8")
         for marker in [
             "COPY server.mjs ./", "COPY firebase-token-verifier.mjs ./", "COPY enrollment.mjs ./",
             "COPY enrollment-http.mjs ./", "COPY device-bootstrap.mjs ./", "COPY firebase-device-session.mjs ./",
-            "USER node", "ENV NODE_ENV=production", 'CMD ["node", "server.mjs"]',
+            "COPY admin.mjs ./", "USER node", "ENV NODE_ENV=production", 'CMD ["node", "server.mjs"]',
         ]:
             self.assertIn(marker, dockerfile)
         self.assertNotIn("COPY server.mjs firebase-token-verifier.mjs ./", dockerfile)
@@ -116,11 +139,11 @@ class RepositoryContractTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/etr-gateway-cloudrun.yml").read_text(encoding="utf-8")
         for marker in [
             "pull_request:", "gateway/**", "npm test", "node --check device-bootstrap.mjs",
-            "node --check firebase-device-session.mjs", "docker build --pull", "docker run --rm -d",
-            "FIREBASE_API_KEY", "127.0.0.1:18080/healthz", "docker exec etr-gateway-ci test -s",
+            "node --check firebase-device-session.mjs", "node --check admin.mjs", "docker build --pull", "docker run --rm -d",
+            "FIREBASE_API_KEY", "ETR_ADMIN_EMAILS", "127.0.0.1:18080/healthz", "docker exec etr-gateway-ci test -s",
             "/api/enrollment/request", "/api/enrollment/bootstrap", "/api/enrollment/session-health",
-            "audience=etr-bootstrap", "firebaseSession", "deviceSessionIssuance", '"password_session"',
-            "gateway-last-deploy.json",
+            "/api/admin/session", 'admin: "v1"', "audience=etr-bootstrap", "firebaseSession", "deviceSessionIssuance",
+            '"password_session"', "gateway-last-deploy.json",
         ]:
             self.assertIn(marker, workflow)
         self.assertNotIn("add-iam-policy-binding", workflow)
