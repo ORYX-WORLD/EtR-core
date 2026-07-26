@@ -21,6 +21,10 @@ Aucun service HTTP ou VNC métier n'est volontairement exposé sur `0.0.0.0`. L'
 
 L'API ne fabrique pas de valeurs métier. Les drivers d'acquisition écrivent un état normalisé dans `/var/lib/etr-core/telemetry.json`; l'API le valide, l'enrichit avec l'état système puis le rend disponible au dashboard et au bridge Firebase. Le schéma est documenté dans [`docs/TELEMETRY_CONTRACT.md`](docs/TELEMETRY_CONTRACT.md).
 
+## Fabrication d'une microSD
+
+La même image Raspberry Pi OS Lite 64 bits sert aux Pi 3 et Pi 4. Le script Windows versionné sous [`provisioning/`](provisioning/README.md) efface et écrit la carte, injecte une clé SSH et installe un premier démarrage qui crée une identité `etr-<numéro matériel>`. Aucun mot de passe client n'est inclus dans l'image.
+
 ## Installation et déploiement
 
 ```bash
@@ -43,7 +47,7 @@ python -m pip install -r requirements.txt -r dashboard/requirements.txt
 python -m unittest discover -s tests -v
 ```
 
-`tests/test_repository_contract.py` bloque la CI si le dashboard, ses dépendances, son unité systemd, ses tests, son branchement dans l'installateur ou le suivi projet sont supprimés. Toute pull request fonctionnelle doit également mettre à jour [`docs/PROJECT_TRACKER.md`](docs/PROJECT_TRACKER.md).
+`tests/test_repository_contract.py` et `tests/test_provisioning_contract.py` bloquent la CI si un composant obligatoire du dashboard ou de la fabrication microSD disparaît. Toute pull request fonctionnelle doit également mettre à jour [`docs/PROJECT_TRACKER.md`](docs/PROJECT_TRACKER.md).
 
 ## Secrets et état local
 
