@@ -36,6 +36,8 @@ class FirebaseBridgeEnrollmentTests(unittest.TestCase):
         root = Path(self.temp.name)
         self.bridge.TOKEN_FILE = root / "firebase-auth.json"
         self.bridge.ENROLLMENT_FILE = root / "enrollment.json"
+        self.bridge.BOOTSTRAP_PRIVATE_KEY = root / "bootstrap-private.pem"
+        self.bridge.BOOTSTRAP_PUBLIC_KEY = root / "bootstrap-public.pem"
         self.bridge.ENROLLMENT_URL = "https://gateway.example/api/enrollment"
         self.bridge.ACTIVATION_CODE = ""
         self.bridge.AUTH_EMAIL = ""
@@ -46,7 +48,7 @@ class FirebaseBridgeEnrollmentTests(unittest.TestCase):
 
     def test_normalizes_serial_and_activation_code(self):
         self.assertEqual(self.bridge.normalize_serial(" 0000-abcd-1234-ef56 "), "0000ABCD1234EF56")
-        self.assertEqual(self.bridge.normalize_activation_code("0abcd-12345-6789a-bcdef"), "0ABCD123456789ABCDEF")
+        self.assertEqual(self.bridge.normalize_activation_code("Oabcd-I2345-L789a-bcdef"), "0ABCD123451789ABCDEF")
 
     def test_atomic_json_state_is_private(self):
         self.bridge.atomic_json_write(self.bridge.ENROLLMENT_FILE, {"status": "pending"})
@@ -54,7 +56,7 @@ class FirebaseBridgeEnrollmentTests(unittest.TestCase):
         self.assertEqual(mode, 0o600)
         self.assertEqual(self.bridge.load_json(self.bridge.ENROLLMENT_FILE)["status"], "pending")
 
-    def test_requests_and_persists_a_physical_activation_code(self):
+    def test_requests_and_persists_a_signed_physical_activation_code(self):
         response = Mock()
         response.raise_for_status.return_value = None
         response.json.return_value = {
@@ -72,12 +74,17 @@ class FirebaseBridgeEnrollmentTests(unittest.TestCase):
         self.assertEqual(state["rotationToken"], "rotation-token-value-with-sufficient-length")
         self.assertGreater(state["expiresEpoch"], 0)
         self.assertEqual(stat.S_IMODE(self.bridge.ENROLLMENT_FILE.stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(self.bridge.BOOTSTRAP_PRIVATE_KEY.stat().st_mode), 0o600)
         payload = post.call_args.kwargs["json"]
+        headers = post.call_args.kwargs["headers"]
         self.assertEqual(payload["action"], "request")
         self.assertEqual(payload["serial"], "0000ABCD1234EF56")
         self.assertNotIn("rotationToken", payload)
+        self.assertRegex(headers["X-EtR-Timestamp"], r"^\d{10}$")
+        self.assertGreaterEqual(len(headers["X-EtR-Nonce"]), 20)
+        self.assertGreaterEqual(len(headers["X-EtR-Signature"]), 80)
 
-    def test_uses_rotation_token_for_a_controlled_code_renewal(self):
+    def test_uses_rotation_token_for_a_controlled_signed_code_renewal(self):
         response = Mock()
         response.raise_for_status.return_value = None
         response.json.return_value = {
@@ -90,8 +97,9 @@ class FirebaseBridgeEnrollmentTests(unittest.TestCase):
         with patch.object(self.bridge.session, "post", return_value=response) as post:
             self.bridge.request_enrollment({"rotationToken": "previous-private-token"})
         self.assertEqual(post.call_args.kwargs["json"]["rotationToken"], "previous-private-token")
+        self.assertIn("X-EtR-Signature", post.call_args.kwargs["headers"])
 
-    def test_authenticate_exchanges_the_code_and_removes_local_activation_state(self):
+    def test_authenticate_exchanges_the_code_and_removes_local_activation_state_after_token_write(self):
         self.bridge.save_enrollment(
             {
                 "installationId": "etr-abcd1234ef56",
@@ -125,10 +133,12 @@ class FirebaseBridgeEnrollmentTests(unittest.TestCase):
         )
         response = Mock(status_code=409)
         response.json.return_value = {"code": "awaiting_claim"}
-        with patch.object(self.bridge.session, "post", return_value=response):
+        with patch.object(self.bridge.session, "post", return_value=response) as post:
             with self.assertRaisesRegex(RuntimeError, "awaiting_claim"):
                 self.bridge.exchange_activation_code("00000111112222233333")
         self.assertTrue(self.bridge.ENROLLMENT_FILE.exists())
+        self.assertEqual(post.call_args.kwargs["json"]["action"], "exchange")
+        self.assertIn("X-EtR-Signature", post.call_args.kwargs["headers"])
 
 
 if __name__ == "__main__":
