@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import {
   EnrollmentError,
   createEnrollmentService,
@@ -12,6 +13,11 @@ function clientAddress(req) {
   return forwarded || req.socket?.remoteAddress || "unknown";
 }
 
+function bearer(req) {
+  const value = String(req.headers.authorization || "");
+  return value.startsWith("Bearer ") ? value.slice(7) : "";
+}
+
 function createRateLimiter(now = () => Date.now()) {
   const buckets = new Map();
   return function enforce(req, category, maximum) {
@@ -23,19 +29,13 @@ function createRateLimiter(now = () => Date.now()) {
       return;
     }
     current.count += 1;
-    if (current.count > maximum) {
-      throw new EnrollmentError(429, "rate_limited", "Trop de tentatives, réessayez plus tard");
-    }
-    if (buckets.size > 2000) {
-      for (const [bucketKey, bucket] of buckets) if (bucket.resetAt <= timestamp) buckets.delete(bucketKey);
-    }
+    if (current.count > maximum) throw new EnrollmentError(429, "rate_limited", "Trop de tentatives, réessayez plus tard");
+    if (buckets.size > 2000) for (const [bucketKey, bucket] of buckets) if (bucket.resetAt <= timestamp) buckets.delete(bucketKey);
   };
 }
 
 function safeError(res, error) {
-  if (error instanceof EnrollmentError) {
-    return res.status(error.status).json({ error: error.message, code: error.code });
-  }
+  if (error instanceof EnrollmentError) return res.status(error.status).json({ error: error.message, code: error.code });
   console.error("Enrollment request failed", {
     name: error?.name || "Error",
     code: error?.code || "",
@@ -52,24 +52,33 @@ export function installEnrollmentRoutes({
   deviceBootstrap = createDeviceBootstrapService({ db, now: () => Date.now() }),
   now = () => Date.now()
 }) {
-  if (!deviceBootstrap?.verifyDeviceRequest) throw new Error("Enrollment routes require device bootstrap verification");
-  const enrollment = createEnrollmentService({
-    store: createFirebaseEnrollmentStore(db),
-    auth,
-    now
-  });
+  if (!deviceBootstrap?.verifyDeviceRequest || !deviceBootstrap?.verifyWorkflowToken) throw new Error("Enrollment routes require device bootstrap verification");
+  const enrollment = createEnrollmentService({ store: createFirebaseEnrollmentStore(db), auth, now });
   const enforceRate = createRateLimiter(now);
   installDeviceBootstrapRoute({ app, service: deviceBootstrap });
+
+  app.post("/api/enrollment/signing-health", async (req, res) => {
+    try {
+      enforceRate(req, "signing-health", 20);
+      const claims = await deviceBootstrap.verifyWorkflowToken(bearer(req));
+      const healthUid = `etrhealth_${crypto.createHash("sha256").update(String(claims.run_id)).digest("hex").slice(0, 32)}`;
+      const customToken = await auth.createCustomToken(healthUid, {
+        etrSigningHealth: true,
+        workflowRunId: String(claims.run_id)
+      });
+      if (typeof customToken !== "string" || customToken.split(".").length !== 3) throw new Error("custom_token_invalid");
+      res.setHeader("Cache-Control", "no-store");
+      return res.json({ ok: true, signer: "firebase-admin", algorithm: "RS256" });
+    } catch (error) {
+      return safeError(res, error);
+    }
+  });
 
   async function requestEnrollment(req, res) {
     try {
       enforceRate(req, "request", 12);
       await deviceBootstrap.verifyDeviceRequest(req, "request");
-      const result = await enrollment.request({
-        serial: req.body?.serial,
-        hostname: req.body?.hostname,
-        rotationToken: req.body?.rotationToken
-      });
+      const result = await enrollment.request({ serial: req.body?.serial, hostname: req.body?.hostname, rotationToken: req.body?.rotationToken });
       res.setHeader("Cache-Control", "no-store");
       return res.status(201).json(result);
     } catch (error) {
@@ -80,7 +89,7 @@ export function installEnrollmentRoutes({
   async function claimEnrollment(req, res) {
     try {
       enforceRate(req, "claim", 30);
-      const decodedUser = await verifyIdToken(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+      const decodedUser = await verifyIdToken(bearer(req));
       const result = await enrollment.claim({
         serial: req.body?.serial,
         activationCode: req.body?.activationCode || req.body?.code,
@@ -97,10 +106,7 @@ export function installEnrollmentRoutes({
     try {
       enforceRate(req, "exchange", 60);
       await deviceBootstrap.verifyDeviceRequest(req, "exchange");
-      const result = await enrollment.exchange({
-        serial: req.body?.serial,
-        activationCode: req.body?.activationCode || req.body?.code
-      });
+      const result = await enrollment.exchange({ serial: req.body?.serial, activationCode: req.body?.activationCode || req.body?.code });
       res.setHeader("Cache-Control", "no-store");
       return res.json(result);
     } catch (error) {
