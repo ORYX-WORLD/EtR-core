@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Passerelle sortante EtR vers Firebase Realtime Database.
 
-Deux modes d'authentification sont acceptés :
-- enrôlement par numéro de série + code d'activation à usage unique ;
-- compte technique e-mail/mot de passe, conservé pour la transition.
+Modes d'authentification :
+- enrôlement automatique par numéro de série + code physique à usage unique ;
+- compte technique e-mail/mot de passe conservé uniquement pour la transition.
 
-Les secrets restent dans /etc/etr-core/firebase-bridge.env et les jetons dans
-/var/lib/etr-core. Aucun port entrant n'est nécessaire sur la box Internet.
+Les secrets restent dans /etc/etr-core et les jetons/états locaux dans
+/var/lib/etr-core avec des permissions 0600. Aucun port entrant n'est requis.
 """
 
 import hashlib
@@ -23,7 +23,7 @@ from urllib.parse import quote
 import requests
 
 LOG = logging.getLogger("etr-firebase-bridge")
-BRIDGE_VERSION = "2.0"
+BRIDGE_VERSION = "3.0"
 
 
 def required(name: str) -> str:
@@ -38,6 +38,10 @@ def normalize_serial(value: str) -> str:
     if len(serial) < 8:
         raise RuntimeError("Numéro de série Raspberry invalide")
     return serial[-64:]
+
+
+def normalize_activation_code(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", value).upper()
 
 
 def raspberry_serial() -> str:
@@ -65,33 +69,67 @@ DATABASE_URL = required("FIREBASE_DATABASE_URL").rstrip("/")
 DEVICE_SERIAL = raspberry_serial()
 DEVICE_FINGERPRINT = hashlib.sha256(DEVICE_SERIAL.encode("ascii")).hexdigest()
 INSTALLATION_ID = os.getenv("ETR_INSTALLATION_ID", "").strip() or f"etr-{DEVICE_SERIAL[-12:].lower()}"
-LOCAL_API_URL = os.getenv("ETR_LOCAL_API_URL", "http://127.0.0.1:8080/").strip()
+LOCAL_API_URL = os.getenv("ETR_LOCAL_API_URL", "http://127.0.0.1:8080/api/v1/status").strip()
 ENROLLMENT_URL = os.getenv("FIREBASE_ENROLLMENT_URL", "").strip()
-ACTIVATION_CODE = re.sub(r"[^A-Za-z0-9]", "", os.getenv("ETR_ACTIVATION_CODE", "")).upper()
+ACTIVATION_CODE = normalize_activation_code(os.getenv("ETR_ACTIVATION_CODE", ""))
 AUTH_EMAIL = os.getenv("FIREBASE_AUTH_EMAIL", "").strip()
 AUTH_PASSWORD = os.getenv("FIREBASE_AUTH_PASSWORD", "").strip()
 TOKEN_FILE = Path(os.getenv("ETR_TOKEN_FILE", "/var/lib/etr-core/firebase-auth.json"))
+ENROLLMENT_FILE = Path(os.getenv("ETR_ENROLLMENT_FILE", "/var/lib/etr-core/enrollment.json"))
 INTERVAL_SECONDS = max(5, int(os.getenv("ETR_BRIDGE_INTERVAL", "15")))
+ENROLLMENT_RETRY_SECONDS = max(5, int(os.getenv("ETR_ENROLLMENT_RETRY", "15")))
 TIMEOUT_SECONDS = max(2, int(os.getenv("ETR_HTTP_TIMEOUT", "8")))
 
 session = requests.Session()
 session.headers.update({"User-Agent": f"ORYX-EtR-Bridge/{BRIDGE_VERSION}"})
 
 
-def save_tokens(data: dict) -> None:
-    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temp = TOKEN_FILE.with_suffix(".tmp")
-    temp.write_text(json.dumps(data), encoding="utf-8")
+def atomic_json_write(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
     os.chmod(temp, 0o600)
-    temp.replace(TOKEN_FILE)
+    temp.replace(path)
 
 
-def load_tokens() -> dict:
+def load_json(path: Path) -> dict:
     try:
-        data = json.loads(TOKEN_FILE.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}
+
+
+def save_tokens(data: dict) -> None:
+    atomic_json_write(TOKEN_FILE, data)
+
+
+def load_tokens() -> dict:
+    return load_json(TOKEN_FILE)
+
+
+def save_enrollment(data: dict) -> None:
+    safe = {
+        "installationId": str(data.get("installationId") or INSTALLATION_ID),
+        "activationCode": str(data.get("activationCode") or ""),
+        "rotationToken": str(data.get("rotationToken") or ""),
+        "expiresAt": str(data.get("expiresAt") or ""),
+        "expiresEpoch": float(data.get("expiresEpoch") or 0),
+        "status": str(data.get("status") or "pending"),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    atomic_json_write(ENROLLMENT_FILE, safe)
+
+
+def load_enrollment() -> dict:
+    return load_json(ENROLLMENT_FILE)
+
+
+def clear_enrollment() -> None:
+    try:
+        ENROLLMENT_FILE.unlink()
+    except FileNotFoundError:
+        pass
 
 
 def sign_in_password() -> dict:
@@ -128,32 +166,53 @@ def refresh_tokens(refresh_token: str) -> dict:
     return {"idToken": data["id_token"], "refreshToken": data["refresh_token"]}
 
 
-def request_enrollment() -> None:
+def request_enrollment(existing: dict | None = None) -> dict:
     if not ENROLLMENT_URL:
-        return
-    response = session.post(
-        ENROLLMENT_URL,
-        json={
-            "action": "request",
-            "serial": DEVICE_SERIAL,
-            "hostname": socket.gethostname(),
-            "installationId": INSTALLATION_ID,
-        },
-        timeout=TIMEOUT_SECONDS,
-    )
+        raise RuntimeError("URL d'enrôlement absente")
+    existing = existing or {}
+    payload = {
+        "action": "request",
+        "serial": DEVICE_SERIAL,
+        "hostname": socket.gethostname(),
+        "installationId": INSTALLATION_ID,
+    }
+    if existing.get("rotationToken"):
+        payload["rotationToken"] = existing["rotationToken"]
+    response = session.post(ENROLLMENT_URL, json=payload, timeout=TIMEOUT_SECONDS)
     response.raise_for_status()
-    LOG.warning("Demande d'enrôlement EtR envoyée: %s", INSTALLATION_ID)
+    data = response.json()
+    code = str(data.get("activationCode") or "").strip()
+    rotation = str(data.get("rotationToken") or "").strip()
+    if not code or not rotation:
+        raise RuntimeError("Réponse d'enrôlement incomplète")
+    data["expiresEpoch"] = time.time() + max(60, int(data.get("expiresIn") or 86400))
+    data["status"] = "pending"
+    save_enrollment(data)
+    LOG.warning("Code d'activation EtR disponible sur l'écran local pour %s", INSTALLATION_ID)
+    return data
 
 
-def exchange_activation_code() -> dict:
+def exchange_activation_code(code: str) -> dict:
     response = session.post(
         required("FIREBASE_ENROLLMENT_URL"),
-        json={"action": "exchange", "serial": DEVICE_SERIAL, "code": ACTIVATION_CODE},
+        json={"action": "exchange", "serial": DEVICE_SERIAL, "code": code},
         timeout=TIMEOUT_SECONDS,
     )
+    if response.status_code == 409:
+        try:
+            reason = response.json().get("code", "awaiting_claim")
+        except ValueError:
+            reason = "awaiting_claim"
+        raise RuntimeError(reason)
+    if response.status_code in (401, 410, 429):
+        clear_enrollment()
     response.raise_for_status()
     custom_token = response.json()["customToken"]
     return sign_in_custom_token(custom_token)
+
+
+def enrollment_expired(state: dict) -> bool:
+    return bool(state) and float(state.get("expiresEpoch") or 0) <= time.time()
 
 
 def authenticate(force: bool = False) -> str:
@@ -166,13 +225,22 @@ def authenticate(force: bool = False) -> str:
         except requests.RequestException:
             if not force:
                 LOG.warning("Jeton Firebase à renouveler par enrôlement ou compte technique")
-    if ACTIVATION_CODE and ENROLLMENT_URL:
-        data = exchange_activation_code()
+
+    enrollment = load_enrollment()
+    if enrollment_expired(enrollment):
+        clear_enrollment()
+        enrollment = {}
+
+    code = ACTIVATION_CODE or normalize_activation_code(enrollment.get("activationCode", ""))
+    if code and ENROLLMENT_URL:
+        data = exchange_activation_code(code)
+        clear_enrollment()
     elif AUTH_EMAIL and AUTH_PASSWORD:
         data = sign_in_password()
     else:
-        request_enrollment()
-        raise RuntimeError("EtR en attente d'un code d'activation")
+        request_enrollment(enrollment)
+        raise RuntimeError("awaiting_claim")
+
     save_tokens({"idToken": data["idToken"], "refreshToken": data["refreshToken"]})
     return data["idToken"]
 
@@ -217,8 +285,12 @@ def run() -> None:
         try:
             token = authenticate()
         except Exception as exc:
-            LOG.warning("Passerelle non enrôlée (%s); nouvel essai dans 60 s", type(exc).__name__)
-            time.sleep(60)
+            LOG.warning(
+                "Passerelle non enrôlée (%s); nouvel essai dans %s s",
+                str(exc)[:80],
+                ENROLLMENT_RETRY_SECONDS,
+            )
+            time.sleep(ENROLLMENT_RETRY_SECONDS)
     LOG.info("Passerelle EtR %s démarrée pour %s", BRIDGE_VERSION, INSTALLATION_ID)
     while True:
         payload = read_local_state()
