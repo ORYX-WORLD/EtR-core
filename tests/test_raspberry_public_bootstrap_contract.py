@@ -28,11 +28,11 @@ class RaspberryPublicBootstrapContractTests(unittest.TestCase):
     def test_cloud_run_origin_is_exact_and_generates_https_and_wss_endpoints(self):
         for marker in [
             "ETR_GATEWAY_ORIGIN: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
-            'remote_gateway=${gateway_origin/https:\\/\\//wss:\\/\\/}/device',
+            'remote_gateway=${gateway_origin/https:\/\//wss:\/\/}/device',
             'set_value ETR_REMOTE_GATEWAY_WSS "$remote_gateway"',
             'set_value FIREBASE_ENROLLMENT_URL "${gateway_origin}/api/enrollment"',
-            "^ETR_REMOTE_GATEWAY_WSS=wss://.*\\.run\\.app/device$",
-            "^FIREBASE_ENROLLMENT_URL=https://.*\\.run\\.app/api/enrollment$",
+            "^ETR_REMOTE_GATEWAY_WSS=wss://.*\.run\.app/device$",
+            "^FIREBASE_ENROLLMENT_URL=https://.*\.run\.app/api/enrollment$",
         ]:
             self.assertIn(marker, self.workflow)
         self.assertNotIn("onrender.com", self.workflow)
@@ -47,9 +47,11 @@ class RaspberryPublicBootstrapContractTests(unittest.TestCase):
             "enrolled",
             "etr-firebase-bridge.service",
             "etr-remote-screen.service",
-            "127.0.0.1:5901",
+            "5901",
         ]:
             self.assertIn(marker, self.workflow)
+        self.assertIn("127\\.0\\.0\\.1", self.workflow)
+        self.assertIn("VNC local indisponible", self.workflow)
 
 
 if __name__ == "__main__":

@@ -67,6 +67,14 @@
     "enrollmentRequests": {
       ".read": false,
       ".write": false
+    },
+    "adminProfiles": {
+      ".read": false,
+      ".write": false
+    },
+    "adminAudit": {
+      ".read": false,
+      ".write": false
     }
   }
 }

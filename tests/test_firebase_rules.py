@@ -63,8 +63,14 @@ class FirebaseRulesContractTests(unittest.TestCase):
             self.assertIn("auth.token.email_verified === true", expression)
             self.assertIn("oryxDeveloper", expression)
 
-    def test_enrollment_and_bootstrap_branches_are_never_client_accessible(self):
-        for branch in ["deviceBootstrap", "activationCodes", "enrollmentRequests"]:
+    def test_private_operational_branches_are_never_client_accessible(self):
+        for branch in [
+            "deviceBootstrap",
+            "activationCodes",
+            "enrollmentRequests",
+            "adminProfiles",
+            "adminAudit",
+        ]:
             self.assertFalse(self.rules[branch][".read"])
             self.assertFalse(self.rules[branch][".write"])
 
