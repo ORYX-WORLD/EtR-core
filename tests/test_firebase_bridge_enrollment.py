@@ -39,11 +39,18 @@ class FirebaseBridgeEnrollmentTests(unittest.TestCase):
         self.bridge.BOOTSTRAP_PRIVATE_KEY = root / "bootstrap-private.pem"
         self.bridge.BOOTSTRAP_PUBLIC_KEY = root / "bootstrap-public.pem"
         self.bridge.ENROLLMENT_URL = "https://gateway.example/api/enrollment"
+        self.enrollment_environment = patch.dict(
+            os.environ,
+            {"FIREBASE_ENROLLMENT_URL": self.bridge.ENROLLMENT_URL},
+            clear=False,
+        )
+        self.enrollment_environment.start()
         self.bridge.ACTIVATION_CODE = ""
         self.bridge.AUTH_EMAIL = ""
         self.bridge.AUTH_PASSWORD = ""
 
     def tearDown(self):
+        self.enrollment_environment.stop()
         self.temp.cleanup()
 
     def test_normalizes_serial_and_activation_code(self):
