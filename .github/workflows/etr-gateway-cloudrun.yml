@@ -108,13 +108,42 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: google-github-actions/setup-gcloud@v3
 
+      - name: Lire la configuration Firebase Hosting publique
+        id: firebase_config
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          config_url=https://oryx-froid-industriel.web.app/__/firebase/init.json
+          curl --retry 6 --retry-delay 3 --retry-all-errors -fsS "$config_url" > /tmp/etr-firebase-init.json
+          firebase_api_key=$(python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-firebase-init.json', encoding='utf-8'))
+          key=str(data.get('apiKey') or '').strip()
+          project=str(data.get('projectId') or '').strip()
+          if len(key) < 20 or len(key) > 200:
+              raise SystemExit('apiKey Firebase absente ou invalide')
+          if project != 'oryx-froid-industriel':
+              raise SystemExit(f'Projet Firebase inattendu: {project}')
+          print(key)
+          PY
+          )
+          echo "::add-mask::$firebase_api_key"
+          echo "api_key=$firebase_api_key" >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-firebase-init.json', encoding='utf-8'))
+          print('Configuration Firebase publique validée pour', data.get('projectId'))
+          PY
+          rm -f /tmp/etr-firebase-init.json
+
       - name: Construire et déployer
         id: deploy_gateway
         if: github.event_name != 'pull_request'
         shell: bash
         env:
           RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_API_KEY: ${{ steps.firebase_config.outputs.api_key }}
         run: |
           set -euo pipefail
           test -n "${RUNTIME_SERVICE_ACCOUNT:-}"
@@ -231,6 +260,7 @@ jobs:
         shell: bash
         env:
           AUTH_OUTCOME: ${{ steps.google_auth.outcome }}
+          FIREBASE_CONFIG_OUTCOME: ${{ steps.firebase_config.outcome }}
           DEPLOY_OUTCOME: ${{ steps.deploy_gateway.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify_gateway.outcome }}
           SESSION_OUTCOME: ${{ steps.verify_session.outcome }}
@@ -243,6 +273,7 @@ jobs:
           from datetime import datetime, timezone
           outcomes = {
               "authentication": os.getenv("AUTH_OUTCOME", "skipped"),
+              "firebaseConfig": os.getenv("FIREBASE_CONFIG_OUTCOME", "skipped"),
               "deploy": os.getenv("DEPLOY_OUTCOME", "skipped"),
               "verify": os.getenv("VERIFY_OUTCOME", "skipped"),
               "firebaseSession": os.getenv("SESSION_OUTCOME", "skipped"),
@@ -265,6 +296,7 @@ jobs:
               "deviceSessionIssuance": outcomes["firebaseSession"] == "success",
               "authMode": "password_session",
               "customTokenSigning": False,
+              "firebaseConfigSource": "firebase-hosting-reserved-url",
               "outcomes": outcomes,
               "verification": diagnostic,
           }
