@@ -1,12 +1,15 @@
 {
-  "checkedAt": "2026-07-26T14:05:47.242512+00:00",
-  "commit": "0cb26bbbea850fb945f263b8b3b2f065ad8dc139",
+  "checkedAt": "2026-07-26T15:16:44.948986+00:00",
+  "commit": "c4f37cd8fa23f3bc68384195e292ebbe7d1152a4",
   "status": "failure",
   "project": "oryx-froid-industriel",
   "region": "europe-west1",
   "service": "etr-remote-gateway",
   "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
   "enrollment": "v1",
+  "admin": "v1",
+  "adminRouteVerified": true,
+  "adminBootstrap": "verified-email-allowlist",
   "deviceBootstrap": "github-oidc-ed25519",
   "deviceSessionIssuance": false,
   "authMode": "password_session",
@@ -21,11 +24,12 @@
   },
   "verification": {
     "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
-    "serviceVerifiedBy": "enrollment-routes",
+    "serviceVerifiedBy": "enrollment-and-admin-routes",
     "healthStatus": 404,
     "healthEndpointSupported": false,
     "requestStatus": 400,
     "bootstrapStatus": 401,
+    "adminStatus": 401,
     "healthBody": null,
     "requestBody": {
       "error": "Numéro de série invalide",
@@ -34,6 +38,10 @@
     "bootstrapBody": {
       "error": "Jeton de déploiement manquant",
       "code": "github_oidc_missing"
+    },
+    "adminBody": {
+      "error": "Jeton manquant",
+      "code": "auth/id-token-missing"
     }
   }
 }
