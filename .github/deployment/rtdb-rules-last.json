@@ -1,7 +1,40 @@
 {
-  "checkedAt": "2026-07-26T11:20:22.178884+00:00",
-  "commit": "0ad420b5058f1b2f4618e6e129e31efbf216d9c3",
-  "status": "failure",
-  "verified": false,
-  "error": "Le déploiement ne s’est pas exécuté jusqu’au rapport."
+  "checkedAt": "2026-07-26T13:04:17.830293+00:00",
+  "commit": "55d65af6b7eb96cb36f6accb7446d38ec1893360",
+  "project": "oryx-froid-industriel",
+  "status": "success",
+  "method": "google_wif_management_discovery_and_rest_readback",
+  "rulesSha256": "70e0b2741796a211d11485f8708af8c2f73abf16e3e60233587a78acf5b4ae79",
+  "readbackSha256": "70e0b2741796a211d11485f8708af8c2f73abf16e3e60233587a78acf5b4ae79",
+  "databaseUrl": "https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app",
+  "verified": true,
+  "discovery": {
+    "endpoint": "https://firebasedatabase.googleapis.com/v1beta/projects/oryx-froid-industriel/locations/-/instances?pageSize=100",
+    "httpStatus": 200,
+    "error": null,
+    "instances": [
+      {
+        "name": "projects/767837350374/locations/europe-west1/instances/oryx-froid-industriel-default-rtdb",
+        "state": "ACTIVE",
+        "type": "DEFAULT_DATABASE",
+        "databaseUrl": "https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app"
+      }
+    ]
+  },
+  "attempts": [
+    {
+      "databaseUrl": "https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app",
+      "putStatus": 200,
+      "getStatus": 200,
+      "error": null,
+      "readbackSha256": "70e0b2741796a211d11485f8708af8c2f73abf16e3e60233587a78acf5b4ae79"
+    }
+  ],
+  "error": null,
+  "workflow": {
+    "authentication": "success",
+    "apiEnablement": "success",
+    "deployment": "success",
+    "verification": "success"
+  }
 }
