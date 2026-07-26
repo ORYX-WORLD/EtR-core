@@ -94,11 +94,11 @@ test("health creates and deletes a disposable identity without returning tokens"
   assert.equal(auth.calls.some(call => call[0] === "deleteUser"), true);
 });
 
-test("rejects missing API key and invalid device UID", () => {
+test("rejects missing API key and invalid device UID", async () => {
   const auth = authFixture();
   assert.throws(() => createFirebaseDeviceSessionIssuer({ auth, apiKey: "short", fetchImpl: successfulFetch([]) }), /FIREBASE_API_KEY/);
   const issuer = createFirebaseDeviceSessionIssuer({ auth, apiKey: "public-firebase-api-key-1234567890", fetchImpl: successfulFetch([]) });
-  assert.rejects(issuer.issue("owner-user", { installationId: "etr-test" }), /invalid_device_uid/);
+  await assert.rejects(issuer.issue("owner-user", { installationId: "etr-test" }), /invalid_device_uid/);
 });
 
 test("maps Firebase REST failure to a non-sensitive device-session error", async () => {
