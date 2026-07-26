@@ -1,21 +1,39 @@
 {
-  "checkedAt": "2026-07-26T13:55:29.774298+00:00",
-  "commit": "463977d10a49f2766335442b0d8b35b65e43b870",
+  "checkedAt": "2026-07-26T14:05:47.242512+00:00",
+  "commit": "0cb26bbbea850fb945f263b8b3b2f065ad8dc139",
   "status": "failure",
   "project": "oryx-froid-industriel",
   "region": "europe-west1",
   "service": "etr-remote-gateway",
-  "url": null,
+  "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
   "enrollment": "v1",
   "deviceBootstrap": "github-oidc-ed25519",
   "deviceSessionIssuance": false,
   "authMode": "password_session",
   "customTokenSigning": false,
+  "firebaseConfigSource": "firebase-hosting-reserved-url",
   "outcomes": {
     "authentication": "success",
-    "deploy": "failure",
-    "verify": "skipped",
-    "firebaseSession": "skipped"
+    "firebaseConfig": "success",
+    "deploy": "success",
+    "verify": "success",
+    "firebaseSession": "failure"
   },
-  "verification": null
+  "verification": {
+    "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
+    "serviceVerifiedBy": "enrollment-routes",
+    "healthStatus": 404,
+    "healthEndpointSupported": false,
+    "requestStatus": 400,
+    "bootstrapStatus": 401,
+    "healthBody": null,
+    "requestBody": {
+      "error": "Numéro de série invalide",
+      "code": "invalid_serial"
+    },
+    "bootstrapBody": {
+      "error": "Jeton de déploiement manquant",
+      "code": "github_oidc_missing"
+    }
+  }
 }
