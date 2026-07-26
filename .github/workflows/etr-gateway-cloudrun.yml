@@ -1,4 +1,4 @@
-name: Déployer la passerelle distante et l'enrôlement EtR
+name: Tester et déployer la passerelle EtR
 
 on:
   workflow_dispatch:
@@ -7,6 +7,10 @@ on:
         description: Région Cloud Run
         required: false
         default: europe-west1
+  pull_request:
+    paths:
+      - gateway/**
+      - .github/workflows/etr-gateway-cloudrun.yml
   push:
     branches: [main]
     paths:
@@ -14,8 +18,8 @@ on:
       - .github/workflows/etr-gateway-cloudrun.yml
 
 concurrency:
-  group: etr-gateway-cloudrun
-  cancel-in-progress: false
+  group: etr-gateway-cloudrun-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: write
@@ -23,7 +27,7 @@ permissions:
 
 jobs:
   test_and_deploy:
-    name: Tester et déployer la passerelle EtR
+    name: Tester la passerelle et déployer après fusion
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -55,16 +59,19 @@ jobs:
 
       - name: Authentification Google Cloud
         id: google_auth
+        if: github.event_name != 'pull_request'
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Installer Google Cloud CLI
+        if: github.event_name != 'pull_request'
         uses: google-github-actions/setup-gcloud@v3
 
       - name: Autoriser la signature des jetons Firebase
         id: token_signer
+        if: github.event_name != 'pull_request'
         shell: bash
         env:
           RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
@@ -83,6 +90,7 @@ jobs:
 
       - name: Construire et déployer
         id: deploy_gateway
+        if: github.event_name != 'pull_request'
         shell: bash
         env:
           RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
@@ -109,6 +117,7 @@ jobs:
 
       - name: Vérifier la passerelle publiée
         id: verify_gateway
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -130,7 +139,7 @@ jobs:
           echo "Passerelle EtR : $url" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Enregistrer la preuve du déploiement
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         shell: bash
         env:
           TOKEN_SIGNER_OUTCOME: ${{ steps.token_signer.outcome }}
