@@ -1,0 +1,132 @@
+name: Publier et vérifier les règles Realtime Database EtR
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - firebase/database.rules.json
+      - scripts/deploy_rtdb_rules.py
+      - .github/workflows/etr-rtdb-rules.yml
+  push:
+    branches: [main]
+    paths:
+      - firebase/database.rules.json
+      - scripts/deploy_rtdb_rules.py
+      - .github/workflows/etr-rtdb-rules.yml
+
+concurrency:
+  group: etr-rtdb-rules-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  validate_and_deploy:
+    name: Valider et publier les règles RTDB
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PROJECT_ID: oryx-froid-industriel
+      DATABASE_URL: https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Vérifier la syntaxe locale
+        run: |
+          set -euo pipefail
+          python3 -m json.tool firebase/database.rules.json >/dev/null
+          python3 -m py_compile scripts/deploy_rtdb_rules.py
+          python3 - <<'PY'
+          import json
+          rules=json.load(open('firebase/database.rules.json', encoding='utf-8'))['rules']
+          assert rules['.read'] is False and rules['.write'] is False
+          for branch in ('deviceBootstrap','activationCodes','enrollmentRequests'):
+              assert rules[branch]['.read'] is False
+              assert rules[branch]['.write'] is False
+          print('Règles RTDB EtR : default deny et branches d’enrôlement fermées')
+          PY
+
+      - name: Authentification Google Cloud WIF
+        id: google_auth
+        if: github.event_name != 'pull_request'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Installer Google Cloud CLI
+        if: github.event_name != 'pull_request'
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Préparer les droits Realtime Database
+        id: prepare_iam
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          gcloud services enable firebasedatabase.googleapis.com --project="$PROJECT_ID"
+          gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+            --member="serviceAccount:${DEPLOY_SERVICE_ACCOUNT}" \
+            --role="roles/firebasedatabase.admin" \
+            --condition=None \
+            --quiet >/tmp/etr-rtdb-iam.json
+          echo "Rôle roles/firebasedatabase.admin confirmé pour l'identité WIF"
+
+      - name: Publier et relire les règles
+        id: deploy_rules
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          access_token=$(gcloud auth print-access-token)
+          test -n "$access_token"
+          GCP_PROJECT_ID="$PROJECT_ID" \
+          GCP_ACCESS_TOKEN="$access_token" \
+          FIREBASE_DATABASE_URL="$DATABASE_URL" \
+          python3 scripts/deploy_rtdb_rules.py \
+            firebase/database.rules.json \
+            .github/deployment/rtdb-rules-last.json
+          unset access_token
+          python3 - <<'PY'
+          import json
+          report=json.load(open('.github/deployment/rtdb-rules-last.json', encoding='utf-8'))
+          assert report['status']=='success'
+          assert report['verified'] is True
+          assert report['rulesSha256']==report['readbackSha256']
+          print('Règles RTDB publiées et relues :', report['databaseUrl'])
+          PY
+
+      - name: Enregistrer la preuve
+        if: always() && github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f .github/deployment/rtdb-rules-last.json ]; then
+            mkdir -p .github/deployment
+            python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          report={
+            'checkedAt': datetime.now(timezone.utc).isoformat(),
+            'commit': os.getenv('GITHUB_SHA'),
+            'status': 'failure',
+            'verified': False,
+            'error': 'Le déploiement ne s’est pas exécuté jusqu’au rapport.',
+          }
+          json.dump(report, open('.github/deployment/rtdb-rules-last.json','w',encoding='utf-8'), ensure_ascii=False, indent=2)
+          PY
+          fi
+          git config user.name "EtR RTDB deployment agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/rtdb-rules-last.json
+          git commit -m "chore: record EtR RTDB rules deployment [skip ci]" || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
