@@ -58,8 +58,11 @@ jobs:
           node --check enrollment-http.mjs
           node --check device-bootstrap.mjs
           node --check firebase-device-session.mjs
+          node --check admin.mjs
           grep -Fq '/api/enrollment/session-health' enrollment-http.mjs
           grep -Fq 'createFirebaseDeviceSessionIssuer' enrollment-http.mjs
+          grep -Fq '/api/admin/session' admin.mjs
+          grep -Fq 'ETR_ADMIN_EMAILS' admin.mjs
           ! grep -Fq 'auth.createCustomToken' enrollment-http.mjs
 
       - name: Construire et démarrer l'image Docker exacte
@@ -75,6 +78,7 @@ jobs:
             -e FIREBASE_DATABASE_URL=https://example-default-rtdb.europe-west1.firebasedatabase.app \
             -e FIREBASE_API_KEY=ci-public-firebase-api-key-1234567890 \
             -e ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app \
+            -e ETR_ADMIN_EMAILS=amotard.oryx@gmail.com \
             etr-gateway-ci:${GITHUB_SHA}
           cleanup() {
             docker logs etr-gateway-ci 2>&1 || true
@@ -91,10 +95,12 @@ jobs:
           done
           [ "$ready" = true ] || { echo "::error::L'image Docker ne démarre pas"; exit 1; }
           python3 -m json.tool /tmp/etr-docker-health.json
-          python3 -c 'import json; data=json.load(open("/tmp/etr-docker-health.json")); assert data.get("ok") is True; assert data.get("enrollment")=="v1"'
-          for module in server.mjs firebase-token-verifier.mjs enrollment.mjs enrollment-http.mjs device-bootstrap.mjs firebase-device-session.mjs; do
+          python3 -c 'import json; data=json.load(open("/tmp/etr-docker-health.json")); assert data.get("ok") is True; assert data.get("enrollment")=="v1"; assert data.get("admin")=="v1"'
+          for module in server.mjs firebase-token-verifier.mjs enrollment.mjs enrollment-http.mjs device-bootstrap.mjs firebase-device-session.mjs admin.mjs; do
             docker exec etr-gateway-ci test -s "/app/${module}"
           done
+          admin_status=$(curl -sS -o /tmp/etr-admin-anonymous.json -w '%{http_code}' http://127.0.0.1:18080/api/admin/session)
+          [ "$admin_status" = "401" ] || { cat /tmp/etr-admin-anonymous.json; echo "::error::La route Admin doit refuser un appel anonyme"; exit 1; }
 
       - name: Authentification Google Cloud
         id: google_auth
@@ -144,10 +150,12 @@ jobs:
         env:
           RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
           FIREBASE_API_KEY: ${{ steps.firebase_config.outputs.api_key }}
+          ETR_ADMIN_EMAILS: ${{ vars.ETR_ADMIN_EMAILS || 'amotard.oryx@gmail.com' }}
         run: |
           set -euo pipefail
           test -n "${RUNTIME_SERVICE_ACCOUNT:-}"
           test ${#FIREBASE_API_KEY} -ge 20
+          test -n "${ETR_ADMIN_EMAILS:-}"
           gcloud services enable \
             run.googleapis.com \
             cloudbuild.googleapis.com \
@@ -163,7 +171,7 @@ jobs:
             --max-instances=1 \
             --concurrency=80 \
             --timeout=3600 \
-            --set-env-vars="ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app,FIREBASE_PROJECT_ID=oryx-froid-industriel,FIREBASE_DATABASE_URL=https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app,FIREBASE_API_KEY=${FIREBASE_API_KEY},ETR_GITHUB_REPOSITORY=ORYX-WORLD/EtR-core" \
+            --set-env-vars="ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app,FIREBASE_PROJECT_ID=oryx-froid-industriel,FIREBASE_DATABASE_URL=https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app,FIREBASE_API_KEY=${FIREBASE_API_KEY},ETR_GITHUB_REPOSITORY=ORYX-WORLD/EtR-core,ETR_ADMIN_EMAILS=${ETR_ADMIN_EMAILS}" \
             --quiet
           url=$(gcloud run services describe "$SERVICE_NAME" \
             --project="$PROJECT_ID" \
@@ -191,21 +199,25 @@ jobs:
             if [ "$request_status" = "400" ]; then break; fi
             sleep 5
           done
-          echo "request_status=$request_status"
-          cat /tmp/etr-gateway-check/request.json 2>/dev/null | python3 -m json.tool || cat /tmp/etr-gateway-check/request.json 2>/dev/null || true
-
           bootstrap_status=$(curl -sS -o /tmp/etr-gateway-check/bootstrap.json -w '%{http_code}' \
             -X POST "$GATEWAY_URL/api/enrollment/bootstrap" -H 'Content-Type: application/json' -d '{}' || echo 000)
-          echo "bootstrap_status=$bootstrap_status"
-          cat /tmp/etr-gateway-check/bootstrap.json 2>/dev/null | python3 -m json.tool || cat /tmp/etr-gateway-check/bootstrap.json 2>/dev/null || true
-
+          admin_status=$(curl -sS -o /tmp/etr-gateway-check/admin.json -w '%{http_code}' \
+            "$GATEWAY_URL/api/admin/session" || echo 000)
           health_status=$(curl -sS -o /tmp/etr-gateway-check/health.json -w '%{http_code}' "$GATEWAY_URL/healthz" || echo 000)
-          echo "health_status=$health_status (diagnostic non bloquant)"
+
+          echo "request_status=$request_status"
+          echo "bootstrap_status=$bootstrap_status"
+          echo "admin_status=$admin_status"
+          echo "health_status=$health_status"
+          for file in request bootstrap admin health; do
+            cat "/tmp/etr-gateway-check/${file}.json" 2>/dev/null | python3 -m json.tool || cat "/tmp/etr-gateway-check/${file}.json" 2>/dev/null || true
+          done
 
           GATEWAY_URL="$GATEWAY_URL" \
           HEALTH_STATUS="$health_status" \
           REQUEST_STATUS="$request_status" \
           BOOTSTRAP_STATUS="$bootstrap_status" \
+          ADMIN_STATUS="$admin_status" \
           python3 - <<'PY'
           import json, os
           def body(name):
@@ -215,20 +227,26 @@ jobs:
                   return None
           diagnostic={
               'url': os.environ['GATEWAY_URL'],
-              'serviceVerifiedBy': 'enrollment-routes',
+              'serviceVerifiedBy': 'enrollment-and-admin-routes',
               'healthStatus': int(os.environ['HEALTH_STATUS']),
               'healthEndpointSupported': os.environ['HEALTH_STATUS']=='200',
               'requestStatus': int(os.environ['REQUEST_STATUS']),
               'bootstrapStatus': int(os.environ['BOOTSTRAP_STATUS']),
+              'adminStatus': int(os.environ['ADMIN_STATUS']),
               'healthBody': body('health'),
               'requestBody': body('request'),
               'bootstrapBody': body('bootstrap'),
+              'adminBody': body('admin'),
           }
           json.dump(diagnostic, open('/tmp/etr-gateway-verification.json','w',encoding='utf-8'), ensure_ascii=False, indent=2)
           assert diagnostic['requestStatus']==400, diagnostic
           assert (diagnostic['requestBody'] or {}).get('code')=='invalid_serial', diagnostic
           assert diagnostic['bootstrapStatus']==401, diagnostic
           assert (diagnostic['bootstrapBody'] or {}).get('code')=='github_oidc_missing', diagnostic
+          assert diagnostic['adminStatus']==401, diagnostic
+          assert (diagnostic['adminBody'] or {}).get('code')=='auth/id-token-missing', diagnostic
+          if diagnostic['healthStatus']==200:
+              assert (diagnostic['healthBody'] or {}).get('admin')=='v1', diagnostic
           PY
           echo "url=$GATEWAY_URL" >> "$GITHUB_OUTPUT"
 
@@ -292,6 +310,9 @@ jobs:
               "service": os.getenv("SERVICE_NAME"),
               "url": os.getenv("GATEWAY_URL") or None,
               "enrollment": "v1",
+              "admin": "v1",
+              "adminRouteVerified": bool(diagnostic and diagnostic.get("adminStatus") == 401),
+              "adminBootstrap": "verified-email-allowlist",
               "deviceBootstrap": "github-oidc-ed25519",
               "deviceSessionIssuance": outcomes["firebaseSession"] == "success",
               "authMode": "password_session",
