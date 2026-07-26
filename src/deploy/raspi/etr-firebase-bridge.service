@@ -14,6 +14,8 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=ETR_LOCAL_API_URL=http://127.0.0.1:8080/api/v1/status
 Environment=ETR_TOKEN_FILE=/var/lib/etr-core/firebase-auth.json
 Environment=ETR_ENROLLMENT_FILE=/var/lib/etr-core/enrollment.json
+Environment=ETR_BOOTSTRAP_PRIVATE_KEY=/var/lib/etr-core/bootstrap-private.pem
+Environment=ETR_BOOTSTRAP_PUBLIC_KEY=/var/lib/etr-core/bootstrap-public.pem
 EnvironmentFile=-/etc/etr-core/firebase-bridge.env
 ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/firebase_bridge.py
 Restart=always
