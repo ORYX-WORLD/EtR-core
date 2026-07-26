@@ -1,4 +1,4 @@
-name: Déployer la passerelle distante EtR
+name: Déployer la passerelle distante et l'enrôlement EtR
 
 on:
   workflow_dispatch:
@@ -7,52 +7,168 @@ on:
         description: Région Cloud Run
         required: false
         default: europe-west1
+  push:
+    branches: [main]
+    paths:
+      - gateway/**
+      - .github/workflows/etr-gateway-cloudrun.yml
+
+concurrency:
+  group: etr-gateway-cloudrun
+  cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
-  deploy:
+  test_and_deploy:
+    name: Tester et déployer la passerelle EtR
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PROJECT_ID: oryx-froid-industriel
+      REGION: ${{ inputs.region || 'europe-west1' }}
+      SERVICE_NAME: etr-remote-gateway
+
     steps:
-      - uses: actions/checkout@v5
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Configurer Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: gateway/package.json
+
+      - name: Installer, construire et tester
+        working-directory: gateway
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npm run build:novnc
+          npm test
+          node --check server.mjs
+          node --check enrollment.mjs
+          node --check enrollment-http.mjs
 
       - name: Authentification Google Cloud
-        uses: google-github-actions/auth@v2
+        id: google_auth
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Installer Google Cloud CLI
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
-      - name: Construire et déployer
+      - name: Autoriser la signature des jetons Firebase
+        id: token_signer
         shell: bash
         env:
-          PROJECT_ID: oryx-froid-industriel
-          REGION: ${{ inputs.region }}
+          RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
-          gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
-          gcloud run deploy etr-remote-gateway \
+          if [ -z "${RUNTIME_SERVICE_ACCOUNT:-}" ]; then
+            echo "::error::GCP_SERVICE_ACCOUNT doit contenir l'adresse du compte de service Cloud Run"
+            exit 1
+          fi
+          gcloud iam service-accounts add-iam-policy-binding "$RUNTIME_SERVICE_ACCOUNT" \
+            --project="$PROJECT_ID" \
+            --member="serviceAccount:$RUNTIME_SERVICE_ACCOUNT" \
+            --role="roles/iam.serviceAccountTokenCreator" \
+            --quiet >/tmp/etr-token-signer-policy.json
+          echo "Signature IAM activée pour l'identité d'exécution"
+
+      - name: Construire et déployer
+        id: deploy_gateway
+        shell: bash
+        env:
+          RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          gcloud services enable \
+            run.googleapis.com \
+            cloudbuild.googleapis.com \
+            artifactregistry.googleapis.com \
+            iamcredentials.googleapis.com \
+            --project="$PROJECT_ID"
+          gcloud run deploy "$SERVICE_NAME" \
             --project="$PROJECT_ID" \
             --region="$REGION" \
             --source=gateway \
+            --service-account="$RUNTIME_SERVICE_ACCOUNT" \
             --allow-unauthenticated \
             --min-instances=1 \
             --max-instances=1 \
             --concurrency=80 \
             --timeout=3600 \
-            --set-env-vars="ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app,FIREBASE_DATABASE_URL=https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app"
+            --set-env-vars="ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app,FIREBASE_PROJECT_ID=oryx-froid-industriel,FIREBASE_DATABASE_URL=https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app" \
+            --quiet
 
-      - name: Publier l’URL
+      - name: Vérifier la passerelle publiée
+        id: verify_gateway
         shell: bash
-        env:
-          PROJECT_ID: oryx-froid-industriel
-          REGION: ${{ inputs.region }}
         run: |
           set -euo pipefail
-          url=$(gcloud run services describe etr-remote-gateway --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)')
+          url=$(gcloud run services describe "$SERVICE_NAME" \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --format='value(status.url)')
+          test -n "$url"
+          health=$(curl --retry 12 --retry-delay 5 --retry-all-errors -fsS "$url/healthz")
+          printf '%s\n' "$health" | python3 -m json.tool
+          printf '%s\n' "$health" | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data.get("ok") is True; assert data.get("enrollment")=="v1"'
+          status=$(curl -sS -o /tmp/enrollment-smoke.json -w '%{http_code}' \
+            -X POST "$url/api/enrollment/request" \
+            -H 'Content-Type: application/json' \
+            -d '{}')
+          cat /tmp/enrollment-smoke.json | python3 -m json.tool
+          [ "$status" = "400" ] || { echo "::error::Route d'enrôlement inattendue : HTTP $status"; exit 1; }
+          echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Passerelle EtR : $url" >> "$GITHUB_STEP_SUMMARY"
-          curl -fsS "$url/healthz"
+
+      - name: Enregistrer la preuve du déploiement
+        if: always()
+        shell: bash
+        env:
+          TOKEN_SIGNER_OUTCOME: ${{ steps.token_signer.outcome }}
+          DEPLOY_OUTCOME: ${{ steps.deploy_gateway.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify_gateway.outcome }}
+          GATEWAY_URL: ${{ steps.verify_gateway.outputs.url }}
+        run: |
+          set -euo pipefail
+          mkdir -p .github/deployment
+          python3 - <<'PY'
+          import json, os
+          from datetime import datetime, timezone
+          outcomes = {
+              "tokenSigner": os.getenv("TOKEN_SIGNER_OUTCOME", "skipped"),
+              "deploy": os.getenv("DEPLOY_OUTCOME", "skipped"),
+              "verify": os.getenv("VERIFY_OUTCOME", "skipped"),
+          }
+          report = {
+              "checkedAt": datetime.now(timezone.utc).isoformat(),
+              "commit": os.getenv("GITHUB_SHA"),
+              "status": "success" if all(value == "success" for value in outcomes.values()) else "failure",
+              "project": os.getenv("PROJECT_ID"),
+              "region": os.getenv("REGION"),
+              "service": os.getenv("SERVICE_NAME"),
+              "url": os.getenv("GATEWAY_URL") or None,
+              "enrollment": "v1",
+              "outcomes": outcomes,
+          }
+          with open(".github/deployment/gateway-last-deploy.json", "w", encoding="utf-8") as file:
+              json.dump(report, file, ensure_ascii=False, indent=2)
+              file.write("\n")
+          print(json.dumps(report, ensure_ascii=False))
+          PY
+          git config user.name "EtR gateway deployment agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/gateway-last-deploy.json
+          git commit -m "chore: record EtR gateway deployment [skip ci]" || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main
