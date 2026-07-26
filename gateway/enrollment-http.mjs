@@ -1,10 +1,10 @@
-import crypto from "node:crypto";
 import {
   EnrollmentError,
   createEnrollmentService,
   createFirebaseEnrollmentStore
 } from "./enrollment.mjs";
 import { createDeviceBootstrapService, installDeviceBootstrapRoute } from "./device-bootstrap.mjs";
+import { createFirebaseDeviceSessionIssuer } from "./firebase-device-session.mjs";
 
 const WINDOW_MS = 15 * 60 * 1000;
 
@@ -44,31 +44,53 @@ function safeError(res, error) {
   return res.status(500).json({ error: "Erreur d’activation EtR", code: "enrollment_error" });
 }
 
+function enrollmentAuthAdapter(auth, issuer) {
+  return {
+    getUser: auth.getUser.bind(auth),
+    createUser: auth.createUser.bind(auth),
+    createCustomToken: (uid, claims) => issuer.issue(uid, claims)
+  };
+}
+
+function publicExchangeResult(result) {
+  const session = result?.customToken;
+  if (!session || typeof session !== "object") return result;
+  const { customToken: _privateField, ...exchange } = result;
+  return {
+    ...exchange,
+    idToken: session.idToken,
+    refreshToken: session.refreshToken,
+    expiresIn: session.expiresIn,
+    authMode: session.authMode
+  };
+}
+
 export function installEnrollmentRoutes({
   app,
   db,
   auth,
   verifyIdToken,
   deviceBootstrap = createDeviceBootstrapService({ db, now: () => Date.now() }),
+  deviceSessionIssuer = createFirebaseDeviceSessionIssuer({ auth }),
   now = () => Date.now()
 }) {
   if (!deviceBootstrap?.verifyDeviceRequest || !deviceBootstrap?.verifyWorkflowToken) throw new Error("Enrollment routes require device bootstrap verification");
-  const enrollment = createEnrollmentService({ store: createFirebaseEnrollmentStore(db), auth, now });
+  if (!deviceSessionIssuer?.issue || !deviceSessionIssuer?.health) throw new Error("Enrollment routes require Firebase device session issuance");
+  const enrollment = createEnrollmentService({
+    store: createFirebaseEnrollmentStore(db),
+    auth: enrollmentAuthAdapter(auth, deviceSessionIssuer),
+    now
+  });
   const enforceRate = createRateLimiter(now);
   installDeviceBootstrapRoute({ app, service: deviceBootstrap });
 
-  app.post("/api/enrollment/signing-health", async (req, res) => {
+  app.post("/api/enrollment/session-health", async (req, res) => {
     try {
-      enforceRate(req, "signing-health", 20);
+      enforceRate(req, "session-health", 20);
       const claims = await deviceBootstrap.verifyWorkflowToken(bearer(req));
-      const healthUid = `etrhealth_${crypto.createHash("sha256").update(String(claims.run_id)).digest("hex").slice(0, 32)}`;
-      const customToken = await auth.createCustomToken(healthUid, {
-        etrSigningHealth: true,
-        workflowRunId: String(claims.run_id)
-      });
-      if (typeof customToken !== "string" || customToken.split(".").length !== 3) throw new Error("custom_token_invalid");
+      const result = await deviceSessionIssuer.health(String(claims.run_id));
       res.setHeader("Cache-Control", "no-store");
-      return res.json({ ok: true, signer: "firebase-admin", algorithm: "RS256" });
+      return res.json(result);
     } catch (error) {
       return safeError(res, error);
     }
@@ -108,7 +130,7 @@ export function installEnrollmentRoutes({
       await deviceBootstrap.verifyDeviceRequest(req, "exchange");
       const result = await enrollment.exchange({ serial: req.body?.serial, activationCode: req.body?.activationCode || req.body?.code });
       res.setHeader("Cache-Control", "no-store");
-      return res.json(result);
+      return res.json(publicExchangeResult(result));
     } catch (error) {
       return safeError(res, error);
     }
