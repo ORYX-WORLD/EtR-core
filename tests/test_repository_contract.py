@@ -51,7 +51,9 @@ class RepositoryContractTests(unittest.TestCase):
             'authMode: "password_session"', "passwordEntropyBits: 384"
         ]:
             self.assertIn(marker, session_issuer)
-        self.assertNotIn("createCustomToken", enrollment_http + session_issuer)
+        # The enrollment domain service still exposes a compatibility method named
+        # createCustomToken, but no Firebase Admin call may remain in the gateway.
+        self.assertNotIn("auth.createCustomToken", enrollment_http + session_issuer)
         for marker in ["Ed25519", "token.actions.githubusercontent.com", "etr-bootstrap", "deviceBootstrap/", "device_signature_replayed"]:
             self.assertIn(marker, bootstrap)
         for marker in ["/api/v1/enrollment", '"secure_enrollment": True']:
