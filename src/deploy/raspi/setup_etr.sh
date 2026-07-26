@@ -37,12 +37,27 @@ for state_file in \
   /var/lib/etr-core/firebase-auth.json \
   /var/lib/etr-core/enrollment.json \
   /var/lib/etr-core/telemetry.json \
-  /var/lib/etr-core/remote-screen-auth.json; do
+  /var/lib/etr-core/remote-screen-auth.json \
+  /var/lib/etr-core/bootstrap-private.pem; do
   if [ -f "$state_file" ]; then
     sudo chown oryx:oryx "$state_file"
     sudo chmod 600 "$state_file"
   fi
 done
+
+# Identité asymétrique persistante du Raspberry. La clé privée ne quitte jamais
+# l'équipement ; seule la clé publique sera enregistrée par le runner GitHub.
+sudo -u oryx -H "$INSTALL_DIR/.venv/bin/python" - <<'PY'
+from pathlib import Path
+from src.device_identity import ensure_device_keypair
+ensure_device_keypair(
+    Path('/var/lib/etr-core/bootstrap-private.pem'),
+    Path('/var/lib/etr-core/bootstrap-public.pem'),
+)
+PY
+sudo chown oryx:oryx /var/lib/etr-core/bootstrap-private.pem /var/lib/etr-core/bootstrap-public.pem
+sudo chmod 600 /var/lib/etr-core/bootstrap-private.pem
+sudo chmod 644 /var/lib/etr-core/bootstrap-public.pem
 
 # Si la passerelle WSS est déjà configurée, dériver automatiquement l'URL HTTPS
 # d'enrôlement sans stocker une seconde origine manuellement.
@@ -119,7 +134,8 @@ if [ "$api_ready" != true ]; then
 fi
 
 # Le bridge démarre dès que la configuration Firebase minimale existe. Il reste
-# actif en attente d'association et génère lui-même le code visible localement.
+# actif en attente d'association et n'accepte un code qu'après enregistrement de
+# sa clé publique par le workflow GitHub authentifié.
 if sudo grep -q '^FIREBASE_API_KEY=.' "$ENV_FILE" && \
    sudo grep -q '^FIREBASE_DATABASE_URL=.' "$ENV_FILE"; then
   sudo systemctl enable etr-firebase-bridge.service
@@ -179,5 +195,5 @@ fi
 sudo systemctl reset-failed etr-kiosk.service 2>/dev/null || true
 sudo systemctl start etr-kiosk.service
 
-echo "OK. API EtR, bridge Firebase, enrôlement sécurisé, dashboard versionné, portail Wi-Fi tactile, écran SPI, kiosque et configuration d'écran distant sont installés."
+echo "OK. API EtR, identité Ed25519, bridge Firebase, enrôlement sécurisé, dashboard versionné, portail Wi-Fi tactile, écran SPI, kiosque et configuration d'écran distant sont installés."
 echo "Un redémarrage est recommandé pour valider le parcours hors connexion."
