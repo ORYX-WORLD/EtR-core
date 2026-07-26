@@ -215,11 +215,14 @@ export function createFirebaseEnrollmentStore(db) {
 
 export function createEnrollmentService({
   store,
-  auth,
+  auth = null,
+  issueDeviceSession = null,
   now = () => Date.now(),
   randomBytes = crypto.randomBytes
 }) {
-  if (!store || !auth) throw new Error("Enrollment service requires store and auth");
+  if (!store || (!issueDeviceSession && !auth)) {
+    throw new Error("Enrollment service requires a store and a device identity issuer");
+  }
 
   async function readAndVerifyCode(serial, activationCode) {
     const normalizedSerial = normalizeSerial(serial);
@@ -326,29 +329,38 @@ export function createEnrollmentService({
       const deviceUid = deriveDeviceUid(verified.serialHash);
       let completed = false;
       try {
-        try {
-          await auth.getUser(deviceUid);
-        } catch (error) {
-          if (error?.code !== "auth/user-not-found") throw error;
-          await auth.createUser({
-            uid: deviceUid,
-            disabled: false,
-            displayName: `EtR ${locked.installationId.slice(-12).toUpperCase()}`
-          });
+        let identity;
+        if (issueDeviceSession) {
+          identity = await issueDeviceSession({ deviceUid, installationId: locked.installationId });
+        } else {
+          try {
+            await auth.getUser(deviceUid);
+          } catch (error) {
+            if (error?.code !== "auth/user-not-found") throw error;
+            await auth.createUser({
+              uid: deviceUid,
+              disabled: false,
+              displayName: `EtR ${locked.installationId.slice(-12).toUpperCase()}`
+            });
+          }
+          identity = {
+            customToken: await auth.createCustomToken(deviceUid, {
+              etrDevice: true,
+              installationId: locked.installationId
+            }),
+            expiresIn: 3600,
+            authenticationMethod: "firebase_custom_token"
+          };
         }
+
         await store.bindDevice(locked.installationId, deviceUid, verified.serialHash, startedAt);
-        const customToken = await auth.createCustomToken(deviceUid, {
-          etrDevice: true,
-          installationId: locked.installationId
-        });
         completed = await store.completeExchange(verified.serialHash, lockId, deviceUid, nowIso(now));
         if (!completed) throw new Error("enrollment_completion_conflict");
         return {
-          customToken,
+          ...identity,
           installationId: locked.installationId,
           deviceUid,
-          status: "exchanged",
-          expiresIn: 3600
+          status: "exchanged"
         };
       } catch (error) {
         if (!completed) await store.rollbackExchange(verified.serialHash, lockId, nowIso(now));
