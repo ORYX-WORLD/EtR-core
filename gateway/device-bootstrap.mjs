@@ -15,7 +15,7 @@ function publicKeyDetails(publicKeyPem) {
   let key;
   try {
     key = crypto.createPublicKey(pem);
-  } catch (error) {
+  } catch {
     throw new EnrollmentError(400, "invalid_device_key", "Clé publique de l’EtR invalide");
   }
   if (key.asymmetricKeyType !== "ed25519") {
@@ -29,8 +29,10 @@ function publicKeyDetails(publicKeyPem) {
   };
 }
 
-function canonicalRequest({ serial, hostname, rotationToken, timestamp, nonce }) {
+function canonicalRequest({ action, serial, activationCode, hostname, rotationToken, timestamp, nonce }) {
   const body = JSON.stringify({
+    action: String(action || ""),
+    activationCode: String(activationCode || ""),
     hostname: String(hostname || ""),
     rotationToken: String(rotationToken || ""),
     serial: String(serial || "")
@@ -83,7 +85,7 @@ export function createDeviceBootstrapService({
         audience: "etr-bootstrap",
         requiredClaims: ["sub", "repository", "ref", "run_id", "sha"]
       }));
-    } catch (error) {
+    } catch {
       throw clientError(401, "github_oidc_invalid", "Jeton de déploiement invalide");
     }
     if (payload.repository !== githubRepository) {
@@ -133,7 +135,7 @@ export function createDeviceBootstrapService({
     };
   }
 
-  async function verifyEnrollmentRequest(req) {
+  async function verifyDeviceRequest(req, action) {
     const normalizedSerial = normalizeSerial(req.body?.serial);
     const serialHash = serialFingerprint(normalizedSerial);
     const timestamp = String(req.headers["x-etr-timestamp"] || "");
@@ -163,7 +165,9 @@ export function createDeviceBootstrapService({
       throw clientError(403, "device_key_mismatch", "Identité de l’EtR incohérente");
     }
     const payload = canonicalRequest({
+      action,
       serial: normalizedSerial,
+      activationCode: req.body?.activationCode || req.body?.code,
       hostname: req.body?.hostname,
       rotationToken: req.body?.rotationToken,
       timestamp,
@@ -187,7 +191,7 @@ export function createDeviceBootstrapService({
     };
   }
 
-  return { register, verifyEnrollmentRequest, verifyWorkflowToken };
+  return { register, verifyDeviceRequest, verifyWorkflowToken };
 }
 
 export function installDeviceBootstrapRoute({ app, service }) {
