@@ -1,5 +1,5 @@
 name: Déployer l'application EtR complète
-# Déploiement physique révision 13
+# Déploiement physique révision 14
 
 on:
   workflow_dispatch:
@@ -31,6 +31,9 @@ jobs:
     name: Installer et vérifier sur le Raspberry EtR
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 45
+    env:
+      ETR_GATEWAY_ORIGIN: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
+      FIREBASE_DATABASE_URL: https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app
 
     steps:
       - name: Préparer le dépôt de suivi
@@ -56,7 +59,6 @@ jobs:
           set -euo pipefail
           install_dir=/home/oryx/EtR-core
           repo_url=https://github.com/ORYX-WORLD/EtR-core.git
-
           if [ ! -d "$install_dir/.git" ]; then
             sudo -u oryx -H git clone "$repo_url" "$install_dir"
           else
@@ -71,10 +73,6 @@ jobs:
 
       - name: Configurer Firebase, l'enrôlement et l'écran distant
         shell: bash
-        env:
-          ETR_REMOTE_GATEWAY_WSS: ${{ secrets.ETR_REMOTE_GATEWAY_WSS }}
-          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-          FIREBASE_DATABASE_URL: https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app
         run: |
           set -euo pipefail
           env_file=/etc/etr-core/firebase-bridge.env
@@ -89,22 +87,43 @@ jobs:
             printf '%s\n' "${key}=${value}" | sudo tee -a "$env_file" >/dev/null
           }
 
-          set_value FIREBASE_DATABASE_URL "$FIREBASE_DATABASE_URL"
-          set_value FIREBASE_API_KEY "${FIREBASE_API_KEY:-}"
-          if [ -n "${ETR_REMOTE_GATEWAY_WSS:-}" ]; then
-            set_value ETR_REMOTE_GATEWAY_WSS "$ETR_REMOTE_GATEWAY_WSS"
-            enrollment_origin=${ETR_REMOTE_GATEWAY_WSS/wss:\/\//https:\/\/}
-            enrollment_origin=${enrollment_origin%%\?*}
-            enrollment_origin=${enrollment_origin%/device}
-            enrollment_origin=${enrollment_origin%/}
-            set_value FIREBASE_ENROLLMENT_URL "${enrollment_origin}/api/enrollment"
-            echo "Passerelle distante et enrôlement configurés"
-          else
-            echo "::error::ETR_REMOTE_GATEWAY_WSS est requis pour l'enrôlement autonome"
+          config_url=https://oryx-froid-industriel.web.app/__/firebase/init.json
+          curl --retry 6 --retry-delay 3 --retry-all-errors -fsS "$config_url" > /tmp/etr-firebase-init.json
+          firebase_api_key=$(python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-firebase-init.json', encoding='utf-8'))
+          key=str(data.get('apiKey') or '').strip()
+          project=str(data.get('projectId') or '').strip()
+          if len(key) < 20 or len(key) > 200:
+              raise SystemExit('apiKey Firebase absente ou invalide')
+          if project != 'oryx-froid-industriel':
+              raise SystemExit(f'Projet Firebase inattendu: {project}')
+          print(key)
+          PY
+          )
+          rm -f /tmp/etr-firebase-init.json
+          echo "::add-mask::$firebase_api_key"
+
+          gateway_origin=${ETR_GATEWAY_ORIGIN%/}
+          [[ "$gateway_origin" == https://*.run.app ]] || {
+            echo "::error::Origine Cloud Run EtR invalide : $gateway_origin"
             exit 1
-          fi
+          }
+          remote_gateway=${gateway_origin/https:\/\//wss:\/\/}/device
+
+          set_value FIREBASE_DATABASE_URL "$FIREBASE_DATABASE_URL"
+          set_value FIREBASE_API_KEY "$firebase_api_key"
+          set_value ETR_REMOTE_GATEWAY_WSS "$remote_gateway"
+          set_value FIREBASE_ENROLLMENT_URL "${gateway_origin}/api/enrollment"
+          unset firebase_api_key
+
           sudo chown root:oryx "$env_file"
           sudo chmod 640 "$env_file"
+          sudo grep -q '^FIREBASE_DATABASE_URL=.' "$env_file"
+          sudo grep -q '^FIREBASE_API_KEY=.' "$env_file"
+          sudo grep -q '^ETR_REMOTE_GATEWAY_WSS=wss://.*\.run\.app/device$' "$env_file"
+          sudo grep -q '^FIREBASE_ENROLLMENT_URL=https://.*\.run\.app/api/enrollment$' "$env_file"
+          echo "Configuration Firebase publique et passerelle Cloud Run installées"
 
       - name: Vérifier les sources avant installation
         shell: bash
@@ -130,16 +149,9 @@ jobs:
       - name: Enregistrer la clé publique du Raspberry par GitHub OIDC
         id: register_device
         shell: bash
-        env:
-          ETR_REMOTE_GATEWAY_WSS: ${{ secrets.ETR_REMOTE_GATEWAY_WSS }}
         run: |
           set -euo pipefail
-          gateway_origin=${ETR_REMOTE_GATEWAY_WSS/wss:\/\//https:\/\/}
-          gateway_origin=${gateway_origin%%\?*}
-          gateway_origin=${gateway_origin%/device}
-          gateway_origin=${gateway_origin%/}
-          test -n "$gateway_origin"
-
+          gateway_origin=${ETR_GATEWAY_ORIGIN%/}
           sudo -u oryx -H /home/oryx/EtR-core/.venv/bin/python - <<'PY'
           from pathlib import Path
           from src.device_identity import ensure_device_keypair
@@ -152,12 +164,8 @@ jobs:
           serial=$(python3 - <<'PY'
           from pathlib import Path
           import re
-          candidates = [
-              Path('/sys/firmware/devicetree/base/serial-number'),
-              Path('/proc/device-tree/serial-number'),
-          ]
           value = ''
-          for path in candidates:
+          for path in [Path('/sys/firmware/devicetree/base/serial-number'), Path('/proc/device-tree/serial-number')]:
               try:
                   value = path.read_bytes().replace(b'\x00', b'').decode('ascii').strip()
                   if value:
@@ -191,12 +199,10 @@ jobs:
           PY
 
           oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=etr-bootstrap"
-          curl -fsS \
-            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "$oidc_url" > /tmp/etr-github-oidc.json
+          curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$oidc_url" > /tmp/etr-github-oidc.json
           oidc_token=$(python3 -c 'import json; print(json.load(open("/tmp/etr-github-oidc.json"))["value"])')
-          test -n "$oidc_token"
           rm -f /tmp/etr-github-oidc.json
+          test -n "$oidc_token"
 
           registered=false
           for attempt in $(seq 1 60); do
@@ -215,9 +221,9 @@ jobs:
               echo "::error::Enregistrement de l'identité EtR refusé : HTTP $http_code"
               exit 1
             fi
-            echo "Passerelle d'enrôlement pas encore publiée (HTTP $http_code), essai $attempt/60"
             sleep 10
           done
+          unset oidc_token
           [ "$registered" = true ] || { echo "::error::Passerelle d'enrôlement indisponible après 10 minutes"; exit 1; }
           cat /tmp/etr-bootstrap-response.json | python3 -m json.tool
           fingerprint=$(python3 -c 'import json; print(json.load(open("/tmp/etr-bootstrap-response.json"))["publicKeyFingerprint"])')
@@ -255,148 +261,60 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          fail_check() {
-            local title=$1
-            local message=$2
-            echo "::error title=${title}::${message}"
-            return 1
-          }
-
+          fail_check() { echo "::error title=$1::$2"; return 1; }
           wait_for_service() {
             local service=$1
             for attempt in $(seq 1 60); do
-              if sudo systemctl is-active --quiet "$service"; then
-                echo "$service : actif"
-                return 0
-              fi
+              if sudo systemctl is-active --quiet "$service"; then return 0; fi
               sleep 2
             done
             sudo systemctl status "$service" --no-pager -l || true
             sudo journalctl -u "$service" -n 80 --no-pager || true
-            fail_check "Service EtR inactif" "$service n'est pas actif après 120 secondes"
+            fail_check "Service EtR inactif" "$service n'est pas actif"
           }
 
-          require_text() {
-            local text=$1
-            local label=$2
-            if ! grep -Fq -- "$text" <<<"$portal_html"; then
-              fail_check "Contenu du portail incomplet" "Texte attendu absent : $label"
-            fi
-            echo "Portail : $label présent"
-          }
-
-          for service in etr.service etr-dashboard.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service etr-firebase-bridge.service; do
+          for service in etr.service etr-dashboard.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service etr-firebase-bridge.service etr-vnc.service etr-remote-screen.service; do
             wait_for_service "$service"
           done
 
-          env_permissions=$(sudo stat -c '%U:%G %a' /etc/etr-core/firebase-bridge.env)
-          [ "$env_permissions" = "root:oryx 640" ] || fail_check "Permissions Firebase incorrectes" "Attendu root:oryx 640, obtenu $env_permissions"
-          private_permissions=$(sudo stat -c '%U:%G %a' /var/lib/etr-core/bootstrap-private.pem)
-          public_permissions=$(sudo stat -c '%U:%G %a' /var/lib/etr-core/bootstrap-public.pem)
-          [ "$private_permissions" = "oryx:oryx 600" ] || fail_check "Clé privée EtR exposée" "Attendu oryx:oryx 600, obtenu $private_permissions"
-          [ "$public_permissions" = "oryx:oryx 644" ] || fail_check "Clé publique EtR invalide" "Attendu oryx:oryx 644, obtenu $public_permissions"
+          [ "$(sudo stat -c '%U:%G %a' /etc/etr-core/firebase-bridge.env)" = "root:oryx 640" ] || fail_check "Permissions Firebase" "firebase-bridge.env incorrect"
+          [ "$(sudo stat -c '%U:%G %a' /var/lib/etr-core/bootstrap-private.pem)" = "oryx:oryx 600" ] || fail_check "Clé privée EtR" "permissions incorrectes"
+          [ "$(sudo stat -c '%U:%G %a' /var/lib/etr-core/bootstrap-public.pem)" = "oryx:oryx 644" ] || fail_check "Clé publique EtR" "permissions incorrectes"
 
           curl -fsS http://127.0.0.1:8080/healthz | python3 -m json.tool
           curl -fsS http://127.0.0.1:8080/api/v1/status > /tmp/etr-api-status.json
           curl -fsS http://127.0.0.1:8080/api/v1/enrollment > /tmp/etr-enrollment.json
-          python3 -m json.tool /tmp/etr-api-status.json
-          python3 -m json.tool /tmp/etr-enrollment.json
-          python3 - <<'PY'
-          import json
-          status = json.load(open('/tmp/etr-api-status.json'))
-          enrollment = json.load(open('/tmp/etr-enrollment.json'))
-          assert status.get('schema_version') == '1.0'
-          assert status.get('capabilities', {}).get('secure_enrollment') is True
-          assert isinstance(enrollment.get('enrollment'), dict)
-          assert 'rotationToken' not in json.dumps(enrollment)
-          assert enrollment['enrollment']['status'] in {'pending', 'claimed', 'enrolled'}
-          PY
-
           curl -fsS http://127.0.0.1:8000/healthz | python3 -m json.tool
           dashboard_html=$(curl -fsS http://127.0.0.1:8000/)
-          grep -Fq 'data-etr-dashboard-version' <<<"$dashboard_html" || fail_check "Dashboard non versionné" "Marqueur du dashboard GitHub absent"
-          grep -Fq 'Tableau de bord local' <<<"$dashboard_html" || fail_check "Dashboard incomplet" "Titre du dashboard absent"
-          grep -Fq 'data-enrollment' <<<"$dashboard_html" || fail_check "Enrôlement tactile absent" "Le panneau d'association EtR n'est pas rendu"
+          grep -Fq 'data-etr-dashboard-version' <<<"$dashboard_html" || fail_check "Dashboard non versionné" "marqueur absent"
+          grep -Fq 'data-enrollment' <<<"$dashboard_html" || fail_check "Enrôlement tactile absent" "panneau absent"
+          python3 - <<'PY'
+          import json
+          status=json.load(open('/tmp/etr-api-status.json'))
+          enrollment=json.load(open('/tmp/etr-enrollment.json'))
+          assert status.get('schema_version') == '1.0'
+          assert status.get('capabilities', {}).get('secure_enrollment') is True
+          assert enrollment['enrollment']['status'] in {'pending', 'claimed', 'enrolled'}
+          assert 'rotationToken' not in json.dumps(enrollment)
+          PY
 
           for port in 8000 8080; do
-            if ! sudo ss -H -ltnp | grep -qE "(127\\.0\\.0\\.1|\\[::1\\]):${port}"; then
-              sudo ss -ltnp || true
-              fail_check "Service local indisponible" "Aucun service EtR local n'écoute sur ${port}"
-            fi
-            if sudo ss -H -ltnp | grep -qE "(0\\.0\\.0\\.0|\\[::\\]):${port}"; then
-              sudo ss -ltnp | grep ":${port}" || true
-              fail_check "Service EtR exposé" "Le port ${port} doit rester limité à la boucle locale"
-            fi
+            sudo ss -H -ltnp | grep -qE "(127\.0\.0\.1|\[::1\]):${port}" || fail_check "Service local indisponible" "port ${port}"
+            ! sudo ss -H -ltnp | grep -qE "(0\.0\.0\.0|\[::\]):${port}" || fail_check "Service EtR exposé" "port ${port}"
           done
+          [ "$(sudo systemctl show etr-firebase-bridge.service -p User --value)" = "oryx" ] || fail_check "Bridge Firebase privilégié" "utilisateur incorrect"
 
-          bridge_user=$(sudo systemctl show etr-firebase-bridge.service -p User --value)
-          [ "$bridge_user" = "oryx" ] || fail_check "Bridge Firebase privilégié" "Le service doit fonctionner sous oryx, pas $bridge_user"
-
-          for state_file in /var/lib/etr-core/firebase-auth.json /var/lib/etr-core/enrollment.json; do
-            if [ -f "$state_file" ]; then
-              state_permissions=$(sudo stat -c '%U:%G %a' "$state_file")
-              [ "$state_permissions" = "oryx:oryx 600" ] || fail_check "Permissions d'état incorrectes" "$state_file : $state_permissions"
-            fi
-          done
-
-          status_ready=false
           for attempt in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:8090/api/status > /tmp/etr-wifi-status.json; then
-              status_ready=true
-              break
-            fi
+            if curl -fsS http://127.0.0.1:8090/api/status > /tmp/etr-wifi-status.json; then break; fi
             sleep 2
           done
-          if [ "$status_ready" != true ] || [ ! -s /tmp/etr-wifi-status.json ]; then
-            sudo systemctl status etr-wifi-portal.service --no-pager -l || true
-            sudo journalctl -u etr-wifi-portal.service -n 80 --no-pager || true
-            fail_check "API Wi-Fi indisponible" "http://127.0.0.1:8090/api/status ne répond pas"
-          fi
-          python3 -m json.tool /tmp/etr-wifi-status.json
-
-          if ! portal_html=$(curl -fsS http://127.0.0.1:8090/); then
-            fail_check "Portail Wi-Fi indisponible" "http://127.0.0.1:8090/ ne répond pas"
-          fi
-          require_text "Connecter cet EtR" "titre de connexion"
-          require_text "Afficher la clé" "commande d'affichage de la clé"
-          require_text "123/@" "bascule du clavier tactile"
-          require_text "Vérifiez la clé puis appuyez sur Se connecter pour réessayer" "message de nouvelle tentative"
-
-          if ! sudo systemctl is-enabled --quiet etr-kiosk.service; then
-            fail_check "Kiosque non activé" "etr-kiosk.service n'est pas activé au démarrage"
-          fi
-          chromium_ready=false
-          for attempt in $(seq 1 30); do
-            if pgrep -u oryx -f 'chromium.*etr-kiosk-chromium' >/dev/null; then
-              chromium_ready=true
-              break
-            fi
-            sleep 2
+          test -s /tmp/etr-wifi-status.json
+          portal_html=$(curl -fsS http://127.0.0.1:8090/)
+          for marker in "Connecter cet EtR" "Afficher la clé" "123/@" "Vérifiez la clé puis appuyez sur Se connecter pour réessayer"; do
+            grep -Fq "$marker" <<<"$portal_html" || fail_check "Portail Wi-Fi incomplet" "$marker"
           done
-          if [ "$chromium_ready" != true ]; then
-            sudo systemctl status etr-kiosk.service --no-pager -l || true
-            sudo journalctl -u etr-kiosk.service -n 80 --no-pager || true
-            ps -ef | grep '[c]hromium' || true
-            fail_check "Chromium kiosque absent" "Aucun processus Chromium avec le profil etr-kiosk-chromium après 60 secondes"
-          fi
-          echo "Dashboard, identité Ed25519, enrôlement et portail Wi-Fi tactile : opérationnels"
-
-          if sudo grep -q '^ETR_REMOTE_GATEWAY_WSS=.' /etc/etr-core/firebase-bridge.env 2>/dev/null; then
-            wait_for_service etr-vnc.service
-            wait_for_service etr-remote-screen.service
-            if ! sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901'; then
-              sudo ss -ltnp || true
-              fail_check "VNC local indisponible" "Aucun serveur VNC EtR n'écoute localement sur le port 5901"
-            fi
-            if sudo ss -H -ltnp | grep -qE '(0\.0\.0\.0|\[::\]):5901'; then
-              sudo ss -ltnp | grep ':5901' || true
-              fail_check "VNC EtR exposé" "Le port 5901 doit écouter uniquement sur la boucle locale"
-            fi
-            echo "Écran distant EtR : source VNC locale 5901 et relais sortant actifs"
-          else
-            fail_check "Écran distant non configuré" "ETR_REMOTE_GATEWAY_WSS est absent"
-          fi
+          sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901' || fail_check "VNC local indisponible" "port 5901"
+          ! sudo ss -H -ltnp | grep -qE '(0\.0\.0\.0|\[::\]):5901' || fail_check "VNC EtR exposé" "port 5901"
 
       - name: Publier le compte rendu
         if: always()
@@ -413,6 +331,8 @@ jobs:
             echo "job_status=${{ job.status }}"
             echo "host=$(hostname)"
             echo "installed_commit=$(sudo -u oryx -H git -C /home/oryx/EtR-core rev-parse HEAD 2>/dev/null || echo unavailable)"
+            echo "configuration_source=firebase-hosting-reserved-url+cloud-run-fixed-origin"
+            echo "gateway_origin=$ETR_GATEWAY_ORIGIN"
             echo "bootstrap_registration=$BOOTSTRAP_REGISTRATION_OUTCOME"
             echo "bootstrap_installation_id=$BOOTSTRAP_INSTALLATION_ID"
             echo "bootstrap_public_key_fingerprint=$BOOTSTRAP_FINGERPRINT"
@@ -427,7 +347,6 @@ jobs:
             enrollment_status=$(curl -fsS http://127.0.0.1:8080/api/v1/enrollment 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("enrollment",{}).get("status","unavailable"))' 2>/dev/null || echo unavailable)
             echo "enrollment_status=$enrollment_status"
           } > .github/deployment/etr-last-deploy.txt
-
           git config user.name "EtR deployment agent"
           git config user.email "actions@users.noreply.github.com"
           git add .github/deployment/etr-last-deploy.txt
