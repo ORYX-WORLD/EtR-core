@@ -3,6 +3,7 @@ import {
   createEnrollmentService,
   createFirebaseEnrollmentStore
 } from "./enrollment.mjs";
+import { createDeviceBootstrapService, installDeviceBootstrapRoute } from "./device-bootstrap.mjs";
 
 const WINDOW_MS = 15 * 60 * 1000;
 
@@ -48,7 +49,7 @@ export function installEnrollmentRoutes({
   db,
   auth,
   verifyIdToken,
-  deviceBootstrap,
+  deviceBootstrap = createDeviceBootstrapService({ db, now: () => Date.now() }),
   now = () => Date.now()
 }) {
   if (!deviceBootstrap?.verifyDeviceRequest) throw new Error("Enrollment routes require device bootstrap verification");
@@ -58,6 +59,7 @@ export function installEnrollmentRoutes({
     now
   });
   const enforceRate = createRateLimiter(now);
+  installDeviceBootstrapRoute({ app, service: deviceBootstrap });
 
   async function requestEnrollment(req, res) {
     try {
