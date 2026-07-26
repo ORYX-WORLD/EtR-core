@@ -35,9 +35,16 @@ class RepositoryContractTests(unittest.TestCase):
             "gateway/enrollment.mjs",
             "gateway/enrollment-http.mjs",
             "gateway/enrollment.test.mjs",
+            "gateway/enrollment-policy.test.mjs",
+            "gateway/device-bootstrap.mjs",
+            "gateway/device-bootstrap.test.mjs",
+            "src/device_identity.py",
             "src/firebase_bridge.py",
             "src/deploy/raspi/etr-firebase-bridge.service",
             "tests/test_app.py",
+            "tests/test_device_identity.py",
+            "tests/test_firebase_bridge_enrollment.py",
+            "docs/SECURE_ENROLLMENT.md",
             ".github/workflows/etr-gateway-cloudrun.yml",
             ".github/workflows/etr-deploy.yml",
         ]
@@ -45,10 +52,22 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertEqual(missing, [], f"Enrollment contract incomplete: {missing}")
 
         server = (ROOT / "gateway/server.mjs").read_text(encoding="utf-8")
+        enrollment_http = (ROOT / "gateway/enrollment-http.mjs").read_text(encoding="utf-8")
+        bootstrap = (ROOT / "gateway/device-bootstrap.mjs").read_text(encoding="utf-8")
         local_api = (ROOT / "src/app.py").read_text(encoding="utf-8")
         dashboard = (ROOT / "dashboard/templates/index.html").read_text(encoding="utf-8")
         for marker in ["installEnrollmentRoutes", 'enrollment: "v1"']:
             self.assertIn(marker, server)
+        for marker in ["installDeviceBootstrapRoute", 'verifyDeviceRequest(req, "request")', 'verifyDeviceRequest(req, "exchange")']:
+            self.assertIn(marker, enrollment_http)
+        for marker in [
+            "Ed25519",
+            "token.actions.githubusercontent.com",
+            "etr-bootstrap",
+            "deviceBootstrap/",
+            "device_signature_replayed",
+        ]:
+            self.assertIn(marker, bootstrap)
         for marker in ["/api/v1/enrollment", '"secure_enrollment": True']:
             self.assertIn(marker, local_api)
         for marker in ["data-enrollment", "Associer cet EtR"]:
@@ -64,6 +83,7 @@ class RepositoryContractTests(unittest.TestCase):
             "NoNewPrivileges=true",
             "ProtectSystem=strict",
             "ReadWritePaths=/var/lib/etr-core",
+            "ETR_BOOTSTRAP_PRIVATE_KEY=/var/lib/etr-core/bootstrap-private.pem",
             "UMask=0077",
         ]:
             self.assertIn(marker, unit)
@@ -71,6 +91,9 @@ class RepositoryContractTests(unittest.TestCase):
             "src/deploy/raspi/etr-firebase-bridge.service",
             "etr-firebase-bridge.service",
             "root:oryx",
+            "bootstrap-private.pem",
+            "bootstrap-public.pem",
+            "ensure_device_keypair",
             "chmod 640",
             "chmod 600",
         ]:
@@ -81,11 +104,18 @@ class RepositoryContractTests(unittest.TestCase):
     def test_physical_deploy_covers_every_runtime_component(self):
         workflow = (ROOT / ".github/workflows/etr-deploy.yml").read_text(encoding="utf-8")
         for marker in [
+            "id-token: write",
             "src/app.py",
+            "src/device_identity.py",
             "src/firebase_bridge.py",
             "dashboard/**",
             "etr-dashboard.service",
             "etr-firebase-bridge.service",
+            "ACTIONS_ID_TOKEN_REQUEST_URL",
+            "audience=etr-bootstrap",
+            "/api/enrollment/bootstrap",
+            "bootstrap_public_key_fingerprint",
+            "bootstrap-private.pem",
             "127.0.0.1:8000/healthz",
             "127.0.0.1:8080/api/v1/enrollment",
             "data-enrollment",
@@ -96,11 +126,14 @@ class RepositoryContractTests(unittest.TestCase):
     def test_gateway_deploy_tests_and_proves_enrollment(self):
         workflow = (ROOT / ".github/workflows/etr-gateway-cloudrun.yml").read_text(encoding="utf-8")
         for marker in [
+            "pull_request:",
             "gateway/**",
             "npm test",
+            "node --check device-bootstrap.mjs",
             "roles/iam.serviceAccountTokenCreator",
             "iamcredentials.googleapis.com",
             "/api/enrollment/request",
+            "/api/enrollment/bootstrap",
             'data.get("enrollment")=="v1"',
             "gateway-last-deploy.json",
         ]:
