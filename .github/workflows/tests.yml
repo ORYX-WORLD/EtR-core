@@ -56,4 +56,16 @@ jobs:
         run: python -m compileall -q src dashboard tests
 
       - name: Exécuter les tests
-        run: python -m unittest discover -s tests -v
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee /tmp/etr-python-tests.log
+
+      - name: Publier le diagnostic des tests en échec
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etr-python-test-diagnostic
+          path: /tmp/etr-python-tests.log
+          if-no-files-found: error
+          retention-days: 3
