@@ -16,18 +16,35 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"data-etr-dashboard-version", response.data)
         self.assertIn(b"Tableau de bord local", response.data)
+        self.assertIn(b"data-enrollment", response.data)
+        self.assertIn(b"Associer cet EtR", response.data)
         self.assertIn("script-src 'self'", response.headers["Content-Security-Policy"])
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+
+    def test_dashboard_health_exposes_the_enrollment_ui_version(self):
+        response = self.client.get("/healthz")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["version"], "1.1.0")
 
     @patch("dashboard.app.requests.get")
     def test_status_proxy_returns_local_api_payload(self, get):
         upstream = Mock()
         upstream.raise_for_status.return_value = None
-        upstream.json.return_value = {"schema_version": "1.0", "health": "ok"}
+        upstream.json.return_value = {
+            "schema_version": "1.0",
+            "health": "ok",
+            "enrollment": {
+                "required": True,
+                "status": "pending",
+                "activation_code": "23456-789AB-CDEFG-HJKLM",
+            },
+        }
         get.return_value = upstream
         response = self.client.get("/api/status")
         payload = response.get_json()
         self.assertTrue(payload["api_online"])
         self.assertEqual(payload["data"]["schema_version"], "1.0")
+        self.assertEqual(payload["data"]["enrollment"]["status"], "pending")
 
     @patch("dashboard.app.requests.get", side_effect=requests.ConnectionError("network"))
     def test_status_proxy_fails_closed_without_trace(self, _get):
