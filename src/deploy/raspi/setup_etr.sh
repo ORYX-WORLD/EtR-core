@@ -7,7 +7,7 @@ INSTALL_DIR="/home/oryx/EtR-core"
 sudo apt update
 sudo apt install -y \
   git python3-venv python3-pip network-manager psmisc \
-  xserver-xorg xserver-xorg-video-fbdev xinit lxde-core dbus-x11 \
+  xserver-xorg xserver-xorg-video-fbdev x11-xserver-utils xinit lxde-core dbus-x11 \
   chromium netcat-openbsd x11vnc
 
 # Cloner ou actualiser le dépôt officiel
@@ -19,6 +19,17 @@ else
   git -C "$INSTALL_DIR" pull --ff-only origin main
 fi
 cd "$INSTALL_DIR"
+
+# Identité immuable de la version installée. Elle est exposée par l'API locale
+# et permet de relier un appareil au commit et au déploiement correspondants.
+VERSION="$(tr -d '[:space:]' < VERSION 2>/dev/null || echo unknown)"
+COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+DEPLOYED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+sudo install -d -m 755 -o root -g root /etc/etr-core
+printf 'ETR_VERSION=%s\nETR_COMMIT=%s\nETR_DEPLOYED_AT=%s\n' \
+  "$VERSION" "$COMMIT" "$DEPLOYED_AT" | \
+  sudo tee /etc/etr-core/release.env >/dev/null
+sudo chmod 644 /etc/etr-core/release.env
 
 # Environnement virtuel + dépendances
 python3 -m venv .venv
@@ -54,6 +65,15 @@ if [ -f /var/lib/etr-core/remote-screen-auth.json ]; then
   sudo chown oryx:oryx /var/lib/etr-core/remote-screen-auth.json
   sudo chmod 600 /var/lib/etr-core/remote-screen-auth.json
 fi
+release_manifest="$(mktemp)"
+python3 scripts/build_metadata.py \
+  --output "$release_manifest" \
+  --target raspberry-etr-core \
+  --status installed \
+  --commit "$COMMIT" \
+  --host "$(hostname)"
+sudo install -m 644 -o oryx -g oryx "$release_manifest" /var/lib/etr-core/release.json
+rm -f "$release_manifest"
 sudo install -m 755 src/deploy/raspi/etr-storage-maintenance.sh /home/oryx/.local/bin/etr-storage-maintenance.sh
 echo '*/15 * * * * oryx /home/oryx/.local/bin/etr-storage-maintenance.sh' | \
   sudo tee /etc/cron.d/etr-storage-maintenance >/dev/null

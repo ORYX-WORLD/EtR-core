@@ -1,0 +1,41 @@
+name: Anomalie
+description: Signaler un comportement incorrect ou une régression
+title: "bug: "
+labels: ["type:bug", "status:triage"]
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: Comportement observé
+      description: Décrire le symptôme sans inclure de secret.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportement attendu
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Étapes, environnement, version et identifiant d'installation non sensible.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: v1.0.0 / abc1234
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Sévérité
+      options: [S1 critique, S2 majeure, S3 modérée, S4 mineure]
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Journaux et preuves expurgés

@@ -38,6 +38,20 @@ done
   exit 1
 }
 
+# Un EtR est un afficheur industriel permanent : la veille X11 ne doit jamais
+# effacer l'écran SPI. Ces réglages sont appliqués à chaque démarrage de Xorg,
+# avant Chromium, afin qu'un redémarrage ou une réinstallation les conserve.
+XSET=(
+  /usr/sbin/runuser -u oryx -- env
+  HOME=/home/oryx USER=oryx LOGNAME=oryx
+  DISPLAY="$DISPLAY_ID" XAUTHORITY=/home/oryx/.Xauthority
+  /usr/bin/xset
+)
+"${XSET[@]}" s off
+"${XSET[@]}" s noblank
+"${XSET[@]}" -dpms 2>/dev/null || true
+"${XSET[@]}" s reset
+
 /usr/sbin/runuser -u oryx -- env \
   HOME=/home/oryx USER=oryx LOGNAME=oryx \
   DISPLAY="$DISPLAY_ID" XAUTHORITY=/home/oryx/.Xauthority \

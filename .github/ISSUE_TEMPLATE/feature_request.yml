@@ -1,0 +1,26 @@
+name: Évolution
+description: Proposer une évolution traçable
+title: "feat: "
+labels: ["type:feature", "status:triage"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: Besoin métier
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critères d'acceptation
+      description: Formuler des critères vérifiables.
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risques et contraintes
+  - type: textarea
+    id: traceability
+    attributes:
+      label: Installations, composants ou documents concernés
