@@ -57,8 +57,10 @@ jobs:
           node --check enrollment.mjs
           node --check enrollment-http.mjs
           node --check device-bootstrap.mjs
-          grep -Fq '/api/enrollment/signing-health' enrollment-http.mjs
-          grep -Fq 'auth.createCustomToken' enrollment-http.mjs
+          node --check firebase-device-session.mjs
+          grep -Fq '/api/enrollment/session-health' enrollment-http.mjs
+          grep -Fq 'createFirebaseDeviceSessionIssuer' enrollment-http.mjs
+          ! grep -Fq 'auth.createCustomToken' enrollment-http.mjs
 
       - name: Construire et démarrer l'image Docker exacte
         working-directory: gateway
@@ -71,6 +73,7 @@ jobs:
             -p 127.0.0.1:18080:8080 \
             -e FIREBASE_PROJECT_ID=oryx-froid-industriel \
             -e FIREBASE_DATABASE_URL=https://example-default-rtdb.europe-west1.firebasedatabase.app \
+            -e FIREBASE_API_KEY=ci-public-firebase-api-key-1234567890 \
             -e ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app \
             etr-gateway-ci:${GITHUB_SHA}
           cleanup() {
@@ -89,7 +92,7 @@ jobs:
           [ "$ready" = true ] || { echo "::error::L'image Docker ne démarre pas"; exit 1; }
           python3 -m json.tool /tmp/etr-docker-health.json
           python3 -c 'import json; data=json.load(open("/tmp/etr-docker-health.json")); assert data.get("ok") is True; assert data.get("enrollment")=="v1"'
-          for module in server.mjs firebase-token-verifier.mjs enrollment.mjs enrollment-http.mjs device-bootstrap.mjs; do
+          for module in server.mjs firebase-token-verifier.mjs enrollment.mjs enrollment-http.mjs device-bootstrap.mjs firebase-device-session.mjs; do
             docker exec etr-gateway-ci test -s "/app/${module}"
           done
 
@@ -111,14 +114,15 @@ jobs:
         shell: bash
         env:
           RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
         run: |
           set -euo pipefail
           test -n "${RUNTIME_SERVICE_ACCOUNT:-}"
+          test ${#FIREBASE_API_KEY} -ge 20
           gcloud services enable \
             run.googleapis.com \
             cloudbuild.googleapis.com \
             artifactregistry.googleapis.com \
-            iamcredentials.googleapis.com \
             --project="$PROJECT_ID"
           gcloud run deploy "$SERVICE_NAME" \
             --project="$PROJECT_ID" \
@@ -130,7 +134,7 @@ jobs:
             --max-instances=1 \
             --concurrency=80 \
             --timeout=3600 \
-            --set-env-vars="ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app,FIREBASE_PROJECT_ID=oryx-froid-industriel,FIREBASE_DATABASE_URL=https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app,ETR_GITHUB_REPOSITORY=ORYX-WORLD/EtR-core" \
+            --set-env-vars="ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app,FIREBASE_PROJECT_ID=oryx-froid-industriel,FIREBASE_DATABASE_URL=https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app,FIREBASE_API_KEY=${FIREBASE_API_KEY},ETR_GITHUB_REPOSITORY=ORYX-WORLD/EtR-core" \
             --quiet
           url=$(gcloud run services describe "$SERVICE_NAME" \
             --project="$PROJECT_ID" \
@@ -199,8 +203,8 @@ jobs:
           PY
           echo "url=$GATEWAY_URL" >> "$GITHUB_OUTPUT"
 
-      - name: Vérifier la signature des identités techniques
-        id: verify_signing
+      - name: Vérifier l'émission d'une session Firebase appareil
+        id: verify_session
         if: github.event_name != 'pull_request' && steps.verify_gateway.outcome == 'success'
         shell: bash
         env:
@@ -208,19 +212,19 @@ jobs:
         run: |
           set -euo pipefail
           oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=etr-bootstrap"
-          curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$oidc_url" > /tmp/etr-signing-oidc.json
-          oidc_token=$(python3 -c 'import json; print(json.load(open("/tmp/etr-signing-oidc.json"))["value"])')
-          rm -f /tmp/etr-signing-oidc.json
+          curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$oidc_url" > /tmp/etr-session-oidc.json
+          oidc_token=$(python3 -c 'import json; print(json.load(open("/tmp/etr-session-oidc.json"))["value"])')
+          rm -f /tmp/etr-session-oidc.json
           test -n "$oidc_token"
-          status=$(curl -sS -o /tmp/etr-signing-health.json -w '%{http_code}' \
-            -X POST "${GATEWAY_URL}/api/enrollment/signing-health" \
+          status=$(curl -sS -o /tmp/etr-session-health.json -w '%{http_code}' \
+            -X POST "${GATEWAY_URL}/api/enrollment/session-health" \
             -H "Authorization: Bearer ${oidc_token}" \
             -H 'Content-Type: application/json' \
             -d '{}')
           unset oidc_token
-          cat /tmp/etr-signing-health.json | python3 -m json.tool
-          [ "$status" = "200" ] || { echo "::error::Signature Firebase impossible : HTTP $status"; exit 1; }
-          python3 -c 'import json; data=json.load(open("/tmp/etr-signing-health.json")); assert data=={"ok":True,"signer":"firebase-admin","algorithm":"RS256"}'
+          cat /tmp/etr-session-health.json | python3 -m json.tool
+          [ "$status" = "200" ] || { echo "::error::Émission de session Firebase impossible : HTTP $status"; exit 1; }
+          python3 -c 'import json; data=json.load(open("/tmp/etr-session-health.json")); assert data=={"ok":True,"mode":"firebase-password-session","tokenExchange":True}'
 
       - name: Enregistrer la preuve du déploiement
         if: always() && github.event_name != 'pull_request'
@@ -229,7 +233,7 @@ jobs:
           AUTH_OUTCOME: ${{ steps.google_auth.outcome }}
           DEPLOY_OUTCOME: ${{ steps.deploy_gateway.outcome }}
           VERIFY_OUTCOME: ${{ steps.verify_gateway.outcome }}
-          SIGNING_OUTCOME: ${{ steps.verify_signing.outcome }}
+          SESSION_OUTCOME: ${{ steps.verify_session.outcome }}
           GATEWAY_URL: ${{ steps.deploy_gateway.outputs.url }}
         run: |
           set -euo pipefail
@@ -241,7 +245,7 @@ jobs:
               "authentication": os.getenv("AUTH_OUTCOME", "skipped"),
               "deploy": os.getenv("DEPLOY_OUTCOME", "skipped"),
               "verify": os.getenv("VERIFY_OUTCOME", "skipped"),
-              "firebaseSigning": os.getenv("SIGNING_OUTCOME", "skipped"),
+              "firebaseSession": os.getenv("SESSION_OUTCOME", "skipped"),
           }
           diagnostic=None
           try:
@@ -258,7 +262,9 @@ jobs:
               "url": os.getenv("GATEWAY_URL") or None,
               "enrollment": "v1",
               "deviceBootstrap": "github-oidc-ed25519",
-              "customTokenSigning": outcomes["firebaseSigning"] == "success",
+              "deviceSessionIssuance": outcomes["firebaseSession"] == "success",
+              "authMode": "password_session",
+              "customTokenSigning": False,
               "outcomes": outcomes,
               "verification": diagnostic,
           }
