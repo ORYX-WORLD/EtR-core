@@ -11,6 +11,7 @@ WorkingDirectory=/home/oryx/EtR-core
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=ETR_TELEMETRY_FILE=/var/lib/etr-core/telemetry.json
+EnvironmentFile=-/etc/etr-core/device.env
 ExecStart=/home/oryx/EtR-core/.venv/bin/gunicorn --workers 2 --threads 2 --timeout 30 --access-logfile - --error-logfile - --bind 127.0.0.1:8080 src.app:app
 Restart=always
 RestartSec=3
