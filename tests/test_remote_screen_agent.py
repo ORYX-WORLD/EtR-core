@@ -17,7 +17,12 @@ os.environ.setdefault("ETR_REMOTE_GATEWAY_WSS", "wss://example.invalid/device")
 
 firebase_bridge = types.ModuleType("firebase_bridge")
 firebase_bridge.INSTALLATION_ID = "etr-test"
-firebase_bridge.authenticate = lambda: "test-token"
+firebase_bridge.load_tokens = lambda: {"refreshToken": "test-refresh-token"}
+firebase_bridge.refresh_tokens = lambda _token: {
+    "idToken": "test-id-token",
+    "refreshToken": "test-next-refresh-token",
+}
+firebase_bridge.save_tokens = lambda _tokens: None
 sys.modules["firebase_bridge"] = firebase_bridge
 
 agent = importlib.import_module("remote_screen_agent")
