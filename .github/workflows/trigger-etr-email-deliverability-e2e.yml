@@ -1,5 +1,6 @@
 name: Déclencher le test réel des e-mails EtR
 
+# Relance explicite après activation effective de la locale française.
 on:
   push:
     branches: [main]
