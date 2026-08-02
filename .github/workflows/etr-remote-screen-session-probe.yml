@@ -1,0 +1,124 @@
+name: Sonder la session écran distante EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - src/remote_screen_probe.py
+      - .github/workflows/etr-remote-screen-session-probe.yml
+
+concurrency:
+  group: etr-remote-screen-session-probe
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    name: Comparer RTDB et la négociation WebSocket
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 12
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Actualiser le dépôt installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          sudo -u oryx -H git -C "$install_dir" remote set-url origin https://github.com/ORYX-WORLD/EtR-core.git
+          if [ -n "$(sudo -u oryx -H git -C "$install_dir" status --porcelain)" ]; then
+            sudo -u oryx -H git -C "$install_dir" stash push --include-untracked -m "Sauvegarde avant sonde session écran $(date -u +%Y%m%dT%H%M%SZ)"
+          fi
+          sudo -u oryx -H git -C "$install_dir" fetch origin main
+          sudo -u oryx -H git -C "$install_dir" checkout main
+          sudo -u oryx -H git -C "$install_dir" pull --ff-only origin main
+
+      - name: Arrêter temporairement le relais et sonder la session
+        id: probe
+        shell: bash
+        run: |
+          set +e
+          mkdir -p /tmp/etr-remote-session-probe
+          sudo systemctl stop etr-remote-screen.service
+          sleep 1
+          sudo -u oryx -H bash -c '
+            set -a
+            source /etc/etr-core/firebase-bridge.env
+            set +a
+            cd /home/oryx/EtR-core
+            ./.venv/bin/python src/remote_screen_probe.py \
+              --token-file /var/lib/etr-core/firebase-auth.json \
+              --output /tmp/etr-remote-session-probe/report.json
+          ' > /tmp/etr-remote-session-probe/stdout.txt 2> /tmp/etr-remote-session-probe/stderr.txt
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          sudo chown -R "$(id -u):$(id -g)" /tmp/etr-remote-session-probe
+          sudo systemctl restart etr-remote-screen.service
+          exit 0
+
+      - name: Publier le résultat sûr
+        if: always()
+        shell: bash
+        env:
+          PROBE_EXIT_CODE: ${{ steps.probe.outputs.exit_code }}
+        run: |
+          set +e
+          cd "$GITHUB_WORKSPACE"
+          if [ -s /tmp/etr-remote-session-probe/report.json ]; then
+            cp /tmp/etr-remote-session-probe/report.json /tmp/etr-remote-screen-session-last.json
+          else
+            python3 - <<'PY' > /tmp/etr-remote-screen-session-last.json
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          try: stderr=Path('/tmp/etr-remote-session-probe/stderr.txt').read_text(encoding='utf-8',errors='replace')[-3000:]
+          except OSError: stderr=''
+          print(json.dumps({
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'installationId':None,
+              'uidPresent':False,
+              'deviceAccess':{'status':0,'value':None,'matches':False},
+              'websocket':{'connected':False,'status':0,'error':'probe_failed','message':stderr},
+          },ensure_ascii=False,indent=2))
+          PY
+          fi
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          path=Path('/tmp/etr-remote-screen-session-last.json')
+          data=json.loads(path.read_text(encoding='utf-8'))
+          data['probeExitCode']=int(os.getenv('PROBE_EXIT_CODE') or 0)
+          path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
+          cat /tmp/etr-remote-screen-session-last.json
+
+          git fetch origin main
+          git checkout -B remote-session-probe-report origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-remote-screen-session-last.json .github/deployment/etr-remote-screen-session-last.json
+          git config user.name "EtR remote session probe"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-remote-screen-session-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR remote screen session probe [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+
+      - name: Exiger RTDB et WebSocket
+        shell: bash
+        env:
+          PROBE_EXIT_CODE: ${{ steps.probe.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          [ "${PROBE_EXIT_CODE:-5}" = "0" ] || {
+            echo "::error::La sonde session écran a échoué ; lire etr-remote-screen-session-last.json"
+            exit 1
+          }
