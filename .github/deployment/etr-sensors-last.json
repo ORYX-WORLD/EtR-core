@@ -1,12 +1,12 @@
 {
-  "checkedAt": "2026-08-02T11:02:14.155405+00:00",
-  "jobStatus": "failure",
+  "checkedAt": "2026-08-02T11:10:31.484133+00:00",
+  "jobStatus": "success",
   "host": "etr-core",
   "machine": "aarch64",
   "kernel": "6.12.47+rpt-rpi-v8",
   "model": "Raspberry Pi 4 Model B Rev 1.5",
   "bootId": "c0ba0185-5c47-4f2b-a254-e42eddfdba0d",
-  "installedCommit": "0057552ef2ff1a753249d02b56aa28f126c50c92",
+  "installedCommit": "e2cf2307abfc6ce9c5883d7068cee83ea1a3d4f4",
   "installExitCode": "0",
   "rebootScheduled": false,
   "spiDevice": true,
@@ -38,10 +38,48 @@
   "hardware": {
     "adc": "ADS1263",
     "hat": "Waveshare High-Precision AD HAT",
-    "status": "offline",
-    "chip_id": null,
+    "status": "online",
+    "chip_id": 1,
     "mode": "single_ended_aincom",
-    "reference": "AVDD_AVSS"
+    "reference": "AVDD_AVSS",
+    "reference_voltage_v": 5.0
   },
-  "sensors": []
+  "sensors": [
+    {
+      "id": "pressure_1",
+      "ain": 0,
+      "status": "ok",
+      "value": 0.13,
+      "unit": "bar",
+      "signal_v": 0.5119,
+      "resistance_ohm": null
+    },
+    {
+      "id": "pressure_2",
+      "ain": 1,
+      "status": "ok",
+      "value": 0.28,
+      "unit": "bar",
+      "signal_v": 0.5248,
+      "resistance_ohm": null
+    },
+    {
+      "id": "temperature_1",
+      "ain": 2,
+      "status": "reference_resistor_missing_or_probe_open",
+      "value": null,
+      "unit": "°C",
+      "signal_v": 5.0,
+      "resistance_ohm": null
+    },
+    {
+      "id": "temperature_2",
+      "ain": 3,
+      "status": "reference_resistor_missing_or_probe_open",
+      "value": null,
+      "unit": "°C",
+      "signal_v": 5.0,
+      "resistance_ohm": null
+    }
+  ]
 }
