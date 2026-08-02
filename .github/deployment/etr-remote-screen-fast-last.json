@@ -1,8 +1,8 @@
 {
-  "checkedAt": "2026-08-02T13:14:51.808124+00:00",
+  "checkedAt": "2026-08-02T13:34:36.778079+00:00",
   "jobStatus": "failure",
   "host": "etr-core",
-  "installedCommit": "a9d2c9577c02e74339f22f227e63ef9c10068748",
+  "installedCommit": "d90a40301577690cbecf726949b3951c5722a99c",
   "installationId": null,
   "connected": false,
   "gatewayUrl": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
