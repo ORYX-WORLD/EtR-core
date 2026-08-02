@@ -1,10 +1,11 @@
 {
-  "checkedAt": "2026-08-02T09:51:01.631943+00:00",
+  "checkedAt": "2026-08-02T09:57:20.640124+00:00",
   "jobStatus": "failure",
   "host": "etr-core",
   "machine": "aarch64",
-  "installedCommit": "c9648f9851097cdb6f87427cc32129453ac0a02f",
+  "installedCommit": "090fd9a7d10f7e2e827cd4aae9a67bbd3b939774",
   "installExitCode": "42",
+  "rebootScheduled": true,
   "spiDevice": false,
   "gpioChip": true,
   "hardware": {},
