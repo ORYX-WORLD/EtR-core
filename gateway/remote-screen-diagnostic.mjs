@@ -41,6 +41,11 @@ export function installRemoteScreenDiagnosticRoute({
     throw new Error("Remote screen diagnostic route requires device and ticket callbacks");
   }
 
+  // Cloud Run termine TLS avant Express et transmet le protocole public dans
+  // X-Forwarded-Proto. Cette confiance limitée au premier proxy corrige aussi
+  // l'URL viewer renvoyée par la route client normale, qui utilise req.protocol.
+  if (typeof app.set === "function") app.set("trust proxy", 1);
+
   app.post("/api/diagnostics/remote-screen-ticket", async (req, res) => {
     try {
       const claims = await deviceBootstrap.verifyWorkflowToken(bearer(req));
