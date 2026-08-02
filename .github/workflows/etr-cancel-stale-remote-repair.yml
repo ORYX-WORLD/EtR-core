@@ -1,0 +1,25 @@
+name: Libérer le runner de l'ancienne réparation écran
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-cancel-stale-remote-repair.yml
+
+# Ce groupe est volontairement identique à l'ancien contrôle long. La nouvelle
+# exécution annule le diagnostic bloqué sur /healthz, puis libère le Raspberry
+# pour la réparation rapide qui sonde une route applicative réellement servie.
+concurrency:
+  group: etr-remote-screen-repair-physical
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Annuler l'attente obsolète
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Ancienne attente /healthz annulée ; le runner EtR peut poursuivre."
