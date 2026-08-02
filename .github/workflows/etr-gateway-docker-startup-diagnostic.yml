@@ -1,0 +1,65 @@
+name: Diagnostic Docker passerelle EtR
+
+on:
+  pull_request:
+    paths:
+      - gateway/**
+      - .github/workflows/etr-gateway-docker-startup-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Capturer la cause d'arrêt du conteneur
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+
+      - name: Construire l'image exacte
+        working-directory: gateway
+        run: docker build --pull -t etr-gateway-diagnostic:${GITHUB_SHA} .
+
+      - name: Démarrer et conserver les journaux
+        working-directory: gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker rm -f etr-gateway-diagnostic >/dev/null 2>&1 || true
+          docker run -d \
+            --name etr-gateway-diagnostic \
+            -p 127.0.0.1:18081:8080 \
+            -e FIREBASE_PROJECT_ID=oryx-froid-industriel \
+            -e FIREBASE_DATABASE_URL=https://example-default-rtdb.europe-west1.firebasedatabase.app \
+            -e FIREBASE_API_KEY=ci-public-firebase-api-key-1234567890 \
+            -e ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app \
+            -e ETR_ADMIN_EMAILS=amotard.oryx@gmail.com \
+            etr-gateway-diagnostic:${GITHUB_SHA}
+          cleanup() {
+            echo '=== ETAT DU CONTENEUR ==='
+            docker inspect etr-gateway-diagnostic --format '{{json .State}}' || true
+            echo '=== JOURNAL DU CONTENEUR ==='
+            docker logs etr-gateway-diagnostic 2>&1 || true
+            docker rm -f etr-gateway-diagnostic >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          ready=false
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18081/healthz > /tmp/etr-gateway-health.json; then
+              ready=true
+              break
+            fi
+            running=$(docker inspect etr-gateway-diagnostic --format '{{.State.Running}}' 2>/dev/null || echo false)
+            if [ "$running" != true ]; then
+              echo '::error::Le conteneur s est arrete avant de servir /healthz'
+              exit 1
+            fi
+            sleep 1
+          done
+          [ "$ready" = true ] || { echo '::error::La passerelle ne sert pas /healthz'; exit 1; }
+          python3 -m json.tool /tmp/etr-gateway-health.json
