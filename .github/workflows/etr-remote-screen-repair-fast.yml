@@ -6,6 +6,9 @@ on:
     branches: [main]
     paths:
       - .github/workflows/etr-remote-screen-repair-fast.yml
+      - src/deploy/raspi/repair_remote_screen.sh
+      - src/deploy/raspi/etr-remote-screen.service
+      - src/remote_screen_agent.py
 
 concurrency:
   group: etr-remote-screen-repair-fast
