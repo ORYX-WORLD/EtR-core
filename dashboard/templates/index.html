@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#061a2e">
-  <title>EtR — Tableau de bord local</title>
+  <title>EtR — Banc d’essai capteurs</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
   <script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>
 </head>
@@ -13,7 +13,7 @@
   <header class="topbar">
     <div class="brand" aria-label="EtR">
       <span class="brand-mark" aria-hidden="true">EtR</span>
-      <span><strong>Tableau de bord local</strong><small>Système frigorifique connecté</small></span>
+      <span><strong>Banc d’essai capteurs</strong><small>Acquisition réelle — Raspberry Pi</small></span>
     </div>
     <div class="connection" data-connection="loading"><i aria-hidden="true"></i><span data-connection-label>Initialisation…</span></div>
   </header>
@@ -21,9 +21,9 @@
   <main id="main" class="dashboard" aria-live="polite">
     <section class="hero-card">
       <div>
-        <p class="eyebrow">Équipement Edge</p>
+        <p class="eyebrow">Équipement Edge chez Emmanuel</p>
         <h1 data-installation>EtR local</h1>
-        <p data-hostname>Lecture de l'identité de l'équipement…</p>
+        <p data-hostname>Lecture de l’identité de l’équipement…</p>
       </div>
       <div class="health" data-health="loading">
         <span>État général</span>
@@ -47,6 +47,33 @@
       </div>
     </section>
 
+    <section class="sensor-overview" aria-labelledby="sensor-title">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Waveshare ADS1263</p>
+          <h2 id="sensor-title">Capteurs raccordés</h2>
+        </div>
+        <span class="badge" data-adc-badge data-status="loading">Contrôle ADC…</span>
+      </div>
+      <div class="sensor-grid" data-sensor-grid>
+        <p class="empty">Lecture des entrées AIN0 à AIN3…</p>
+      </div>
+    </section>
+
+    <section class="lab-note" aria-labelledby="wiring-title">
+      <div>
+        <p class="eyebrow">Câblage laboratoire</p>
+        <h2 id="wiring-title">Repérage des entrées</h2>
+      </div>
+      <div class="wiring-grid">
+        <span><b>AIN0</b> Pression CAREL 1</span>
+        <span><b>AIN1</b> Pression CAREL 2</span>
+        <span><b>AIN2</b> Sonde AKO 1</span>
+        <span><b>AIN3</b> Sonde AKO 2</span>
+      </div>
+      <p><strong>Montage provisoire :</strong> les fils bleus qui remplacent les résistances sont détectés comme un pont NTC non valide. Aucune température ne doit être calculée avant la pose d’une résistance fixe de 10 kΩ par sonde.</p>
+    </section>
+
     <section class="metrics" aria-label="État du Raspberry Pi">
       <article class="metric"><span>CPU</span><strong data-cpu>— %</strong><meter data-cpu-meter min="0" max="100" value="0">0 %</meter></article>
       <article class="metric"><span>Mémoire</span><strong data-memory>— %</strong><meter data-memory-meter min="0" max="100" value="0">0 %</meter></article>
@@ -56,7 +83,7 @@
 
     <section class="panel-grid">
       <article class="panel">
-        <div class="panel-head"><div><p class="eyebrow">Mesures terrain</p><h2>Instrumentation</h2></div><span class="badge" data-telemetry-badge>En attente</span></div>
+        <div class="panel-head"><div><p class="eyebrow">Données normalisées</p><h2>Mesures publiées</h2></div><span class="badge" data-telemetry-badge>En attente</span></div>
         <div class="data-list" data-measurements><p class="empty">Aucune mesure instrumentée publiée.</p></div>
       </article>
       <article class="panel">

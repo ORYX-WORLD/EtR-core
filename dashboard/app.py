@@ -6,7 +6,7 @@ from typing import Any
 import requests
 from flask import Flask, jsonify, render_template
 
-DASHBOARD_VERSION = "1.1.0"
+DASHBOARD_VERSION = "1.2.0"
 DEFAULT_API_URL = "http://127.0.0.1:8080/api/v1/status"
 
 

@@ -12,7 +12,8 @@
     measurements: one('[data-measurements]'), states: one('[data-states]'), alerts: one('[data-alerts]'),
     telemetryBadge: one('[data-telemetry-badge]'), alertCount: one('[data-alert-count]'),
     enrollmentCode: one('[data-enrollment-code]'), enrollmentExpiry: one('[data-enrollment-expiry]'),
-    enrollmentInstallation: one('[data-enrollment-installation]')
+    enrollmentInstallation: one('[data-enrollment-installation]'), sensorGrid: one('[data-sensor-grid]'),
+    adcBadge: one('[data-adc-badge]')
   };
 
   const labels = value => String(value).replaceAll('_', ' ').replace(/\b\w/g, char => char.toUpperCase());
@@ -61,8 +62,66 @@
     }
     for (const item of items.slice(0, 20)) {
       const alert = document.createElement('div'); alert.className = 'alert';
+      alert.dataset.severity = typeof item === 'object' ? String(item.severity || 'warning') : 'warning';
       alert.textContent = typeof item === 'string' ? item : String(item.message || item.code || 'Alarme active');
       fields.alerts.append(alert);
+    }
+  };
+  const statusLabel = status => ({
+    ok: 'Opérationnel',
+    signal_low: 'Signal trop bas',
+    signal_high: 'Signal trop haut',
+    reference_resistor_missing_or_probe_open: 'Résistance 10 kΩ absente',
+    short_circuit: 'Court-circuit à contrôler',
+    curve_required: 'Courbe NTC à valider',
+    out_of_range: 'Hors plage',
+    offline: 'Hors ligne'
+  }[status] || labels(status || 'inconnu'));
+  const renderSensors = telemetry => {
+    if (!fields.sensorGrid) return;
+    fields.sensorGrid.replaceChildren();
+    const hardware = telemetry.hardware || {};
+    const sensors = Array.isArray(telemetry.sensors) ? telemetry.sensors : [];
+    const hardwareOnline = hardware.status === 'online';
+    if (fields.adcBadge) {
+      fields.adcBadge.dataset.status = hardwareOnline ? 'ok' : 'offline';
+      fields.adcBadge.textContent = hardwareOnline ? `ADS1263 détecté · ID ${hardware.chip_id ?? '—'}` : 'ADS1263 indisponible';
+    }
+    if (!sensors.length) {
+      const empty = document.createElement('p');
+      empty.className = 'empty';
+      empty.textContent = hardwareOnline ? 'Aucun canal configuré.' : 'Aucune lecture : contrôle SPI/GPIO en cours.';
+      fields.sensorGrid.append(empty);
+      return;
+    }
+    for (const sensor of sensors) {
+      const article = document.createElement('article');
+      article.className = 'sensor-card';
+      article.dataset.status = String(sensor.status || 'unknown');
+
+      const head = document.createElement('div'); head.className = 'sensor-card-head';
+      const identity = document.createElement('div');
+      const channel = document.createElement('span'); channel.className = 'sensor-channel'; channel.textContent = `AIN${sensor.ain}`;
+      const title = document.createElement('h3'); title.textContent = String(sensor.label || sensor.id || 'Capteur');
+      const model = document.createElement('small'); model.textContent = String(sensor.model || '');
+      identity.append(channel, title, model);
+      const badge = document.createElement('span'); badge.className = 'sensor-status'; badge.textContent = statusLabel(sensor.status);
+      head.append(identity, badge);
+
+      const value = document.createElement('div'); value.className = 'sensor-value';
+      const primary = document.createElement('strong');
+      primary.textContent = sensor.value == null ? '—' : `${formatValue(sensor.value)} ${sensor.unit || ''}`.trim();
+      const signal = document.createElement('span');
+      const details = [];
+      if (sensor.signal_v != null) details.push(`${formatValue(sensor.signal_v)} V`);
+      if (sensor.resistance_ohm != null) details.push(`${formatValue(sensor.resistance_ohm)} Ω`);
+      signal.textContent = details.join(' · ') || 'Aucune valeur exploitable';
+      value.append(primary, signal);
+
+      const message = document.createElement('p'); message.textContent = String(sensor.message || '');
+      const expected = document.createElement('small'); expected.className = 'sensor-expected'; expected.textContent = String(sensor.expected || '');
+      article.append(head, value, message, expected);
+      fields.sensorGrid.append(article);
     }
   };
   const renderEnrollment = enrollment => {
@@ -78,13 +137,9 @@
     setText(fields.enrollmentInstallation, enrollment.installation_id ? `Installation : ${enrollment.installation_id}` : 'Identification de l’installation…');
     if (code) {
       setText(fields.enrollmentCode, code);
-      if (status === 'expired') {
-        setText(fields.enrollmentExpiry, 'Code expiré — un nouveau code va être généré automatiquement.');
-      } else if (Number.isFinite(Number(enrollment.expires_in_seconds))) {
-        setText(fields.enrollmentExpiry, `Valable encore ${remaining(enrollment.expires_in_seconds)}.`);
-      } else {
-        setText(fields.enrollmentExpiry, 'Code temporaire à usage unique.');
-      }
+      if (status === 'expired') setText(fields.enrollmentExpiry, 'Code expiré — un nouveau code va être généré automatiquement.');
+      else if (Number.isFinite(Number(enrollment.expires_in_seconds))) setText(fields.enrollmentExpiry, `Valable encore ${remaining(enrollment.expires_in_seconds)}.`);
+      else setText(fields.enrollmentExpiry, 'Code temporaire à usage unique.');
     } else {
       setText(fields.enrollmentCode, status === 'expired' ? 'Renouvellement…' : 'Génération…');
       setText(fields.enrollmentExpiry, 'Connexion au service d’activation ORYX en cours.');
@@ -109,6 +164,7 @@
     setText(fields.uptime, uptime(system.uptime_seconds)); setText(fields.schema, data.schema_version || '—');
     setText(fields.telemetryBadge, telemetry.online ? 'Source connectée' : 'Source en attente');
     renderEnrollment(data.enrollment);
+    renderSensors(telemetry);
     renderMap(fields.measurements, telemetry.measurements, 'Aucune mesure instrumentée publiée.');
     renderMap(fields.states, telemetry.states, 'Aucun état métier publié.');
     renderAlerts(telemetry.alerts);

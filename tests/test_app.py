@@ -44,19 +44,33 @@ class LocalApiTests(unittest.TestCase):
             path.write_text(
                 json.dumps(
                     {
-                        "updated_at": "2026-07-26T08:00:00+00:00",
-                        "measurements": {"pressure_bar": 31.25},
-                        "states": {"compressor_on": True},
-                        "alerts": ["Test"],
+                        "schema_version": "1.1",
+                        "updated_at": "2026-08-02T08:00:00+00:00",
+                        "hardware": {"adc": "ADS1263", "status": "online", "chip_id": 1},
+                        "sensors": [
+                            {
+                                "id": "pressure_1",
+                                "ain": 0,
+                                "kind": "pressure",
+                                "status": "ok",
+                                "value": 0.0,
+                                "unit": "bar",
+                            }
+                        ],
+                        "measurements": {"pressure_1_bar": 0.0},
+                        "states": {"adc_online": True},
+                        "alerts": [],
                     }
                 ),
                 encoding="utf-8",
             )
             data, error = read_telemetry_state(path)
         self.assertIsNone(error)
-        self.assertEqual(data["measurements"]["pressure_bar"], 31.25)
-        self.assertTrue(data["states"]["compressor_on"])
-        self.assertEqual(data["alerts"], ["Test"])
+        self.assertEqual(data["schema_version"], "1.1")
+        self.assertEqual(data["hardware"]["chip_id"], 1)
+        self.assertEqual(data["sensors"][0]["id"], "pressure_1")
+        self.assertEqual(data["measurements"]["pressure_1_bar"], 0.0)
+        self.assertTrue(data["states"]["adc_online"])
 
     def test_exposes_only_safe_enrollment_fields(self):
         with tempfile.TemporaryDirectory() as directory:

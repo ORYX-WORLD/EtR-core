@@ -1,0 +1,36 @@
+[Unit]
+Description=EtR ADS1263 sensor acquisition
+Wants=etr.service
+Before=etr.service
+After=local-fs.target systemd-udev-settle.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=oryx
+Group=oryx
+SupplementaryGroups=spi gpio
+WorkingDirectory=/home/oryx/EtR-core
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /home/oryx/EtR-core/src/sensor_acquisition.py --config /etc/etr-core/sensors.json --state /var/lib/etr-core/telemetry.json
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+ReadOnlyPaths=/etc/etr-core/sensors.json
+ReadWritePaths=/var/lib/etr-core
+RestrictAddressFamilies=AF_UNIX
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

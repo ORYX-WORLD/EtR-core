@@ -1,0 +1,175 @@
+name: Vérifier le banc capteurs EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-sensor-lab.yml
+      - src/ads1263.py
+      - src/sensor_acquisition.py
+      - src/app.py
+      - src/deploy/raspi/etr-sensor-acquisition.service
+      - src/deploy/raspi/install_sensor_acquisition.sh
+      - config/sensors-home-lab.json
+      - dashboard/**
+      - tests/test_ads1263.py
+      - tests/test_sensor_acquisition.py
+      - docs/PROJECT_TRACKER.md
+      - docs/TELEMETRY_CONTRACT.md
+
+concurrency:
+  group: etr-physical-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sensor-lab:
+    name: Installer, lire et diagnostiquer AIN0 à AIN3
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 25
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Actualiser le code installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          repo_url=https://github.com/ORYX-WORLD/EtR-core.git
+          if [ ! -d "$install_dir/.git" ]; then
+            sudo -u oryx -H git clone "$repo_url" "$install_dir"
+          else
+            sudo -u oryx -H git -C "$install_dir" remote set-url origin "$repo_url"
+            if [ -n "$(sudo -u oryx -H git -C "$install_dir" status --porcelain)" ]; then
+              sudo -u oryx -H git -C "$install_dir" stash push --include-untracked -m "Sauvegarde avant test ADS1263 $(date -u +%Y%m%dT%H%M%SZ)"
+            fi
+            sudo -u oryx -H git -C "$install_dir" fetch origin main
+            sudo -u oryx -H git -C "$install_dir" checkout main
+            sudo -u oryx -H git -C "$install_dir" pull --ff-only origin main
+          fi
+
+      - name: Vérifier le logiciel sans matériel
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /home/oryx/EtR-core
+          python3 -m py_compile src/ads1263.py src/sensor_acquisition.py src/app.py dashboard/app.py
+          python3 -m json.tool config/sensors-home-lab.json >/dev/null
+          PYTHONPATH=. python3 -m unittest -v tests.test_ads1263 tests.test_sensor_acquisition
+
+      - name: Installer le service d'acquisition
+        id: install
+        shell: bash
+        run: |
+          set +e
+          sudo -u oryx -H bash /home/oryx/EtR-core/src/deploy/raspi/install_sensor_acquisition.sh
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" -eq 42 ]; then
+            echo "::error title=Redémarrage Raspberry requis::SPI a été activé mais /dev/spidev0.0 n'existe pas encore. Redémarrer puis relancer ce workflow."
+          fi
+          exit "$code"
+
+      - name: Contrôler les lectures physiques
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl is-active --quiet etr-sensor-acquisition.service
+          test -c /dev/spidev0.0
+          test -c /dev/gpiochip0
+
+          fresh=false
+          for attempt in $(seq 1 30); do
+            if sudo test -s /var/lib/etr-core/telemetry.json; then
+              age=$(($(date +%s)-$(sudo stat -c %Y /var/lib/etr-core/telemetry.json)))
+              if [ "$age" -le 20 ]; then fresh=true; break; fi
+            fi
+            sleep 2
+          done
+          [ "$fresh" = true ]
+          sudo cp /var/lib/etr-core/telemetry.json /tmp/etr-sensor-telemetry.json
+          sudo chown "$(id -u):$(id -g)" /tmp/etr-sensor-telemetry.json
+          python3 -m json.tool /tmp/etr-sensor-telemetry.json
+
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-sensor-telemetry.json', encoding='utf-8'))
+          hardware=data.get('hardware', {})
+          assert hardware.get('status') == 'online', hardware
+          assert hardware.get('adc') == 'ADS1263', hardware
+          assert hardware.get('chip_id') == 1, hardware
+          sensors={item.get('id'): item for item in data.get('sensors', [])}
+          assert set(sensors) == {'pressure_1','pressure_2','temperature_1','temperature_2'}, sensors
+          for identifier in ('pressure_1','pressure_2'):
+              sample=sensors[identifier]
+              assert sample.get('status') == 'ok', sample
+              assert sample.get('value') is not None, sample
+              assert 0.05 <= float(sample.get('signal_v')) <= 4.95, sample
+          allowed_ntc={'reference_resistor_missing_or_probe_open','curve_required','ok'}
+          for identifier in ('temperature_1','temperature_2'):
+              sample=sensors[identifier]
+              assert sample.get('status') in allowed_ntc, sample
+          print('ADS1263 détecté ; deux pressions valides ; deux entrées NTC diagnostiquées.')
+          PY
+
+          curl -fsS http://127.0.0.1:8080/api/v1/status > /tmp/etr-api-sensor-status.json
+          curl -fsS http://127.0.0.1:8000/ > /tmp/etr-dashboard-sensors.html
+          grep -Fq 'data-sensor-grid' /tmp/etr-dashboard-sensors.html
+          grep -Fq 'Banc d’essai capteurs' /tmp/etr-dashboard-sensors.html
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-api-sensor-status.json', encoding='utf-8'))
+          telemetry=data.get('telemetry', {})
+          assert telemetry.get('hardware', {}).get('chip_id') == 1
+          assert len(telemetry.get('sensors', [])) == 4
+          assert data.get('capabilities', {}).get('ads1263_acquisition') is True
+          PY
+
+      - name: Publier le diagnostic matériel
+        if: always()
+        shell: bash
+        env:
+          INSTALL_EXIT_CODE: ${{ steps.install.outputs.exit_code }}
+        run: |
+          set +e
+          mkdir -p .github/deployment
+          python3 - <<'PY' > .github/deployment/etr-sensors-last.json
+          import json, os, platform, socket
+          from datetime import datetime, timezone
+          from pathlib import Path
+          telemetry={}
+          path=Path('/tmp/etr-sensor-telemetry.json')
+          if path.exists():
+              try: telemetry=json.loads(path.read_text(encoding='utf-8'))
+              except Exception: telemetry={}
+          sensors=[]
+          for item in telemetry.get('sensors', []):
+              if isinstance(item, dict):
+                  sensors.append({key:item.get(key) for key in ('id','ain','status','value','unit','signal_v','resistance_ohm')})
+          print(json.dumps({
+              'checkedAt': datetime.now(timezone.utc).isoformat(),
+              'jobStatus': '${{ job.status }}',
+              'host': socket.gethostname(),
+              'machine': platform.machine(),
+              'installedCommit': os.popen('sudo -u oryx -H git -C /home/oryx/EtR-core rev-parse HEAD 2>/dev/null').read().strip() or None,
+              'installExitCode': os.getenv('INSTALL_EXIT_CODE') or None,
+              'spiDevice': Path('/dev/spidev0.0').exists(),
+              'gpioChip': Path('/dev/gpiochip0').exists(),
+              'hardware': telemetry.get('hardware', {}),
+              'sensors': sensors,
+          }, ensure_ascii=False, indent=2))
+          PY
+          cat .github/deployment/etr-sensors-last.json
+          git config user.name "EtR sensor deployment agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-sensors-last.json
+          git commit -m "chore: record EtR sensor diagnostic [skip ci]" || exit 0
+          git pull --rebase origin main
+          git push origin HEAD:main

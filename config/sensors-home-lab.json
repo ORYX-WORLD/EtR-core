@@ -1,0 +1,71 @@
+{
+  "version": "1.0",
+  "profile": "emmanuel-home-lab",
+  "sample_interval_seconds": 5,
+  "adc": {
+    "bus": 0,
+    "device": 0,
+    "gpio_chip": 0,
+    "speed_hz": 2000000,
+    "drdy_timeout_seconds": 1.5,
+    "samples_per_channel": 5,
+    "discard_after_switch": 1,
+    "reference_voltage_v": 5.0
+  },
+  "channels": [
+    {
+      "id": "pressure_1",
+      "label": "Pression CAREL 1",
+      "model": "CAREL SPKT00B6P0",
+      "kind": "pressure",
+      "ain": 0,
+      "minimum_bar": 0.0,
+      "maximum_bar": 45.0,
+      "minimum_ratio": 0.1,
+      "maximum_ratio": 0.9,
+      "signal_tolerance_ratio": 0.035
+    },
+    {
+      "id": "pressure_2",
+      "label": "Pression CAREL 2",
+      "model": "CAREL SPKT00B6P0",
+      "kind": "pressure",
+      "ain": 1,
+      "minimum_bar": 0.0,
+      "maximum_bar": 45.0,
+      "minimum_ratio": 0.1,
+      "maximum_ratio": 0.9,
+      "signal_tolerance_ratio": 0.035
+    },
+    {
+      "id": "temperature_1",
+      "label": "Sonde AKO 1",
+      "model": "AKO-14903 NTC 10 kΩ",
+      "kind": "ntc",
+      "ain": 2,
+      "reference_resistor_ohm": 10000.0,
+      "nominal_resistance_ohm": 10000.0,
+      "nominal_temperature_c": 25.0,
+      "beta_k": null,
+      "minimum_c": -50.0,
+      "maximum_c": 105.0,
+      "high_ratio_fault": 0.97,
+      "low_ratio_fault": 0.01
+    },
+    {
+      "id": "temperature_2",
+      "label": "Sonde AKO 2",
+      "model": "AKO-14903 NTC 10 kΩ",
+      "kind": "ntc",
+      "ain": 3,
+      "reference_resistor_ohm": 10000.0,
+      "nominal_resistance_ohm": 10000.0,
+      "nominal_temperature_c": 25.0,
+      "beta_k": null,
+      "minimum_c": -50.0,
+      "maximum_c": 105.0,
+      "high_ratio_fault": 0.97,
+      "low_ratio_fault": 0.01
+    }
+  ]
+}
