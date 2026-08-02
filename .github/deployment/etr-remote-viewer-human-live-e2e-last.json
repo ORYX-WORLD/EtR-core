@@ -1,6 +1,6 @@
 {
-  "checkedAt": "2026-08-02T15:26:43.698522+00:00",
-  "commit": "a170c7bf64d74bc2c323a8a6d1456fb9ee56d437",
+  "checkedAt": "2026-08-02T17:01:06.959900+00:00",
+  "commit": "c98cb45e6d38aec8fe1c2d098ed085125ae4ab4c",
   "jobStatus": "success",
   "exitCode": 0,
   "gatewayUrl": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
@@ -19,7 +19,7 @@
   },
   "result": {
     "ok": true,
-    "checkedAt": "2026-08-02T15:26:43.367Z",
+    "checkedAt": "2026-08-02T17:01:06.619Z",
     "projectId": "oryx-froid-industriel",
     "gatewayOrigin": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
     "installationId": "etr-core",
