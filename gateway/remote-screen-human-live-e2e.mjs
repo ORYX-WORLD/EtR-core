@@ -23,6 +23,14 @@ function decodeJwtPayload(token) {
   return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
 }
 
+function buildPlusAlias(baseEmail, tag) {
+  const match = String(baseEmail || "").trim().match(/^([^@+]+)(?:\+[^@]*)?@gmail\.com$/i);
+  if (!match) throw new Error("etr_human_e2e_email_base_invalid");
+  return `${match[1]}+${tag}@gmail.com`.toLowerCase();
+}
+
+const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
 async function firebasePublicRequest({ apiKey, method, body }) {
   const response = await fetch(
     `https://identitytoolkit.googleapis.com/v1/${method}?key=${encodeURIComponent(apiKey)}`,
@@ -31,7 +39,7 @@ async function firebasePublicRequest({ apiKey, method, body }) {
       headers: {
         "content-type": "application/json",
         accept: "application/json",
-        "user-agent": "EtR-Human-Remote-E2E/2.0"
+        "user-agent": "EtR-Human-Remote-E2E/3.0"
       },
       body: JSON.stringify(body),
       cache: "no-store"
@@ -62,64 +70,54 @@ async function signUpWithPassword({ apiKey, email, password }) {
   };
 }
 
-async function createVerificationCode({ projectId, oauthAccessToken, email }) {
-  const response = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:sendOobCode`,
-    {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${oauthAccessToken}`,
-        "content-type": "application/json",
-        accept: "application/json",
-        "user-agent": "EtR-Human-Remote-E2E/2.0"
-      },
-      body: JSON.stringify({
-        requestType: "VERIFY_EMAIL",
-        email,
-        returnOobLink: true
-      }),
-      cache: "no-store"
-    }
-  );
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw safeRemoteError("firebase_verification_link", response.status, payload);
-  }
-  let oobCode = String(payload.oobCode || "").trim();
-  if (!oobCode && typeof payload.oobLink === "string") {
-    try {
-      oobCode = String(new URL(payload.oobLink).searchParams.get("oobCode") || "").trim();
-    } catch {
-      oobCode = "";
-    }
-  }
-  if (oobCode.length < 8 || oobCode.length > 2048) {
-    throw new Error("firebase_verification_code_missing");
-  }
-  return oobCode;
-}
-
-async function applyVerificationCode({ apiKey, oobCode }) {
+async function sendVerificationEmail({ apiKey, idToken }) {
   const { response, payload } = await firebasePublicRequest({
     apiKey,
-    method: "accounts:update",
-    body: { oobCode }
+    method: "accounts:sendOobCode",
+    body: { requestType: "VERIFY_EMAIL", idToken }
   });
-  if (!response.ok || payload.emailVerified !== true) {
-    throw safeRemoteError("firebase_verify_email", response.status, payload);
+  if (!response.ok) {
+    throw safeRemoteError("firebase_send_verification", response.status, payload);
+  }
+  if (typeof payload.email !== "string" || !payload.email) {
+    throw new Error("firebase_verification_email_response_invalid");
   }
 }
 
-async function signInWithPassword({ apiKey, email, password }) {
-  const { response, payload } = await firebasePublicRequest({
+async function signInAttempt({ apiKey, email, password }) {
+  return firebasePublicRequest({
     apiKey,
     method: "accounts:signInWithPassword",
     body: { email, password, returnSecureToken: true }
   });
+}
+
+async function signInWithPassword({ apiKey, email, password }) {
+  const { response, payload } = await signInAttempt({ apiKey, email, password });
   if (!response.ok || typeof payload.idToken !== "string") {
     throw safeRemoteError("firebase_sign_in", response.status, payload);
   }
   return payload.idToken;
+}
+
+async function waitForVerifiedSignIn({ apiKey, email, password, timeoutMs = 12 * 60_000 }) {
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus = 0;
+  let lastCode = "not_checked";
+  while (Date.now() < deadline) {
+    const { response, payload } = await signInAttempt({ apiKey, email, password });
+    lastStatus = response.status;
+    lastCode = String(payload?.error?.message || "unknown").slice(0, 120);
+    if (response.ok && typeof payload.idToken === "string") {
+      const claims = decodeJwtPayload(payload.idToken);
+      if (claims.email_verified === true) return payload.idToken;
+    }
+    if (["USER_DISABLED", "INVALID_PASSWORD", "EMAIL_NOT_FOUND"].includes(lastCode)) {
+      throw safeRemoteError("firebase_verification_poll", response.status, payload);
+    }
+    await sleep(3000);
+  }
+  throw new Error(`firebase_verification_timeout:${lastStatus}:${lastCode.replace(/[^A-Za-z0-9._:-]/g, "_")}`);
 }
 
 async function deleteCurrentUser({ apiKey, idToken }) {
@@ -133,11 +131,7 @@ async function deleteCurrentUser({ apiKey, idToken }) {
 }
 
 async function userCanStillSignIn({ apiKey, email, password }) {
-  const { response } = await firebasePublicRequest({
-    apiKey,
-    method: "accounts:signInWithPassword",
-    body: { email, password, returnSecureToken: true }
-  });
+  const { response } = await signInAttempt({ apiKey, email, password });
   return response.ok;
 }
 
@@ -149,7 +143,7 @@ async function requestHumanRemoteSession({ gatewayOrigin, idToken, installationI
       "content-type": "application/json",
       accept: "application/json",
       origin: allowedOrigin,
-      "user-agent": "EtR-Human-Remote-E2E/2.0"
+      "user-agent": "EtR-Human-Remote-E2E/3.0"
     },
     body: JSON.stringify({ installationId }),
     cache: "no-store"
@@ -178,7 +172,7 @@ async function verifyViewerAssets(viewerUrl, expectedOrigin) {
   const response = await fetch(parsed, {
     headers: {
       accept: "text/html",
-      "user-agent": "EtR-Human-Remote-E2E/2.0"
+      "user-agent": "EtR-Human-Remote-E2E/3.0"
     },
     cache: "no-store"
   });
@@ -198,7 +192,7 @@ async function verifyViewerAssets(viewerUrl, expectedOrigin) {
   const bundle = await fetch(new URL("/novnc/rfb-browser-v2.js", parsed.origin), {
     headers: {
       accept: "text/javascript",
-      "user-agent": "EtR-Human-Remote-E2E/2.0"
+      "user-agent": "EtR-Human-Remote-E2E/3.0"
     }
   });
   const bytes = Buffer.from(await bundle.arrayBuffer());
@@ -224,13 +218,14 @@ async function verifyVncBanner({ gatewayOrigin, ticket, allowedOrigin }) {
     const websocket = new WebSocket(websocketUrl, { origin: allowedOrigin });
     let opened = false;
     let settled = false;
-    const finish = (callback) => {
+    let timeout;
+    const finish = callback => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       callback();
     };
-    const timeout = setTimeout(() => {
+    timeout = setTimeout(() => {
       websocket.terminate();
       finish(() => reject(new Error("vnc_banner_timeout")));
     }, 25_000);
@@ -279,7 +274,7 @@ async function main() {
   const projectId = requiredEnvironment("FIREBASE_PROJECT_ID");
   const databaseURL = requiredEnvironment("FIREBASE_DATABASE_URL");
   const apiKey = requiredEnvironment("FIREBASE_API_KEY");
-  const oauthAccessToken = requiredEnvironment("GOOGLE_OAUTH_ACCESS_TOKEN");
+  const emailBase = requiredEnvironment("ETR_HUMAN_E2E_EMAIL_BASE");
   const gatewayOrigin = new URL(requiredEnvironment("GATEWAY_URL")).origin;
   const installationId = String(process.env.ETR_INSTALLATION_ID || "etr-core").trim();
   const allowedOrigin = String(
@@ -288,7 +283,7 @@ async function main() {
   const outputPath = String(process.env.ETR_HUMAN_E2E_OUTPUT || "").trim();
   const runId = String(process.env.GITHUB_RUN_ID || Date.now()).replace(/[^0-9]/g, "");
   const randomSuffix = crypto.randomBytes(8).toString("hex");
-  const email = `etr-e2e-${runId}-${randomSuffix}@devices.oryx.invalid`;
+  const email = buildPlusAlias(emailBase, `etr-e2e-${runId}`);
   const password = `EtR!${crypto.randomBytes(30).toString("base64url")}Aa1`;
 
   const app = admin.initializeApp(
@@ -315,15 +310,12 @@ async function main() {
     uid = signUp.uid;
     currentIdToken = signUp.idToken;
 
-    primaryStage = "verification-link";
-    const oobCode = await createVerificationCode({
-      projectId,
-      oauthAccessToken,
-      email
-    });
+    primaryStage = "send-verification-email";
+    await sendVerificationEmail({ apiKey, idToken: currentIdToken });
+    process.stdout.write(`${JSON.stringify({ verificationEmailSent: true, waitingForHumanVerification: true })}\n`);
 
-    primaryStage = "verify-email";
-    await applyVerificationCode({ apiKey, oobCode });
+    primaryStage = "wait-email-verification";
+    currentIdToken = await waitForVerifiedSignIn({ apiKey, email, password });
 
     primaryStage = "create-membership";
     membershipRef = db.ref(`memberships/${uid}/${installationId}`);
@@ -334,8 +326,6 @@ async function main() {
       createdAt: admin.database.ServerValue.TIMESTAMP
     });
 
-    primaryStage = "verified-sign-in";
-    currentIdToken = await signInWithPassword({ apiKey, email, password });
     const tokenPayload = decodeJwtPayload(currentIdToken);
     if (tokenPayload.sub !== uid || tokenPayload.email_verified !== true) {
       throw new Error("verified_human_token_claims_invalid");
@@ -362,7 +352,7 @@ async function main() {
     testResult = {
       ok: true,
       temporaryUserCreatedByPublicApi: true,
-      verificationCodeReturnedWithoutEmail: true,
+      verificationEmailSent: true,
       membershipCreated: true,
       emailVerifiedClaim: true,
       remoteSessionStatus: remoteSession.status,
