@@ -1,8 +1,8 @@
 {
-  "checkedAt": "2026-08-02T13:55:21.864003+00:00",
+  "checkedAt": "2026-08-02T14:10:45.955427+00:00",
   "jobStatus": "success",
   "host": "etr-core",
-  "installedCommit": "616ecaf6b111f77936bdea1b2ab88f7cd0838daa",
+  "installedCommit": "17cd3b5e64543572d662374c3fc9d0cc7647d6ea",
   "installationId": "etr-core",
   "repairExitCode": 0,
   "connected": true,
@@ -23,5 +23,5 @@
   "vncService": "active",
   "repairStdout": "ETR_INSTALLATION_ID=etr-core\nRéparation de l'écran distant appliquée : liaison deviceAccess, session partagée et services écran réalignés.\n",
   "repairStderr": "",
-  "journal": "Aug 02 15:55:18 etr-core systemd[1]: Stopping etr-remote-screen.service - EtR secure outbound remote screen...\nAug 02 15:55:18 etr-core systemd[1]: etr-remote-screen.service: Deactivated successfully.\nAug 02 15:55:18 etr-core systemd[1]: Stopped etr-remote-screen.service - EtR secure outbound remote screen.\nAug 02 15:55:18 etr-core systemd[1]: Starting etr-remote-screen.service - EtR secure outbound remote screen...\nAug 02 15:55:18 etr-core systemd[1]: Started etr-remote-screen.service - EtR secure outbound remote screen.\nAug 02 15:55:19 etr-core python[70257]: 2026-08-02 15:55:19,933 INFO etr.remote-screen: Connecting installation etr-core to the remote gateway\nAug 02 15:55:20 etr-core python[70257]: 2026-08-02 15:55:20,115 INFO etr.remote-screen: Installation etr-core connected to the remote gateway\n"
+  "journal": "Aug 02 16:10:42 etr-core systemd[1]: Stopping etr-remote-screen.service - EtR secure outbound remote screen...\nAug 02 16:10:42 etr-core systemd[1]: etr-remote-screen.service: Deactivated successfully.\nAug 02 16:10:42 etr-core systemd[1]: Stopped etr-remote-screen.service - EtR secure outbound remote screen.\nAug 02 16:10:42 etr-core systemd[1]: etr-remote-screen.service: Consumed 1.184s CPU time.\nAug 02 16:10:42 etr-core systemd[1]: Starting etr-remote-screen.service - EtR secure outbound remote screen...\nAug 02 16:10:43 etr-core systemd[1]: Started etr-remote-screen.service - EtR secure outbound remote screen.\nAug 02 16:10:44 etr-core python[74779]: 2026-08-02 16:10:44,096 INFO etr.remote-screen: Connecting installation etr-core to the remote gateway\nAug 02 16:10:44 etr-core python[74779]: 2026-08-02 16:10:44,297 INFO etr.remote-screen: Installation etr-core connected to the remote gateway\n"
 }
