@@ -1,0 +1,111 @@
+name: Diagnostiquer la réparation de l'écran distant EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-remote-screen-repair-diagnostic.yml
+
+concurrency:
+  group: etr-remote-screen-repair-diagnostic
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    name: Capturer l'étape exacte en échec
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 10
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Actualiser le dépôt installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          sudo -u oryx -H git -C "$install_dir" fetch origin main
+          sudo -u oryx -H git -C "$install_dir" checkout main
+          sudo -u oryx -H git -C "$install_dir" pull --ff-only origin main
+
+      - name: Exécuter la réparation avec journal complet
+        id: repair
+        shell: bash
+        run: |
+          set +e
+          mkdir -p /tmp/etr-repair-diagnostic
+          bash -x /home/oryx/EtR-core/src/deploy/raspi/repair_remote_screen.sh \
+            > /tmp/etr-repair-diagnostic/stdout.txt \
+            2> /tmp/etr-repair-diagnostic/stderr.txt
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo '=== STDOUT ==='
+          sed -E 's/(idToken|refreshToken|FIREBASE_API_KEY)=.*/\1=<secret-masque>/g' \
+            /tmp/etr-repair-diagnostic/stdout.txt || true
+          echo '=== STDERR ==='
+          sed -E 's/(idToken|refreshToken|FIREBASE_API_KEY)=.*/\1=<secret-masque>/g' \
+            /tmp/etr-repair-diagnostic/stderr.txt || true
+          exit 0
+
+      - name: Publier le diagnostic sûr
+        if: always()
+        shell: bash
+        env:
+          REPAIR_EXIT_CODE: ${{ steps.repair.outputs.exit_code }}
+        run: |
+          set +e
+          python3 - <<'PY' > /tmp/etr-remote-screen-repair-diagnostic-last.json
+          import json, os, re, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          def safe(path):
+              try: value=Path(path).read_text(encoding='utf-8',errors='replace')[-16000:]
+              except OSError: return ''
+              value=re.sub(r'(?i)(idToken|refreshToken|FIREBASE_API_KEY)=\S+',r'\1=<secret-masque>',value)
+              value=re.sub(r'(?i)Bearer\s+\S+','Bearer <secret-masque>',value)
+              return value
+          def command(args):
+              try:return subprocess.run(args,check=False,capture_output=True,text=True,timeout=8).stdout.strip()
+              except Exception:return ''
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'exitCode':int(os.getenv('REPAIR_EXIT_CODE') or 999),
+              'host':command(['hostname']),
+              'installedCommit':command(['sudo','-u','oryx','-H','git','-C','/home/oryx/EtR-core','rev-parse','HEAD']) or None,
+              'stdout':safe('/tmp/etr-repair-diagnostic/stdout.txt'),
+              'stderr':safe('/tmp/etr-repair-diagnostic/stderr.txt'),
+              'services':{
+                  name:command(['systemctl','is-active',name])
+                  for name in ('etr-firebase-bridge.service','etr-vnc.service','etr-remote-screen.service')
+              },
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-remote-screen-repair-diagnostic-last.json
+          git fetch origin main
+          git checkout -B repair-diagnostic-report origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-remote-screen-repair-diagnostic-last.json .github/deployment/etr-remote-screen-repair-diagnostic-last.json
+          git config user.name "EtR remote repair diagnostic"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-remote-screen-repair-diagnostic-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR remote repair diagnostic [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
+
+      - name: Exiger une réparation réussie
+        shell: bash
+        env:
+          REPAIR_EXIT_CODE: ${{ steps.repair.outputs.exit_code }}
+        run: |
+          [ "${REPAIR_EXIT_CODE:-999}" = "0" ] || exit 1
