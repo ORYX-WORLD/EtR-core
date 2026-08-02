@@ -9,8 +9,12 @@ depuis le processus non privilégié.
 
 from __future__ import annotations
 
-import sensor_acquisition as acquisition
-from ads1263 import ADS1263
+try:  # Import comme module de paquet pendant les tests.
+    from . import sensor_acquisition as acquisition
+    from .ads1263 import ADS1263
+except ImportError:  # Exécution directe du fichier par systemd.
+    import sensor_acquisition as acquisition
+    from ads1263 import ADS1263
 
 
 class SoftwareResetADS1263(ADS1263):
