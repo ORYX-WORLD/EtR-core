@@ -1,0 +1,89 @@
+name: Déclencher le viewer live après correction HTTPS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-trigger-live-e2e-after-origin.yml
+
+concurrency:
+  group: etr-trigger-live-e2e-after-origin
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  wait_and_dispatch:
+    name: Attendre la nouvelle révision puis lancer le test RFB
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GATEWAY_URL: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
+      PREVIOUS_REVISION: etr-remote-gateway-00019-2sd
+
+    steps:
+      - name: Attendre la révision contenant trust proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=false
+          mkdir -p /tmp/etr-origin-trigger
+          for attempt in $(seq 1 180); do
+            status=$(curl -sS -o /tmp/etr-origin-trigger/health.json -w '%{http_code}' \
+              "$GATEWAY_URL/api/health" || echo 000)
+            if [ "$status" = "200" ] && PREVIOUS_REVISION="$PREVIOUS_REVISION" python3 - <<'PY'
+          import json, os
+          data=json.load(open('/tmp/etr-origin-trigger/health.json', encoding='utf-8'))
+          assert data.get('ok') is True
+          assert data.get('liveViewerDiagnostic') == 'github-oidc'
+          revision=str(data.get('revision') or '')
+          assert revision and revision != os.environ['PREVIOUS_REVISION']
+          PY
+            then
+              ready=true
+              break
+            fi
+            sleep 5
+          done
+          cat /tmp/etr-origin-trigger/health.json 2>/dev/null | python3 -m json.tool || true
+          [ "$ready" = true ] || {
+            echo "::error::La nouvelle révision HTTPS du viewer n'est pas devenue publique"
+            exit 1
+          }
+
+      - name: Relancer d'abord le Raspberry sur la nouvelle révision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run etr-remote-screen-repair-fast.yml --ref main
+
+      - name: Attendre la présence appareil sur la nouvelle révision
+        shell: bash
+        run: |
+          set -euo pipefail
+          connected=false
+          for attempt in $(seq 1 120); do
+            curl -fsS "$GATEWAY_URL/api/health" > /tmp/etr-origin-trigger/health-connected.json || true
+            if python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-origin-trigger/health-connected.json', encoding='utf-8'))
+          assert int(data.get('devices', 0)) >= 1
+          PY
+            then
+              connected=true
+              break
+            fi
+            sleep 3
+          done
+          cat /tmp/etr-origin-trigger/health-connected.json 2>/dev/null | python3 -m json.tool || true
+          [ "$connected" = true ] || {
+            echo "::error::Le Raspberry ne s'est pas reconnecté à la nouvelle révision"
+            exit 1
+          }
+
+      - name: Déclencher le test live du viewer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run etr-remote-viewer-live-e2e.yml --ref main
