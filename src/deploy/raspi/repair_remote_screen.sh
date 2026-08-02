@@ -42,7 +42,10 @@ sudo test -s "$TOKEN_FILE" || {
 sudo chown oryx:oryx "$TOKEN_FILE"
 sudo chmod 600 "$TOKEN_FILE"
 
-claimed_installation_id=$(sudo -u oryx -H python3 - "$TOKEN_FILE" <<'PY'
+# Certaines sessions appareil historiques possèdent etrDevice=true sans le
+# claim installationId. Le relais sait déjà utiliser dans ce cas l'identité
+# canonique dérivée du numéro de série ; la réparation applique la même règle.
+signed_installation_id=$(sudo -u oryx -H python3 - "$TOKEN_FILE" <<'PY'
 import base64, json, re, sys
 from pathlib import Path
 path=Path(sys.argv[1])
@@ -55,24 +58,25 @@ parts=data['idToken'].split('.')
 if len(parts) != 3:
     raise SystemExit('ID token Firebase invalide')
 payload=json.loads(base64.urlsafe_b64decode(parts[1] + '=' * (-len(parts[1]) % 4)).decode('utf-8'))
-installation_id=str(payload.get('installationId') or '').strip()
 if payload.get('etrDevice') is not True:
     raise SystemExit('Claim etrDevice absent')
-if not re.fullmatch(r'[A-Za-z0-9._-]{2,80}', installation_id):
-    raise SystemExit('Claim installationId absent ou invalide')
+installation_id=str(payload.get('installationId') or '').strip()
+if installation_id and not re.fullmatch(r'[A-Za-z0-9._-]{2,80}', installation_id):
+    raise SystemExit('Claim installationId invalide')
 print(installation_id)
 PY
 )
 
-if [ "$claimed_installation_id" != "$derived_installation_id" ]; then
-  echo "Identité Firebase ($claimed_installation_id) différente de l'identité matérielle ($derived_installation_id)" >&2
+if [ -n "$signed_installation_id" ] && [ "$signed_installation_id" != "$derived_installation_id" ]; then
+  echo "Identité Firebase ($signed_installation_id) différente de l'identité matérielle ($derived_installation_id)" >&2
   exit 3
 fi
+installation_id=${signed_installation_id:-$derived_installation_id}
 
 sudo install -d -m 750 -o root -g oryx "$(dirname "$ENV_FILE")"
 sudo touch "$ENV_FILE"
 sudo sed -i '/^ETR_INSTALLATION_ID=/d' "$ENV_FILE"
-printf '%s\n' "ETR_INSTALLATION_ID=${claimed_installation_id}" | sudo tee -a "$ENV_FILE" >/dev/null
+printf '%s\n' "ETR_INSTALLATION_ID=${installation_id}" | sudo tee -a "$ENV_FILE" >/dev/null
 sudo chown root:oryx "$ENV_FILE"
 sudo chmod 640 "$ENV_FILE"
 sudo grep -q '^ETR_REMOTE_GATEWAY_WSS=wss://.*\.run\.app/device$' "$ENV_FILE"
@@ -89,5 +93,5 @@ sudo systemctl restart etr-firebase-bridge.service
 sudo systemctl restart etr-vnc.service
 sudo systemctl restart etr-remote-screen.service
 
-echo "ETR_INSTALLATION_ID=${claimed_installation_id}"
-echo "Réparation de l'écran distant appliquée : identité signée, session partagée et services réalignés."
+echo "ETR_INSTALLATION_ID=${installation_id}"
+echo "Réparation de l'écran distant appliquée : identité canonique, session partagée et services réalignés."
