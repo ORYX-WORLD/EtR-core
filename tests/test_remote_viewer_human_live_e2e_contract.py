@@ -42,10 +42,19 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
             "auth.deleteUser",
             "console.log(email)",
             "console.log(password)",
-            "idToken:",
-            "password:",
         ]:
             self.assertNotIn(forbidden, script)
+
+        report_section = script.split("const report = {", 1)[1]
+        for forbidden in [
+            "email,",
+            "password,",
+            "uid,",
+            "idToken",
+            "refreshToken",
+            "oauthAccessToken",
+        ]:
+            self.assertNotIn(forbidden, report_section)
 
     def test_workflow_uses_ephemeral_wif_token_without_iam_mutation(self):
         workflow = (ROOT / ".github/workflows/etr-remote-viewer-human-live-e2e.yml").read_text(encoding="utf-8")
