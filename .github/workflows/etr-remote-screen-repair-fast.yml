@@ -1,0 +1,163 @@
+name: Réparer immédiatement l'écran distant EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-remote-screen-repair-fast.yml
+
+concurrency:
+  group: etr-remote-screen-repair-fast
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    name: Réinstaller le relais et prouver la connexion WSS
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 12
+    env:
+      GATEWAY_URL: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Actualiser le dépôt installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          sudo -u oryx -H git -C "$install_dir" remote set-url origin https://github.com/ORYX-WORLD/EtR-core.git
+          if [ -n "$(sudo -u oryx -H git -C "$install_dir" status --porcelain)" ]; then
+            sudo -u oryx -H git -C "$install_dir" stash push --include-untracked -m "Sauvegarde avant réparation écran $(date -u +%Y%m%dT%H%M%SZ)"
+          fi
+          sudo -u oryx -H git -C "$install_dir" fetch origin main
+          sudo -u oryx -H git -C "$install_dir" checkout main
+          sudo -u oryx -H git -C "$install_dir" pull --ff-only origin main
+
+      - name: Vérifier que la passerelle applicative répond
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=false
+          mkdir -p /tmp/etr-screen-fast
+          for attempt in $(seq 1 60); do
+            status=$(curl -sS -o /tmp/etr-screen-fast/admin.json -w '%{http_code}' \
+              "$GATEWAY_URL/api/admin/session" || echo 000)
+            if [ "$status" = "401" ] && python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-screen-fast/admin.json', encoding='utf-8'))
+          assert data.get('code') == 'auth/id-token-missing'
+          PY
+            then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          [ "$ready" = true ] || { cat /tmp/etr-screen-fast/admin.json 2>/dev/null || true; exit 1; }
+
+      - name: Réparer l'identité et les unités du Raspberry
+        id: repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          start_epoch=$(date +%s)
+          echo "start_epoch=$start_epoch" >> "$GITHUB_OUTPUT"
+          output=$(bash /home/oryx/EtR-core/src/deploy/raspi/repair_remote_screen.sh)
+          printf '%s\n' "$output"
+          installation_id=$(sed -n 's/^ETR_INSTALLATION_ID=//p' <<<"$output" | tail -n 1)
+          [[ "$installation_id" =~ ^etr-[a-z0-9]{12}$ ]]
+          echo "installation_id=$installation_id" >> "$GITHUB_OUTPUT"
+
+      - name: Vérifier VNC et attendre la connexion WSS
+        id: verify
+        shell: bash
+        env:
+          INSTALLATION_ID: ${{ steps.repair.outputs.installation_id }}
+          START_EPOCH: ${{ steps.repair.outputs.start_epoch }}
+        run: |
+          set -euo pipefail
+          for service in etr-firebase-bridge.service etr-vnc.service etr-remote-screen.service; do
+            for attempt in $(seq 1 45); do
+              sudo systemctl is-active --quiet "$service" && break
+              sleep 2
+            done
+            sudo systemctl is-active --quiet "$service"
+          done
+          sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901'
+          ! sudo ss -H -ltnp | grep -qE '(0\.0\.0\.0|\[::\]):5901'
+          nc -z -w 3 127.0.0.1 5901
+          connected=false
+          for attempt in $(seq 1 90); do
+            journal=$(sudo journalctl -u etr-remote-screen.service --since "@${START_EPOCH}" --no-pager 2>/dev/null || true)
+            if grep -Fq "Installation $INSTALLATION_ID connected to the remote gateway" <<<"$journal"; then
+              connected=true
+              break
+            fi
+            sleep 2
+          done
+          echo "connected=$connected" >> "$GITHUB_OUTPUT"
+          if [ "$connected" != true ]; then
+            sudo journalctl -u etr-remote-screen.service --since "@${START_EPOCH}" --no-pager || true
+            exit 1
+          fi
+          journal=$(sudo journalctl -u etr-remote-screen.service --since "@${START_EPOCH}" --no-pager)
+          ! grep -Fq 'server rejected WebSocket connection: HTTP 500' <<<"$journal"
+
+      - name: Publier la preuve
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+          INSTALLATION_ID: ${{ steps.repair.outputs.installation_id }}
+          CONNECTED: ${{ steps.verify.outputs.connected }}
+          START_EPOCH: ${{ steps.repair.outputs.start_epoch }}
+        run: |
+          set +e
+          mkdir -p /tmp/etr-screen-fast
+          sudo journalctl -u etr-remote-screen.service --since "@${START_EPOCH:-0}" --no-pager \
+            | sed -E 's/(Bearer |idToken|refreshToken)[^ ]+/<secret-masque>/g' \
+            > /tmp/etr-screen-fast/journal.txt
+          python3 - <<'PY' > /tmp/etr-remote-screen-fast-last.json
+          import json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          def command(args):
+              try:return subprocess.run(args,check=False,capture_output=True,text=True,timeout=8).stdout.strip()
+              except Exception:return ''
+          try: journal=Path('/tmp/etr-screen-fast/journal.txt').read_text(encoding='utf-8',errors='replace')[-12000:]
+          except OSError: journal=''
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'jobStatus':os.getenv('JOB_STATUS'),
+              'host':command(['hostname']),
+              'installedCommit':command(['sudo','-u','oryx','-H','git','-C','/home/oryx/EtR-core','rev-parse','HEAD']) or None,
+              'installationId':os.getenv('INSTALLATION_ID') or None,
+              'connected':os.getenv('CONNECTED') == 'true',
+              'gatewayUrl':os.getenv('GATEWAY_URL'),
+              'remoteScreenService':command(['systemctl','is-active','etr-remote-screen.service']),
+              'vncService':command(['systemctl','is-active','etr-vnc.service']),
+              'journal':journal,
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-remote-screen-fast-last.json
+          git fetch origin main
+          git checkout -B remote-fast-report origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-remote-screen-fast-last.json .github/deployment/etr-remote-screen-fast-last.json
+          git config user.name "EtR remote screen fast repair"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-remote-screen-fast-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR remote screen fast repair [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
