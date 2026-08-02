@@ -1,12 +1,13 @@
 {
-  "checkedAt": "2026-08-02T12:29:45.751327+00:00",
-  "commit": "31a17908407cb334bbd578bae17c4962c81b3750",
+  "checkedAt": "2026-08-02T12:43:12.873346+00:00",
+  "commit": "0e2f6284eff9d7cdee7396045c3729db38f08a3b",
   "status": "failure",
   "project": "oryx-froid-industriel",
   "region": "europe-west1",
   "service": "etr-remote-gateway",
-  "url": null,
-  "revision": null,
+  "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
+  "revision": "etr-remote-gateway-00013-lqt",
+  "trafficPercent": 100,
   "enrollment": "v1",
   "admin": "v1",
   "adminRouteVerified": false,
@@ -19,8 +20,8 @@
   "outcomes": {
     "authentication": "success",
     "firebaseConfig": "success",
-    "deploy": "failure",
-    "verify": "skipped",
+    "deploy": "success",
+    "verify": "failure",
     "firebaseSession": "skipped"
   },
   "verification": null
