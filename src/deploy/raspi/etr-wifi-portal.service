@@ -7,8 +7,10 @@ After=NetworkManager.service
 Type=simple
 User=root
 WorkingDirectory=/home/oryx/EtR-core
-StateDirectory=etr-core
-StateDirectoryMode=0755
+# Le répertoire est partagé avec l'acquisition non privilégiée. Ne pas utiliser
+# StateDirectory ici : avec User=root, systemd le réattribuerait à root et
+# empêcherait oryx d'écrire telemetry.json.
+ExecStartPre=/usr/bin/install -d -m 700 -o oryx -g oryx /var/lib/etr-core
 Environment="PYTHONUNBUFFERED=1"
 ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/touch_shell.py
 Restart=always
