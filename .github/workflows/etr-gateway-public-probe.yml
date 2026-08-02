@@ -1,0 +1,116 @@
+name: Sonder la passerelle publique EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-gateway-public-probe.yml
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  probe:
+    name: Lire les réponses publiques exactes
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GATEWAY_URL: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Sonder les routes publiques
+        id: probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-public-probe
+          request() {
+            local name=$1
+            local method=$2
+            local path=$3
+            local data=${4:-}
+            if [ -n "$data" ]; then
+              curl -sS -D "/tmp/etr-public-probe/${name}.headers" \
+                -o "/tmp/etr-public-probe/${name}.body" \
+                -w '%{http_code}' -X "$method" "$GATEWAY_URL$path" \
+                -H 'Content-Type: application/json' -d "$data" \
+                > "/tmp/etr-public-probe/${name}.status" || true
+            else
+              curl -sS -D "/tmp/etr-public-probe/${name}.headers" \
+                -o "/tmp/etr-public-probe/${name}.body" \
+                -w '%{http_code}' -X "$method" "$GATEWAY_URL$path" \
+                > "/tmp/etr-public-probe/${name}.status" || true
+            fi
+          }
+          request root GET /
+          request health GET /healthz
+          request enrollment POST /api/enrollment/request '{}'
+          request admin GET /api/admin/session
+          for name in root health enrollment admin; do
+            echo "=== $name HTTP $(cat /tmp/etr-public-probe/${name}.status 2>/dev/null || echo 000) ==="
+            cat "/tmp/etr-public-probe/${name}.body" 2>/dev/null || true
+            echo
+          done
+          health_status=$(cat /tmp/etr-public-probe/health.status 2>/dev/null || echo 000)
+          echo "health_status=$health_status" >> "$GITHUB_OUTPUT"
+
+      - name: Déclencher la réparation Edge si la passerelle est saine
+        if: steps.probe.outputs.health_status == '200'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run etr-remote-screen-repair.yml --ref main
+
+      - name: Publier le diagnostic public
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set +e
+          python3 - <<'PY' > /tmp/gateway-public-probe-last.json
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path('/tmp/etr-public-probe')
+          def text(name, suffix):
+              try:return (root/f'{name}.{suffix}').read_text(encoding='utf-8',errors='replace')[:8000]
+              except OSError:return ''
+          def status(name):
+              try:return int(text(name,'status').strip() or 0)
+              except ValueError:return 0
+          def body(name):
+              raw=text(name,'body')
+              try:return json.loads(raw)
+              except Exception:return raw
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'commit':os.getenv('GITHUB_SHA'),
+              'jobStatus':os.getenv('JOB_STATUS'),
+              'gatewayUrl':os.getenv('GATEWAY_URL'),
+              'responses':{
+                  name:{'status':status(name),'body':body(name),'headers':text(name,'headers')}
+                  for name in ('root','health','enrollment','admin')
+              }
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/gateway-public-probe-last.json
+          git fetch origin main
+          git checkout -B public-probe-report origin/main
+          mkdir -p .github/deployment
+          cp /tmp/gateway-public-probe-last.json .github/deployment/gateway-public-probe-last.json
+          git config user.name "EtR public gateway probe"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/gateway-public-probe-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR public gateway probe [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
