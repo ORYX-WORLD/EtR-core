@@ -2,33 +2,62 @@
 """Secure outbound screen relay for an EtR Raspberry Pi."""
 
 import asyncio
+import base64
 import json
 import logging
 import os
+import re
 from contextlib import suppress
+from pathlib import Path
 from urllib.parse import urlencode
 
 import websockets
 from websockets.exceptions import ConnectionClosed
 
-from firebase_bridge import INSTALLATION_ID, load_tokens, refresh_tokens, save_tokens
+from firebase_bridge import atomic_json_write, load_json, refresh_tokens
 
 LOG = logging.getLogger("etr.remote-screen")
 LOCAL_VNC_HOST = os.getenv("ETR_LOCAL_VNC_HOST", "127.0.0.1")
 LOCAL_VNC_PORT = int(os.getenv("ETR_LOCAL_VNC_PORT", "5901"))
 GATEWAY = os.getenv("ETR_REMOTE_GATEWAY_WSS", "").strip()
+PRIMARY_TOKEN_FILE = Path("/var/lib/etr-core/firebase-auth.json")
+INSTALLATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{2,80}$")
 
 
-def authenticate_existing_device_session() -> str:
-    """Refresh the device session already created by the enrollment bridge.
+def installation_id_from_id_token(id_token: str) -> str:
+    """Read the authoritative installation claim from a Firebase ID token.
 
-    The screen relay must never start a second enrollment flow. Both services
-    run under the same non-privileged user and deliberately share the enrolled
-    device token file. A missing session therefore means "wait for the bridge",
-    not "request another activation code".
+    This helper doesn't replace signature verification: Cloud Run verifies the
+    complete JWT during the WebSocket upgrade. It only selects the installation
+    key sent in the query string, which must be identical to the signed custom
+    claim generated during device enrollment.
     """
 
-    cached = load_tokens()
+    parts = str(id_token or "").split(".")
+    if len(parts) != 3:
+        raise RuntimeError("device_session_token_invalid")
+    try:
+        payload_part = parts[1] + "=" * (-len(parts[1]) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_part).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("device_session_token_invalid") from exc
+    installation_id = str(payload.get("installationId") or "").strip()
+    if not INSTALLATION_ID_PATTERN.fullmatch(installation_id):
+        raise RuntimeError("device_session_installation_missing")
+    if payload.get("etrDevice") is not True:
+        raise RuntimeError("device_session_claim_missing")
+    return installation_id
+
+
+def authenticate_existing_device_session() -> tuple[str, str]:
+    """Refresh and identify the device session created by the main bridge.
+
+    The primary token path is fixed deliberately. Historical systemd drop-ins
+    used a second token file and could silently restart another enrollment. The
+    screen relay now ignores any legacy ETR_TOKEN_FILE override.
+    """
+
+    cached = load_json(PRIMARY_TOKEN_FILE)
     refresh_token = str(cached.get("refreshToken") or "").strip()
     if not refresh_token:
         raise RuntimeError("device_session_missing")
@@ -37,8 +66,12 @@ def authenticate_existing_device_session() -> str:
     next_refresh_token = str(data.get("refreshToken") or refresh_token).strip()
     if not id_token or not next_refresh_token:
         raise RuntimeError("device_session_refresh_incomplete")
-    save_tokens({"idToken": id_token, "refreshToken": next_refresh_token})
-    return id_token
+    installation_id = installation_id_from_id_token(id_token)
+    atomic_json_write(
+        PRIMARY_TOKEN_FILE,
+        {"idToken": id_token, "refreshToken": next_refresh_token},
+    )
+    return id_token, installation_id
 
 
 async def relay_vnc(ws):
@@ -147,11 +180,11 @@ async def run_forever():
     session_wait_logged = False
     while True:
         try:
-            token = authenticate_existing_device_session()
+            token, installation_id = authenticate_existing_device_session()
             session_wait_logged = False
-            query = urlencode({"installationId": INSTALLATION_ID})
+            query = urlencode({"installationId": installation_id})
             url = f"{GATEWAY}{'&' if '?' in GATEWAY else '?'}{query}"
-            LOG.info("Connecting installation %s to the remote gateway", INSTALLATION_ID)
+            LOG.info("Connecting installation %s to the remote gateway", installation_id)
             async with websockets.connect(
                 url,
                 extra_headers={"Authorization": f"Bearer {token}"},
@@ -160,7 +193,7 @@ async def run_forever():
                 ping_timeout=20,
                 close_timeout=5,
             ) as ws:
-                LOG.info("Installation %s connected to the remote gateway", INSTALLATION_ID)
+                LOG.info("Installation %s connected to the remote gateway", installation_id)
                 delay = 2
                 await relay_vnc(ws)
         except RuntimeError as exc:
