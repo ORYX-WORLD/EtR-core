@@ -58,6 +58,15 @@ class RemoteScreenIdentityTests(unittest.TestCase):
             "etr-0000dd7429c2",
         )
 
+    def test_legacy_session_without_custom_claims_uses_local_identity(self):
+        token = unsigned_test_token({"sub": "etrdev_legacy"})
+        self.assertEqual(
+            agent.installation_id_from_id_token(
+                token, fallback_installation_id="etr-0000dd7429c2"
+            ),
+            "etr-0000dd7429c2",
+        )
+
     def test_local_raspberry_serial_derives_canonical_enrollment_identity(self):
         with tempfile.TemporaryDirectory() as directory:
             serial_path = Path(directory) / "serial-number"
@@ -84,13 +93,6 @@ class RemoteScreenIdentityTests(unittest.TestCase):
                 "etr-configured-device",
             )
 
-    def test_device_claim_is_still_required(self):
-        token = unsigned_test_token({"installationId": "etr-0000dd7429c2"})
-        with self.assertRaisesRegex(RuntimeError, "device_session_claim_missing"):
-            agent.installation_id_from_id_token(
-                token, fallback_installation_id="etr-0000dd7429c2"
-            )
-
     def test_invalid_signed_installation_is_never_replaced_silently(self):
         token = unsigned_test_token(
             {"etrDevice": True, "installationId": "not valid !"}
@@ -100,8 +102,8 @@ class RemoteScreenIdentityTests(unittest.TestCase):
                 token, fallback_installation_id="etr-0000dd7429c2"
             )
 
-    def test_authentication_refreshes_shared_session_and_uses_local_fallback(self):
-        token = unsigned_test_token({"etrDevice": True})
+    def test_authentication_refreshes_shared_legacy_session_and_uses_local_fallback(self):
+        token = unsigned_test_token({"sub": "etrdev_legacy"})
         writes = []
         with (
             mock.patch.object(agent, "load_json", return_value={"refreshToken": "refresh-old"}),
