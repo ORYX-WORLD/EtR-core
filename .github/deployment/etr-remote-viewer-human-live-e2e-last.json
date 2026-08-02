@@ -1,15 +1,15 @@
 {
-  "checkedAt": "2026-08-02T15:08:54.203804+00:00",
-  "commit": "1f0ba4664c08999a0b11cdfb9b1ee6ca337675ff",
-  "jobStatus": "failure",
-  "exitCode": 1,
+  "checkedAt": "2026-08-02T15:26:43.698522+00:00",
+  "commit": "a170c7bf64d74bc2c323a8a6d1456fb9ee56d437",
+  "jobStatus": "success",
+  "exitCode": 0,
   "gatewayUrl": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
   "installationId": "etr-core",
   "healthBefore": {
     "ok": true,
     "service": "etr-remote-gateway",
     "version": "1.1.1",
-    "revision": "etr-remote-gateway-00023-p45",
+    "revision": "etr-remote-gateway-00025-d9r",
     "devices": 1,
     "viewers": 0,
     "readyViewers": 0,
@@ -18,20 +18,46 @@
     "liveViewerDiagnostic": "github-oidc"
   },
   "result": {
-    "ok": false,
-    "checkedAt": "2026-08-02T15:08:54.057Z",
+    "ok": true,
+    "checkedAt": "2026-08-02T15:26:43.367Z",
     "projectId": "oryx-froid-industriel",
     "gatewayOrigin": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
     "installationId": "etr-core",
-    "stage": "remote-session",
-    "result": null,
+    "stage": "viewer-websocket",
+    "result": {
+      "ok": true,
+      "temporaryUserCreatedByPublicApi": true,
+      "verificationEmailSent": true,
+      "membershipCreated": true,
+      "emailVerifiedClaim": true,
+      "remoteSessionStatus": 200,
+      "viewerStatus": 200,
+      "viewerCacheControl": "no-store",
+      "noVncBundleStatus": 200,
+      "noVncBundleBytes": 637490,
+      "websocketOpened": true,
+      "websocketStatus": 101,
+      "vncBanner": "RFB 003.008",
+      "firstPayloadBytes": 12
+    },
     "cleanup": {
       "membershipDeleted": true,
       "userDeleted": true
     },
-    "error": "Error",
-    "message": "remote_session_http_500:auth/insufficient-permission"
+    "error": null,
+    "message": ""
   },
-  "healthAfter": null,
+  "healthAfter": {
+    "ok": true,
+    "service": "etr-remote-gateway",
+    "version": "1.1.1",
+    "revision": "etr-remote-gateway-00025-d9r",
+    "devices": 1,
+    "viewers": 0,
+    "readyViewers": 0,
+    "enrollment": "v1",
+    "admin": "v1",
+    "liveViewerDiagnostic": "github-oidc"
+  },
   "stderr": ""
 }
