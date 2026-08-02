@@ -4,7 +4,10 @@ WORKDIR /app
 
 COPY package.json novnc-entry.mjs ./
 RUN npm install --no-audit --no-fund
-RUN mkdir -p public && npm run build:novnc && npm prune --omit=dev
+RUN mkdir -p public \
+  && npm run build:novnc \
+  && npm prune --omit=dev \
+  && node -e "require('@firebase/app'); require('@firebase/database-compat/standalone'); require('firebase-admin')"
 
 # Runtime modules are listed explicitly so a new security-critical component
 # cannot be assumed present merely because it exists in the repository.
