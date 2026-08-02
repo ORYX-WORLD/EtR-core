@@ -14,14 +14,17 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
         missing = [path for path in required if not (ROOT / path).is_file()]
         self.assertEqual(missing, [], f"Human remote viewer E2E contract incomplete: {missing}")
 
-    def test_script_uses_public_signup_oob_verification_and_self_cleanup(self):
+    def test_script_sends_real_verification_email_then_self_cleans(self):
         script = (ROOT / "gateway/remote-screen-human-live-e2e.mjs").read_text(encoding="utf-8")
         for marker in [
+            "buildPlusAlias",
+            "ETR_HUMAN_E2E_EMAIL_BASE",
             'method: "accounts:signUp"',
-            "projects/${encodeURIComponent(projectId)}/accounts:sendOobCode",
+            'method: "accounts:sendOobCode"',
             'requestType: "VERIFY_EMAIL"',
-            "returnOobLink: true",
-            'method: "accounts:update"',
+            "idToken",
+            "waitForVerifiedSignIn",
+            "email_verified",
             "memberships/${uid}/${installationId}",
             'role: "viewer"',
             'method: "accounts:signInWithPassword"',
@@ -34,12 +37,14 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
             "userCanStillSignIn",
             "membershipDeleted",
             "userDeleted",
-            "verificationCodeReturnedWithoutEmail",
+            "verificationEmailSent",
         ]:
             self.assertIn(marker, script)
         for forbidden in [
             "auth.createUser",
             "auth.deleteUser",
+            "returnOobLink",
+            "GOOGLE_OAUTH_ACCESS_TOKEN",
             "console.log(email)",
             "console.log(password)",
         ]:
@@ -52,21 +57,17 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
             "uid,",
             "idToken",
             "refreshToken",
-            "oauthAccessToken",
         ]:
             self.assertNotIn(forbidden, report_section)
 
-    def test_workflow_uses_ephemeral_wif_token_without_iam_mutation(self):
+    def test_workflow_uses_wif_only_for_temporary_membership(self):
         workflow = (ROOT / ".github/workflows/etr-remote-viewer-human-live-e2e.yml").read_text(encoding="utf-8")
         for marker in [
             "id-token: write",
             "google-github-actions/auth@v3",
-            "google-github-actions/setup-gcloud@v3",
             "GCP_WORKLOAD_IDENTITY_PROVIDER",
             "GCP_SERVICE_ACCOUNT",
-            "gcloud auth print-access-token",
-            'echo "::add-mask::$access_token"',
-            "GOOGLE_OAUTH_ACCESS_TOKEN",
+            "ETR_HUMAN_E2E_EMAIL_BASE: amotard.oryx@gmail.com",
             "firebase/init.json",
             "remote-screen-human-live-e2e.mjs",
             "etr-remote-viewer-human-live-e2e-last.json",
@@ -75,6 +76,9 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
         ]:
             self.assertIn(marker, workflow)
         for forbidden in [
+            "google-github-actions/setup-gcloud",
+            "gcloud auth print-access-token",
+            "GOOGLE_OAUTH_ACCESS_TOKEN",
             "add-iam-policy-binding",
             "roles/firebaseauth.admin",
             "roles/identitytoolkit.admin",
@@ -112,8 +116,7 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
             '"refreshToken":',
             "'authorization':",
             '"authorization":',
-            "'accessToken':",
-            '"accessToken":',
+            "amotard.oryx@gmail.com",
         ]:
             self.assertNotIn(forbidden, proof)
 

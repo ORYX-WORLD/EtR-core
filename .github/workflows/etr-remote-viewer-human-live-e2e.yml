@@ -20,13 +20,14 @@ jobs:
   human_live_e2e:
     name: Compte vérifié, membership, remote-session, noVNC et RFB
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       FIREBASE_PROJECT_ID: oryx-froid-industriel
       FIREBASE_DATABASE_URL: https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app
       GATEWAY_URL: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
       ETR_INSTALLATION_ID: etr-core
       ETR_VIEWER_ORIGIN: https://oryx-froid-industriel.web.app
+      ETR_HUMAN_E2E_EMAIL_BASE: amotard.oryx@gmail.com
 
     steps:
       - name: Récupérer les sources
@@ -43,24 +44,11 @@ jobs:
         working-directory: gateway
         run: npm install --no-audit --no-fund
 
-      - name: Authentification Google Cloud
+      - name: Authentification Google Cloud pour le membership temporaire
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-
-      - name: Installer Google Cloud CLI
-        uses: google-github-actions/setup-gcloud@v3
-
-      - name: Préparer un jeton OAuth éphémère pour le lien de vérification
-        id: google_access
-        shell: bash
-        run: |
-          set -euo pipefail
-          access_token=$(gcloud auth print-access-token)
-          test ${#access_token} -ge 40
-          echo "::add-mask::$access_token"
-          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
 
       - name: Lire la configuration Firebase publique
         id: firebase_config
@@ -113,13 +101,12 @@ jobs:
             exit 1
           }
 
-      - name: Créer un compte vérifié temporaire et tester le parcours humain réel
+      - name: Envoyer l'e-mail de vérification et tester le parcours humain réel
         id: e2e
         working-directory: gateway
         shell: bash
         env:
           FIREBASE_API_KEY: ${{ steps.firebase_config.outputs.api_key }}
-          GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.google_access.outputs.access_token }}
         run: |
           set +e
           export ETR_HUMAN_E2E_OUTPUT=/tmp/etr-human-e2e/result.json
