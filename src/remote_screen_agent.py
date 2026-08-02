@@ -88,11 +88,13 @@ def installation_id_from_id_token(
 ) -> str:
     """Select the signed installation claim or the canonical local identity.
 
-    Cloud Run validates the complete JWT and separately checks
-    ``deviceAccess/<uid>`` against the installation ID sent in the query string.
-    A deterministic local fallback is therefore safe for sessions issued by an
-    older gateway that contain ``etrDevice=true`` but no ``installationId``
-    custom claim.
+    Some already-enrolled technical sessions predate the custom
+    ``installationId`` and ``etrDevice`` claims. The agent only decodes the JWT
+    to select a local identifier; it never treats that payload as authorization.
+    Cloud Run verifies the signature, project, expiry and issuer, then checks
+    ``deviceAccess/<uid>`` against the installation ID before upgrading the
+    WebSocket. A deterministic local fallback is therefore safe for these
+    legacy sessions.
     """
 
     parts = str(id_token or "").split(".")
@@ -103,9 +105,6 @@ def installation_id_from_id_token(
         payload = json.loads(base64.urlsafe_b64decode(payload_part).decode("utf-8"))
     except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError("device_session_token_invalid") from exc
-
-    if payload.get("etrDevice") is not True:
-        raise RuntimeError("device_session_claim_missing")
 
     signed_installation_id = str(payload.get("installationId") or "").strip()
     if signed_installation_id:
