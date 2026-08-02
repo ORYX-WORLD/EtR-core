@@ -1,0 +1,221 @@
+name: Réparer et valider l'écran distant EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - gateway/**
+      - src/remote_screen_agent.py
+      - src/deploy/raspi/etr-vnc.service
+      - src/deploy/raspi/etr-remote-screen.service
+      - src/deploy/raspi/repair_remote_screen.sh
+      - .github/workflows/etr-remote-screen-repair.yml
+
+concurrency:
+  group: etr-remote-screen-repair-physical
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    name: Aligner l'identité puis connecter l'EtR à Cloud Run
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 25
+    env:
+      GATEWAY_ORIGIN: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Actualiser le dépôt installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          repo_url=https://github.com/ORYX-WORLD/EtR-core.git
+          if [ ! -d "$install_dir/.git" ]; then
+            sudo -u oryx -H git clone "$repo_url" "$install_dir"
+          else
+            sudo -u oryx -H git -C "$install_dir" remote set-url origin "$repo_url"
+            if [ -n "$(sudo -u oryx -H git -C "$install_dir" status --porcelain)" ]; then
+              sudo -u oryx -H git -C "$install_dir" stash push --include-untracked -m "Sauvegarde écran distant $(date -u +%Y%m%dT%H%M%SZ)"
+            fi
+            sudo -u oryx -H git -C "$install_dir" fetch origin main
+            sudo -u oryx -H git -C "$install_dir" checkout main
+            sudo -u oryx -H git -C "$install_dir" pull --ff-only origin main
+          fi
+          sudo -u oryx -H git -C "$install_dir" rev-parse HEAD
+
+      - name: Attendre la passerelle Cloud Run actuelle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-remote-repair
+          ready=false
+          for attempt in $(seq 1 180); do
+            status=$(curl -sS -o /tmp/etr-remote-repair/health-before.json -w '%{http_code}' \
+              "$GATEWAY_ORIGIN/healthz" || echo 000)
+            if [ "$status" = "200" ] && python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-remote-repair/health-before.json', encoding='utf-8'))
+          assert data.get('ok') is True
+          assert data.get('enrollment') == 'v1'
+          assert data.get('admin') == 'v1'
+          PY
+            then
+              ready=true
+              break
+            fi
+            sleep 5
+          done
+          [ "$ready" = true ] || {
+            cat /tmp/etr-remote-repair/health-before.json 2>/dev/null || true
+            echo "::error::La passerelle actuelle n'a pas publié /healthz après 15 minutes"
+            exit 1
+          }
+          python3 -m json.tool /tmp/etr-remote-repair/health-before.json
+
+      - name: Aligner l'identité et relancer le relais
+        id: repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          output=$(bash /home/oryx/EtR-core/src/deploy/raspi/repair_remote_screen.sh)
+          printf '%s\n' "$output"
+          installation_id=$(sed -n 's/^ETR_INSTALLATION_ID=//p' <<<"$output" | tail -n 1)
+          [[ "$installation_id" =~ ^etr-[a-z0-9]{12}$ ]] || {
+            echo "::error::Identité canonique EtR invalide : $installation_id"
+            exit 1
+          }
+          echo "installation_id=$installation_id" >> "$GITHUB_OUTPUT"
+
+      - name: Vérifier les services et VNC local
+        shell: bash
+        env:
+          INSTALLATION_ID: ${{ steps.repair.outputs.installation_id }}
+        run: |
+          set -euo pipefail
+          for service in etr-firebase-bridge.service etr-vnc.service etr-remote-screen.service; do
+            ready=false
+            for attempt in $(seq 1 60); do
+              if sudo systemctl is-active --quiet "$service"; then
+                ready=true
+                break
+              fi
+              sleep 2
+            done
+            [ "$ready" = true ] || {
+              sudo systemctl status "$service" --no-pager -l || true
+              sudo journalctl -u "$service" -n 140 --no-pager || true
+              exit 1
+            }
+          done
+          sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901'
+          ! sudo ss -H -ltnp | grep -qE '(0\.0\.0\.0|\[::\]):5901'
+          nc -z -w 3 127.0.0.1 5901
+          [ "$(sudo sed -n 's/^ETR_INSTALLATION_ID=//p' /etc/etr-core/firebase-bridge.env | tail -n 1)" = "$INSTALLATION_ID" ]
+
+      - name: Attendre la présence WSS du Raspberry
+        id: connected
+        shell: bash
+        env:
+          INSTALLATION_ID: ${{ steps.repair.outputs.installation_id }}
+        run: |
+          set -euo pipefail
+          connected=false
+          for attempt in $(seq 1 120); do
+            status=$(curl -sS -o /tmp/etr-remote-repair/health-after.json -w '%{http_code}' \
+              "$GATEWAY_ORIGIN/healthz" || echo 000)
+            devices=0
+            if [ "$status" = "200" ]; then
+              devices=$(python3 -c 'import json; print(int(json.load(open("/tmp/etr-remote-repair/health-after.json")).get("devices",0)))' 2>/dev/null || echo 0)
+            fi
+            if [ "$devices" -ge 1 ]; then
+              connected=true
+              break
+            fi
+            if (( attempt % 12 == 0 )); then
+              sudo systemctl restart etr-remote-screen.service
+            fi
+            sleep 5
+          done
+          python3 -m json.tool /tmp/etr-remote-repair/health-after.json || true
+          echo "connected=$connected" >> "$GITHUB_OUTPUT"
+          [ "$connected" = true ] || {
+            sudo journalctl -u etr-remote-screen.service -n 220 --no-pager || true
+            echo "::error::Le Raspberry n'apparaît toujours pas dans la passerelle Cloud Run"
+            exit 1
+          }
+          journal=$(sudo journalctl -u etr-remote-screen.service --since '-12 minutes' --no-pager)
+          grep -Fq "Connecting installation $INSTALLATION_ID" <<<"$journal"
+          grep -Fq "Installation $INSTALLATION_ID connected to the remote gateway" <<<"$journal"
+          ! grep -Fq 'server rejected WebSocket connection: HTTP 500' <<<"$journal"
+
+      - name: Publier la preuve finale
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+          INSTALLATION_ID: ${{ steps.repair.outputs.installation_id }}
+          CONNECTED: ${{ steps.connected.outputs.connected }}
+        run: |
+          set +e
+          mkdir -p /tmp/etr-remote-repair
+          curl -fsS "$GATEWAY_ORIGIN/healthz" > /tmp/etr-remote-repair/health-final.json 2>/dev/null || true
+          sudo journalctl -u etr-remote-screen.service -n 180 --no-pager \
+            | sed -E 's/(Bearer |idToken|refreshToken)[^ ]+/<secret-masque>/g' \
+            > /tmp/etr-remote-repair/agent-journal.txt
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p .github/deployment
+          python3 - <<'PY' > /tmp/etr-remote-screen-repair-last.json
+          import json, os, platform, socket, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path('/tmp/etr-remote-repair')
+          def load(name):
+              try:
+                  data=json.loads((root/name).read_text(encoding='utf-8'))
+                  return data if isinstance(data,dict) else {}
+              except Exception: return {}
+          def text(name,limit=10000):
+              try:return (root/name).read_text(encoding='utf-8',errors='replace')[-limit:]
+              except OSError:return ''
+          def command(args):
+              try:return subprocess.run(args,check=False,capture_output=True,text=True,timeout=8).stdout.strip()
+              except Exception:return ''
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'jobStatusBeforeFinalization':os.getenv('JOB_STATUS'),
+              'host':socket.gethostname(),
+              'machine':platform.machine(),
+              'installedCommit':command(['sudo','-u','oryx','-H','git','-C','/home/oryx/EtR-core','rev-parse','HEAD']) or None,
+              'installationId':os.getenv('INSTALLATION_ID') or None,
+              'gatewayOrigin':os.getenv('GATEWAY_ORIGIN'),
+              'connected':os.getenv('CONNECTED') == 'true',
+              'gatewayHealth':load('health-final.json'),
+              'remoteScreenServiceActive':command(['systemctl','is-active','etr-remote-screen.service']) == 'active',
+              'vncServiceActive':command(['systemctl','is-active','etr-vnc.service']) == 'active',
+              'agentJournal':text('agent-journal.txt'),
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-remote-screen-repair-last.json
+
+          git fetch origin main
+          git checkout -B proof-remote-screen origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-remote-screen-repair-last.json .github/deployment/etr-remote-screen-repair-last.json
+          git config user.name "EtR remote screen repair agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-remote-screen-repair-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR remote screen repair [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
