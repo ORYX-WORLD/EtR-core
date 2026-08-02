@@ -1,13 +1,15 @@
 name: Sonder la session écran distante EtR
 
-# Relance post-déploiement de la passerelle 1.1.1 : comparer la liaison RTDB
-# et l'upgrade WebSocket avec exactement la même session technique.
+# Relance après la correction de l'autorisation appareil : attendre une révision
+# Cloud Run différente de celle qui renvoyait HTTP 500, puis comparer RTDB et
+# l'upgrade WebSocket avec exactement la même session technique.
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
       - src/remote_screen_probe.py
+      - gateway/device-authorization.mjs
       - .github/workflows/etr-remote-screen-session-probe.yml
 
 concurrency:
@@ -21,13 +23,52 @@ jobs:
   probe:
     name: Comparer RTDB et la négociation WebSocket
     runs-on: [self-hosted, Linux, ARM64]
-    timeout-minutes: 12
+    timeout-minutes: 22
+    env:
+      GATEWAY_ORIGIN: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
+      PREVIOUS_GATEWAY_REVISION: etr-remote-gateway-00017-m2d
+      EXPECTED_GATEWAY_VERSION: 1.1.1
 
     steps:
       - name: Récupérer les sources
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      - name: Attendre la nouvelle révision Cloud Run
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-remote-session-probe
+          ready=false
+          for attempt in $(seq 1 180); do
+            status=$(curl -sS -o /tmp/etr-remote-session-probe/gateway-health.json -w '%{http_code}' \
+              "$GATEWAY_ORIGIN/api/health" || echo 000)
+            if [ "$status" = "200" ] && \
+               PREVIOUS_GATEWAY_REVISION="$PREVIOUS_GATEWAY_REVISION" \
+               EXPECTED_GATEWAY_VERSION="$EXPECTED_GATEWAY_VERSION" \
+               python3 - <<'PY'
+          import json, os
+          data=json.load(open('/tmp/etr-remote-session-probe/gateway-health.json', encoding='utf-8'))
+          assert data.get('ok') is True
+          assert data.get('service') == 'etr-remote-gateway'
+          assert data.get('version') == os.environ['EXPECTED_GATEWAY_VERSION']
+          revision=str(data.get('revision') or '')
+          assert revision
+          assert revision != os.environ['PREVIOUS_GATEWAY_REVISION']
+          PY
+            then
+              ready=true
+              break
+            fi
+            sleep 5
+          done
+          [ "$ready" = true ] || {
+            cat /tmp/etr-remote-session-probe/gateway-health.json 2>/dev/null || true
+            echo "::error::La nouvelle révision Cloud Run n'est pas devenue publique après 15 minutes"
+            exit 1
+          }
+          python3 -m json.tool /tmp/etr-remote-session-probe/gateway-health.json
 
       - name: Actualiser le dépôt installé
         shell: bash
@@ -47,7 +88,6 @@ jobs:
         shell: bash
         run: |
           set +e
-          mkdir -p /tmp/etr-remote-session-probe
           sudo systemctl stop etr-remote-screen.service
           sleep 1
           sudo -u oryx -H bash -c '
@@ -77,7 +117,7 @@ jobs:
             cp /tmp/etr-remote-session-probe/report.json /tmp/etr-remote-screen-session-last.json
           else
             python3 - <<'PY' > /tmp/etr-remote-screen-session-last.json
-          import json, os
+          import json
           from datetime import datetime, timezone
           from pathlib import Path
           try: stderr=Path('/tmp/etr-remote-session-probe/stderr.txt').read_text(encoding='utf-8',errors='replace')[-3000:]
@@ -97,6 +137,10 @@ jobs:
           path=Path('/tmp/etr-remote-screen-session-last.json')
           data=json.loads(path.read_text(encoding='utf-8'))
           data['probeExitCode']=int(os.getenv('PROBE_EXIT_CODE') or 0)
+          try:
+              data['gatewayHealth']=json.loads(Path('/tmp/etr-remote-session-probe/gateway-health.json').read_text(encoding='utf-8'))
+          except Exception:
+              data['gatewayHealth']=None
           path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
           PY
           cat /tmp/etr-remote-screen-session-last.json
