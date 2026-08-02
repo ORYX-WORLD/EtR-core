@@ -1,0 +1,78 @@
+{
+  "checkedAt": "2026-08-02T16:00:37.282018+00:00",
+  "projectId": "oryx-froid-industriel",
+  "workflowSteps": {
+    "googleAuth": "success",
+    "gcloudSetup": "success"
+  },
+  "identityConfig": {
+    "httpStatus": 403,
+    "readable": false,
+    "errorCode": "identity_config_http_403",
+    "defaultLocale": null,
+    "method": null,
+    "callbackUri": null,
+    "dnsInfo": {
+      "customDomain": null,
+      "useCustomDomain": null,
+      "pendingCustomDomain": null,
+      "customDomainState": null
+    },
+    "smtp": {
+      "configured": false,
+      "senderEmail": null,
+      "host": null,
+      "port": null,
+      "usernameConfigured": false,
+      "passwordConfigured": false,
+      "securityMode": null
+    },
+    "verifyEmailTemplate": {
+      "senderLocalPart": null,
+      "senderDisplayName": null,
+      "subject": null,
+      "replyTo": null,
+      "bodyFormat": null,
+      "customized": null,
+      "bodyContainsLinkPlaceholder": false,
+      "bodyContainsDisplayNamePlaceholder": false,
+      "bodyLooksFrench": false
+    },
+    "resetPasswordTemplate": {
+      "senderLocalPart": null,
+      "senderDisplayName": null,
+      "subject": null,
+      "replyTo": null,
+      "bodyFormat": null,
+      "customized": null,
+      "bodyContainsLinkPlaceholder": false,
+      "bodyContainsDisplayNamePlaceholder": false,
+      "bodyLooksFrench": false
+    },
+    "changeEmailTemplate": {
+      "senderLocalPart": null,
+      "senderDisplayName": null,
+      "subject": null,
+      "replyTo": null,
+      "bodyFormat": null,
+      "customized": null,
+      "bodyContainsLinkPlaceholder": false,
+      "bodyContainsDisplayNamePlaceholder": false,
+      "bodyLooksFrench": false
+    },
+    "revertSecondFactorAdditionTemplate": {
+      "senderLocalPart": null,
+      "senderDisplayName": null,
+      "subject": null,
+      "replyTo": null,
+      "bodyFormat": null,
+      "customized": null,
+      "bodyContainsLinkPlaceholder": false,
+      "bodyContainsDisplayNamePlaceholder": false,
+      "bodyLooksFrench": false
+    },
+    "authorizedDomains": [],
+    "defaultHostingSite": null
+  },
+  "recommendedNextStage": "request-firebaseauth-configs-get-only"
+}
