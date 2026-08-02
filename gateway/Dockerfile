@@ -15,6 +15,7 @@ COPY server.mjs ./
 COPY health.mjs ./
 COPY firebase-token-verifier.mjs ./
 COPY device-authorization.mjs ./
+COPY remote-screen-diagnostic.mjs ./
 COPY enrollment.mjs ./
 COPY enrollment-http.mjs ./
 COPY device-bootstrap.mjs ./
