@@ -1,39 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Relance opérationnelle après rétablissement explicite du trafic Cloud Run.
 
 INSTALL_DIR=${ETR_INSTALL_DIR:-/home/oryx/EtR-core}
 ENV_FILE=${ETR_ENV_FILE:-/etc/etr-core/firebase-bridge.env}
 STATE_DIR=${ETR_STATE_DIR:-/var/lib/etr-core}
 TOKEN_FILE=${STATE_DIR}/firebase-auth.json
-
-serial=$(python3 - <<'PY'
-from pathlib import Path
-import re
-value = ""
-for path in [Path('/sys/firmware/devicetree/base/serial-number'), Path('/proc/device-tree/serial-number')]:
-    try:
-        value = path.read_bytes().replace(b'\x00', b'').decode('ascii').strip()
-        if value:
-            break
-    except (OSError, UnicodeDecodeError):
-        pass
-if not value:
-    try:
-        for line in Path('/proc/cpuinfo').read_text(encoding='utf-8').splitlines():
-            if line.lower().startswith('serial'):
-                value = line.split(':', 1)[1].strip()
-                break
-    except OSError:
-        pass
-serial = re.sub(r'[^A-Za-z0-9]', '', value).upper()
-if len(serial) < 8:
-    raise SystemExit('Numéro de série Raspberry introuvable')
-print(serial[-64:])
-PY
-)
-derived_installation_id="etr-${serial: -12}"
-derived_installation_id=$(printf '%s' "$derived_installation_id" | tr '[:upper:]' '[:lower:]')
 
 sudo install -d -m 700 -o oryx -g oryx "$STATE_DIR"
 sudo test -s "$TOKEN_FILE" || {
@@ -42,42 +13,58 @@ sudo test -s "$TOKEN_FILE" || {
 }
 sudo chown oryx:oryx "$TOKEN_FILE"
 sudo chmod 600 "$TOKEN_FILE"
+sudo test -r "$ENV_FILE" || {
+  echo "Configuration Firebase absente : $ENV_FILE" >&2
+  exit 2
+}
 
-# Les premières sessions techniques ont été créées avant les claims
-# installationId/etrDevice. La réparation ne s'en sert pas comme autorité :
-# elle vérifie seulement la structure du JWT, récupère le claim lorsqu'il
-# existe, puis laisse Cloud Run vérifier signature, expiration et deviceAccess.
-signed_installation_id=$(sudo -u oryx -H python3 - "$TOKEN_FILE" <<'PY'
-import base64, json, re, sys
+# Rafraîchir la session principale et résoudre l'installation réellement liée
+# à son UID dans deviceAccess. Cette liaison est l'autorité déjà utilisée par
+# Firebase et Cloud Run ; sur le premier équipement, elle vaut encore etr-core.
+installation_id=$(sudo -u oryx -H env \
+  ETR_ENV_FILE="$ENV_FILE" \
+  ETR_INSTALL_DIR="$INSTALL_DIR" \
+  ETR_TOKEN_FILE="$TOKEN_FILE" \
+  bash -c '
+    set -euo pipefail
+    set -a
+    source "$ETR_ENV_FILE"
+    set +a
+    cd "$ETR_INSTALL_DIR"
+    PYTHONPATH="$ETR_INSTALL_DIR" ./.venv/bin/python - <<"PY"
 from pathlib import Path
-path=Path(sys.argv[1])
-data=json.loads(path.read_text(encoding='utf-8'))
-for key in ('idToken','refreshToken'):
-    value=data.get(key)
-    if not isinstance(value,str) or len(value) <= 20:
-        raise SystemExit(f'Session Firebase appareil incomplète: {key}')
-parts=data['idToken'].split('.')
-if len(parts) != 3:
-    raise SystemExit('ID token Firebase invalide')
-try:
-    payload=json.loads(base64.urlsafe_b64decode(parts[1] + '=' * (-len(parts[1]) % 4)).decode('utf-8'))
-except Exception as error:
-    raise SystemExit(f'Payload ID token illisible: {type(error).__name__}')
-installation_id=str(payload.get('installationId') or '').strip()
-if installation_id and not re.fullmatch(r'[A-Za-z0-9._-]{2,80}', installation_id):
-    raise SystemExit('Claim installationId invalide')
+import os
+
+from src.firebase_bridge import atomic_json_write, load_json, refresh_tokens
+from src.remote_screen_agent import installation_id_from_local_device
+from src.remote_screen_identity import resolve_remote_installation_id
+
+token_file = Path(os.environ["ETR_TOKEN_FILE"])
+cached = load_json(token_file)
+refresh_token = str(cached.get("refreshToken") or "").strip()
+if not refresh_token:
+    raise SystemExit("Session Firebase appareil sans refresh token")
+refreshed = refresh_tokens(refresh_token)
+id_token = str(refreshed.get("idToken") or "").strip()
+next_refresh = str(refreshed.get("refreshToken") or refresh_token).strip()
+if not id_token or not next_refresh:
+    raise SystemExit("Rafraîchissement Firebase incomplet")
+installation_id = resolve_remote_installation_id(
+    id_token,
+    database_url=os.environ.get("FIREBASE_DATABASE_URL", ""),
+    local_fallback=installation_id_from_local_device(),
+)
+atomic_json_write(token_file, {"idToken": id_token, "refreshToken": next_refresh})
 print(installation_id)
 PY
-)
+  ')
 
-if [ -n "$signed_installation_id" ] && [ "$signed_installation_id" != "$derived_installation_id" ]; then
-  echo "Identité Firebase ($signed_installation_id) différente de l'identité matérielle ($derived_installation_id)" >&2
+[[ "$installation_id" =~ ^[A-Za-z0-9._-]{2,80}$ ]] || {
+  echo "Identité d'installation invalide : $installation_id" >&2
   exit 3
-fi
-installation_id=${signed_installation_id:-$derived_installation_id}
+}
 
 sudo install -d -m 750 -o root -g oryx "$(dirname "$ENV_FILE")"
-sudo touch "$ENV_FILE"
 sudo sed -i '/^ETR_INSTALLATION_ID=/d' "$ENV_FILE"
 printf '%s\n' "ETR_INSTALLATION_ID=${installation_id}" | sudo tee -a "$ENV_FILE" >/dev/null
 sudo chown root:oryx "$ENV_FILE"
@@ -97,4 +84,4 @@ sudo systemctl restart etr-vnc.service
 sudo systemctl restart etr-remote-screen.service
 
 echo "ETR_INSTALLATION_ID=${installation_id}"
-echo "Réparation de l'écran distant appliquée : identité canonique, session partagée et services réalignés."
+echo "Réparation de l'écran distant appliquée : liaison deviceAccess, session partagée et services réalignés."
