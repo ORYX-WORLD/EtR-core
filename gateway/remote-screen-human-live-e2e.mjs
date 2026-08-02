@@ -24,9 +24,11 @@ function decodeJwtPayload(token) {
 }
 
 function buildPlusAlias(baseEmail, tag) {
-  const match = String(baseEmail || "").trim().match(/^([^@+]+)(?:\+[^@]*)?@gmail\.com$/i);
+  const match = String(baseEmail || "")
+    .trim()
+    .match(/^([^@+]+)(?:\+[^@]*)?@([A-Za-z0-9.-]+\.[A-Za-z]{2,})$/);
   if (!match) throw new Error("etr_human_e2e_email_base_invalid");
-  return `${match[1]}+${tag}@gmail.com`.toLowerCase();
+  return `${match[1]}+${tag}@${match[2]}`.toLowerCase();
 }
 
 const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -39,7 +41,7 @@ async function firebasePublicRequest({ apiKey, method, body }) {
       headers: {
         "content-type": "application/json",
         accept: "application/json",
-        "user-agent": "EtR-Human-Remote-E2E/3.0"
+        "user-agent": "EtR-Human-Remote-E2E/3.1"
       },
       body: JSON.stringify(body),
       cache: "no-store"
@@ -143,7 +145,7 @@ async function requestHumanRemoteSession({ gatewayOrigin, idToken, installationI
       "content-type": "application/json",
       accept: "application/json",
       origin: allowedOrigin,
-      "user-agent": "EtR-Human-Remote-E2E/3.0"
+      "user-agent": "EtR-Human-Remote-E2E/3.1"
     },
     body: JSON.stringify({ installationId }),
     cache: "no-store"
@@ -172,7 +174,7 @@ async function verifyViewerAssets(viewerUrl, expectedOrigin) {
   const response = await fetch(parsed, {
     headers: {
       accept: "text/html",
-      "user-agent": "EtR-Human-Remote-E2E/3.0"
+      "user-agent": "EtR-Human-Remote-E2E/3.1"
     },
     cache: "no-store"
   });
@@ -192,7 +194,7 @@ async function verifyViewerAssets(viewerUrl, expectedOrigin) {
   const bundle = await fetch(new URL("/novnc/rfb-browser-v2.js", parsed.origin), {
     headers: {
       accept: "text/javascript",
-      "user-agent": "EtR-Human-Remote-E2E/3.0"
+      "user-agent": "EtR-Human-Remote-E2E/3.1"
     }
   });
   const bytes = Buffer.from(await bundle.arrayBuffer());
