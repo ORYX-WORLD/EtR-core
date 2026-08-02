@@ -10,31 +10,135 @@ function requiredEnvironment(name) {
   return value;
 }
 
+function safeRemoteError(prefix, status, body = {}) {
+  const code = String(body?.error?.message || body?.error?.status || body?.code || "unknown")
+    .replace(/[^A-Za-z0-9._:-]/g, "_")
+    .slice(0, 160);
+  return new Error(`${prefix}_http_${status}:${code}`);
+}
+
 function decodeJwtPayload(token) {
   const parts = String(token || "").split(".");
   if (parts.length !== 3) throw new Error("firebase_id_token_invalid");
   return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
 }
 
-async function signInWithPassword({ apiKey, email, password }) {
+async function firebasePublicRequest({ apiKey, method, body }) {
   const response = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`,
+    `https://identitytoolkit.googleapis.com/v1/${method}?key=${encodeURIComponent(apiKey)}`,
     {
       method: "POST",
       headers: {
         "content-type": "application/json",
         accept: "application/json",
-        "user-agent": "EtR-Human-Remote-E2E/1.0"
+        "user-agent": "EtR-Human-Remote-E2E/2.0"
       },
-      body: JSON.stringify({ email, password, returnSecureToken: true }),
+      body: JSON.stringify(body),
       cache: "no-store"
     }
   );
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok || typeof body.idToken !== "string") {
-    throw new Error(`firebase_sign_in_http_${response.status}:${String(body?.error?.message || "unknown")}`);
+  const payload = await response.json().catch(() => ({}));
+  return { response, payload };
+}
+
+async function signUpWithPassword({ apiKey, email, password }) {
+  const { response, payload } = await firebasePublicRequest({
+    apiKey,
+    method: "accounts:signUp",
+    body: { email, password, returnSecureToken: true }
+  });
+  if (
+    !response.ok ||
+    typeof payload.localId !== "string" ||
+    typeof payload.idToken !== "string" ||
+    typeof payload.refreshToken !== "string"
+  ) {
+    throw safeRemoteError("firebase_sign_up", response.status, payload);
   }
-  return body.idToken;
+  return {
+    uid: payload.localId,
+    idToken: payload.idToken,
+    refreshToken: payload.refreshToken
+  };
+}
+
+async function createVerificationCode({ projectId, oauthAccessToken, email }) {
+  const response = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/accounts:sendOobCode`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${oauthAccessToken}`,
+        "content-type": "application/json",
+        accept: "application/json",
+        "user-agent": "EtR-Human-Remote-E2E/2.0"
+      },
+      body: JSON.stringify({
+        requestType: "VERIFY_EMAIL",
+        email,
+        returnOobLink: true
+      }),
+      cache: "no-store"
+    }
+  );
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw safeRemoteError("firebase_verification_link", response.status, payload);
+  }
+  let oobCode = String(payload.oobCode || "").trim();
+  if (!oobCode && typeof payload.oobLink === "string") {
+    try {
+      oobCode = String(new URL(payload.oobLink).searchParams.get("oobCode") || "").trim();
+    } catch {
+      oobCode = "";
+    }
+  }
+  if (oobCode.length < 8 || oobCode.length > 2048) {
+    throw new Error("firebase_verification_code_missing");
+  }
+  return oobCode;
+}
+
+async function applyVerificationCode({ apiKey, oobCode }) {
+  const { response, payload } = await firebasePublicRequest({
+    apiKey,
+    method: "accounts:update",
+    body: { oobCode }
+  });
+  if (!response.ok || payload.emailVerified !== true) {
+    throw safeRemoteError("firebase_verify_email", response.status, payload);
+  }
+}
+
+async function signInWithPassword({ apiKey, email, password }) {
+  const { response, payload } = await firebasePublicRequest({
+    apiKey,
+    method: "accounts:signInWithPassword",
+    body: { email, password, returnSecureToken: true }
+  });
+  if (!response.ok || typeof payload.idToken !== "string") {
+    throw safeRemoteError("firebase_sign_in", response.status, payload);
+  }
+  return payload.idToken;
+}
+
+async function deleteCurrentUser({ apiKey, idToken }) {
+  if (!idToken) return false;
+  const { response } = await firebasePublicRequest({
+    apiKey,
+    method: "accounts:delete",
+    body: { idToken }
+  });
+  return response.ok;
+}
+
+async function userCanStillSignIn({ apiKey, email, password }) {
+  const { response } = await firebasePublicRequest({
+    apiKey,
+    method: "accounts:signInWithPassword",
+    body: { email, password, returnSecureToken: true }
+  });
+  return response.ok;
 }
 
 async function requestHumanRemoteSession({ gatewayOrigin, idToken, installationId, allowedOrigin }) {
@@ -45,7 +149,7 @@ async function requestHumanRemoteSession({ gatewayOrigin, idToken, installationI
       "content-type": "application/json",
       accept: "application/json",
       origin: allowedOrigin,
-      "user-agent": "EtR-Human-Remote-E2E/1.0"
+      "user-agent": "EtR-Human-Remote-E2E/2.0"
     },
     body: JSON.stringify({ installationId }),
     cache: "no-store"
@@ -74,7 +178,7 @@ async function verifyViewerAssets(viewerUrl, expectedOrigin) {
   const response = await fetch(parsed, {
     headers: {
       accept: "text/html",
-      "user-agent": "EtR-Human-Remote-E2E/1.0"
+      "user-agent": "EtR-Human-Remote-E2E/2.0"
     },
     cache: "no-store"
   });
@@ -94,7 +198,7 @@ async function verifyViewerAssets(viewerUrl, expectedOrigin) {
   const bundle = await fetch(new URL("/novnc/rfb-browser-v2.js", parsed.origin), {
     headers: {
       accept: "text/javascript",
-      "user-agent": "EtR-Human-Remote-E2E/1.0"
+      "user-agent": "EtR-Human-Remote-E2E/2.0"
     }
   });
   const bytes = Buffer.from(await bundle.arrayBuffer());
@@ -119,55 +223,55 @@ async function verifyVncBanner({ gatewayOrigin, ticket, allowedOrigin }) {
   return await new Promise((resolve, reject) => {
     const websocket = new WebSocket(websocketUrl, { origin: allowedOrigin });
     let opened = false;
+    let settled = false;
+    const finish = (callback) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      callback();
+    };
     const timeout = setTimeout(() => {
       websocket.terminate();
-      reject(new Error("vnc_banner_timeout"));
+      finish(() => reject(new Error("vnc_banner_timeout")));
     }, 25_000);
 
     websocket.once("open", () => {
       opened = true;
     });
     websocket.on("message", (data, isBinary) => {
-      if (!isBinary) return;
+      if (!isBinary || settled) return;
       const bytes = Buffer.from(data);
       const prefix = bytes.subarray(0, 12).toString("ascii");
       if (!prefix.startsWith("RFB ")) {
-        clearTimeout(timeout);
         websocket.close(1000, "unexpected banner");
-        reject(new Error(`vnc_banner_invalid:${JSON.stringify(prefix)}`));
+        finish(() => reject(new Error(`vnc_banner_invalid:${JSON.stringify(prefix)}`)));
         return;
       }
-      clearTimeout(timeout);
       websocket.close(1000, "human e2e complete");
-      resolve({
+      finish(() => resolve({
         websocketOpened: opened,
         websocketStatus: 101,
         vncBanner: prefix.trim(),
         firstPayloadBytes: bytes.length
-      });
+      }));
     });
     websocket.once("unexpected-response", (_request, response) => {
-      clearTimeout(timeout);
-      reject(new Error(`viewer_websocket_http_${response.statusCode || 0}`));
+      finish(() => reject(new Error(`viewer_websocket_http_${response.statusCode || 0}`)));
     });
     websocket.once("error", error => {
-      clearTimeout(timeout);
-      reject(error);
+      finish(() => reject(error));
     });
   });
 }
 
-async function verifyCleanup({ auth, membershipRef, uid }) {
-  const membership = await membershipRef.get();
-  let userDeleted = false;
-  try {
-    await auth.getUser(uid);
-  } catch (error) {
-    userDeleted = error?.code === "auth/user-not-found";
-  }
+async function verifyCleanup({ membershipRef, apiKey, email, password, userDeletionRequested }) {
+  const membership = membershipRef ? await membershipRef.get() : null;
+  const userStillSignsIn = userDeletionRequested
+    ? await userCanStillSignIn({ apiKey, email, password }).catch(() => false)
+    : true;
   return {
-    membershipDeleted: !membership.exists(),
-    userDeleted
+    membershipDeleted: Boolean(membershipRef && !membership.exists()),
+    userDeleted: Boolean(userDeletionRequested && !userStillSignsIn)
   };
 }
 
@@ -175,6 +279,7 @@ async function main() {
   const projectId = requiredEnvironment("FIREBASE_PROJECT_ID");
   const databaseURL = requiredEnvironment("FIREBASE_DATABASE_URL");
   const apiKey = requiredEnvironment("FIREBASE_API_KEY");
+  const oauthAccessToken = requiredEnvironment("GOOGLE_OAUTH_ACCESS_TOKEN");
   const gatewayOrigin = new URL(requiredEnvironment("GATEWAY_URL")).origin;
   const installationId = String(process.env.ETR_INSTALLATION_ID || "etr-core").trim();
   const allowedOrigin = String(
@@ -194,23 +299,33 @@ async function main() {
     },
     `etr-human-e2e-${randomSuffix}`
   );
-  const auth = app.auth();
   const db = app.database();
   let uid = "";
+  let currentIdToken = "";
   let membershipRef = null;
+  let userDeletionRequested = false;
   let testResult = null;
   let primaryError = null;
+  let primaryStage = "initialize";
   let cleanup = { membershipDeleted: false, userDeleted: false };
 
   try {
-    const user = await auth.createUser({
-      email,
-      password,
-      emailVerified: true,
-      disabled: false,
-      displayName: "EtR temporary human E2E"
+    primaryStage = "public-sign-up";
+    const signUp = await signUpWithPassword({ apiKey, email, password });
+    uid = signUp.uid;
+    currentIdToken = signUp.idToken;
+
+    primaryStage = "verification-link";
+    const oobCode = await createVerificationCode({
+      projectId,
+      oauthAccessToken,
+      email
     });
-    uid = user.uid;
+
+    primaryStage = "verify-email";
+    await applyVerificationCode({ apiKey, oobCode });
+
+    primaryStage = "create-membership";
     membershipRef = db.ref(`memberships/${uid}/${installationId}`);
     await membershipRef.set({
       active: true,
@@ -219,19 +334,25 @@ async function main() {
       createdAt: admin.database.ServerValue.TIMESTAMP
     });
 
-    const idToken = await signInWithPassword({ apiKey, email, password });
-    const tokenPayload = decodeJwtPayload(idToken);
+    primaryStage = "verified-sign-in";
+    currentIdToken = await signInWithPassword({ apiKey, email, password });
+    const tokenPayload = decodeJwtPayload(currentIdToken);
     if (tokenPayload.sub !== uid || tokenPayload.email_verified !== true) {
       throw new Error("verified_human_token_claims_invalid");
     }
 
+    primaryStage = "remote-session";
     const remoteSession = await requestHumanRemoteSession({
       gatewayOrigin,
-      idToken,
+      idToken: currentIdToken,
       installationId,
       allowedOrigin
     });
+
+    primaryStage = "viewer-assets";
     const assets = await verifyViewerAssets(remoteSession.body.viewerUrl, gatewayOrigin);
+
+    primaryStage = "viewer-websocket";
     const websocket = await verifyVncBanner({
       gatewayOrigin,
       ticket: assets.ticket,
@@ -240,7 +361,8 @@ async function main() {
 
     testResult = {
       ok: true,
-      temporaryVerifiedUserCreated: true,
+      temporaryUserCreatedByPublicApi: true,
+      verificationCodeReturnedWithoutEmail: true,
       membershipCreated: true,
       emailVerifiedClaim: true,
       remoteSessionStatus: remoteSession.status,
@@ -261,13 +383,19 @@ async function main() {
         await membershipRef.remove();
       } catch {}
     }
-    if (uid) {
+    if (currentIdToken) {
       try {
-        await auth.deleteUser(uid);
+        userDeletionRequested = await deleteCurrentUser({ apiKey, idToken: currentIdToken });
       } catch {}
     }
-    if (uid && membershipRef) {
-      cleanup = await verifyCleanup({ auth, membershipRef, uid }).catch(() => cleanup);
+    if (uid) {
+      cleanup = await verifyCleanup({
+        membershipRef,
+        apiKey,
+        email,
+        password,
+        userDeletionRequested
+      }).catch(() => cleanup);
     }
     await app.delete().catch(() => undefined);
   }
@@ -279,6 +407,7 @@ async function main() {
     projectId,
     gatewayOrigin,
     installationId,
+    stage: primaryStage,
     result: testResult,
     cleanup,
     error: primaryError ? primaryError.name || "Error" : null,
@@ -294,6 +423,7 @@ main().catch(error => {
   const report = {
     ok: false,
     checkedAt: new Date().toISOString(),
+    stage: "bootstrap",
     error: error instanceof Error ? error.name : "Error",
     message: String(error?.message || error || "unknown").slice(0, 800)
   };
