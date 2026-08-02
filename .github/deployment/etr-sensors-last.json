@@ -1,0 +1,12 @@
+{
+  "checkedAt": "2026-08-02T09:51:01.631943+00:00",
+  "jobStatus": "failure",
+  "host": "etr-core",
+  "machine": "aarch64",
+  "installedCommit": "c9648f9851097cdb6f87427cc32129453ac0a02f",
+  "installExitCode": "42",
+  "spiDevice": false,
+  "gpioChip": true,
+  "hardware": {},
+  "sensors": []
+}
