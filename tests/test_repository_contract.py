@@ -87,7 +87,7 @@ class RepositoryContractTests(unittest.TestCase):
     def test_gateway_docker_image_contains_every_runtime_module(self):
         dockerfile = (ROOT / "gateway/Dockerfile").read_text(encoding="utf-8")
         for marker in [
-            "COPY server.mjs ./", "COPY firebase-token-verifier.mjs ./", "COPY enrollment.mjs ./",
+            "COPY server.mjs ./", "COPY health.mjs ./", "COPY firebase-token-verifier.mjs ./", "COPY enrollment.mjs ./",
             "COPY enrollment-http.mjs ./", "COPY device-bootstrap.mjs ./", "COPY firebase-device-session.mjs ./",
             "COPY admin.mjs ./", "USER node", "ENV NODE_ENV=production", 'CMD ["node", "server.mjs"]',
         ]:
