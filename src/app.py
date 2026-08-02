@@ -13,7 +13,7 @@ import psutil
 from flask import Flask, jsonify
 
 SCHEMA_VERSION = "1.0"
-SERVICE_VERSION = "3.1.0"
+SERVICE_VERSION = "3.2.0"
 DEFAULT_STATE_FILE = "/var/lib/etr-core/telemetry.json"
 DEFAULT_ENROLLMENT_FILE = "/var/lib/etr-core/enrollment.json"
 DEFAULT_TOKEN_FILE = "/var/lib/etr-core/firebase-auth.json"
@@ -54,10 +54,16 @@ def read_telemetry_state(path: Path) -> tuple[dict[str, Any], str | None]:
     measurements = raw.get("measurements") if isinstance(raw.get("measurements"), dict) else {}
     states = raw.get("states") if isinstance(raw.get("states"), dict) else {}
     alerts = raw.get("alerts") if isinstance(raw.get("alerts"), list) else []
+    hardware = raw.get("hardware") if isinstance(raw.get("hardware"), dict) else {}
+    sensors = raw.get("sensors") if isinstance(raw.get("sensors"), list) else []
 
     return {
+        "schema_version": raw.get("schema_version") if isinstance(raw.get("schema_version"), str) else None,
         "updated_at": raw.get("updated_at") if isinstance(raw.get("updated_at"), str) else None,
         "source": raw.get("source") if isinstance(raw.get("source"), str) else "local_state_file",
+        "acquisition_version": raw.get("acquisition_version") if isinstance(raw.get("acquisition_version"), str) else None,
+        "hardware": hardware,
+        "sensors": [item for item in sensors[:32] if isinstance(item, dict)],
         "measurements": measurements,
         "states": states,
         "alerts": alerts[:100],
@@ -122,13 +128,15 @@ def build_status() -> dict[str, Any]:
     measurements = telemetry.get("measurements", {})
     states = telemetry.get("states", {})
     alerts = telemetry.get("alerts", [])
+    hardware = telemetry.get("hardware", {})
+    hardware_offline = isinstance(hardware, dict) and hardware.get("status") == "offline"
 
     status: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "service": "EtR",
         "service_version": SERVICE_VERSION,
         "timestamp": utc_now(),
-        "health": "ok" if telemetry_error is None else "degraded",
+        "health": "ok" if telemetry_error is None and not hardware_offline else "degraded",
         "device": {
             "hostname": socket.gethostname(),
             "installation_id": os.getenv("ETR_INSTALLATION_ID", "").strip() or enrollment.get("installation_id"),
@@ -136,10 +144,14 @@ def build_status() -> dict[str, Any]:
         "system": system,
         "enrollment": enrollment,
         "telemetry": {
-            "online": telemetry_error is None,
-            "error": telemetry_error,
+            "online": telemetry_error is None and not hardware_offline,
+            "error": telemetry_error or ("acquisition_hardware_offline" if hardware_offline else None),
+            "schema_version": telemetry.get("schema_version"),
             "source": telemetry.get("source"),
+            "acquisition_version": telemetry.get("acquisition_version"),
             "updated_at": telemetry.get("updated_at"),
+            "hardware": hardware,
+            "sensors": telemetry.get("sensors", []),
             "measurements": measurements,
             "states": states,
             "alerts": alerts,
@@ -151,6 +163,7 @@ def build_status() -> dict[str, Any]:
             "secure_enrollment": True,
             "remote_screen": True,
             "telemetry_contract": SCHEMA_VERSION,
+            "ads1263_acquisition": True,
         },
     }
 
