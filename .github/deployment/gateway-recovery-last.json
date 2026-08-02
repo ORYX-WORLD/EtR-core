@@ -1,17 +1,17 @@
 {
-  "checkedAt": "2026-08-02T12:43:42.785852+00:00",
-  "commit": "4d383747274ef6a2fddf8ffc33574e55c82e8603",
+  "checkedAt": "2026-08-02T13:02:51.761138+00:00",
+  "commit": "67471914553820d44d40c0fac97ee84aaa5a658d",
   "status": "failure",
   "deployOutcome": "success",
   "verifyOutcome": "failure",
   "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
-  "revision": "etr-remote-gateway-00010-xmg",
+  "revision": "etr-remote-gateway-recovery-3",
   "traffic": {
     "status": {
       "traffic": [
         {
           "percent": 100,
-          "revisionName": "etr-remote-gateway-00010-xmg"
+          "revisionName": "etr-remote-gateway-recovery-3"
         }
       ]
     }
