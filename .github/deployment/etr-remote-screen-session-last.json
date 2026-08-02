@@ -1,11 +1,11 @@
 {
-  "checkedAt": "2026-08-02T13:01:31.734911+00:00",
-  "installationId": "etr-0000dd7429c2",
+  "checkedAt": "2026-08-02T13:08:55.423387+00:00",
+  "installationId": "etr-core",
   "uidPresent": true,
   "deviceAccess": {
     "status": 200,
     "value": "etr-core",
-    "matches": false
+    "matches": true
   },
   "websocket": {
     "connected": false,
