@@ -50,7 +50,11 @@ function isoDate(value) {
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
-function adminLevel(decoded) {
+function normalizedEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function claimsAdminLevel(decoded) {
   if (decoded?.oryxDeveloper === true || decoded?.oryxAdmin === true) return "write";
   if (decoded?.oryxStaff === true) return "read";
   return "none";
@@ -153,16 +157,19 @@ async function listAllUsers(auth, maximum = MAX_USERS) {
   return { users, truncated: Boolean(pageToken) };
 }
 
-function userSummary(user, memberships) {
-  const claims = user.customClaims || {};
-  const userMemberships = memberships?.[user.uid] && typeof memberships[user.uid] === "object"
-    ? Object.entries(memberships[user.uid]).map(([installationId, membership]) => ({
+function userMemberships(uid, memberships) {
+  return memberships?.[uid] && typeof memberships[uid] === "object"
+    ? Object.entries(memberships[uid]).map(([installationId, membership]) => ({
         installationId,
         role: safeText(membership?.role, 40),
         active: membership?.active === true,
         updatedAt: isoDate(membership?.updatedAt)
-      }))
+      })).sort((a, b) => a.installationId.localeCompare(b.installationId))
     : [];
+}
+
+function userSummary(user, memberships) {
+  const claims = user.customClaims || {};
   return {
     uid: user.uid,
     email: user.email || null,
@@ -177,8 +184,62 @@ function userSummary(user, memberships) {
       oryxDeveloper: claims.oryxDeveloper === true,
       etrDevice: claims.etrDevice === true
     },
-    memberships: userMemberships.sort((a, b) => a.installationId.localeCompare(b.installationId))
+    memberships: userMemberships(user.uid, memberships),
+    identitySource: "firebase-auth"
   };
+}
+
+function knownUserIndex({ memberships = {}, adminProfiles = {}, installations = {}, enrollments = {} }) {
+  const users = new Map();
+  const ensure = (uid, values = {}) => {
+    const safe = safeText(uid, 128);
+    if (!safe) return;
+    const existing = users.get(safe) || {
+      uid: safe,
+      email: null,
+      emailVerified: null,
+      disabled: null,
+      displayName: null,
+      createdAt: null,
+      lastSignInAt: null,
+      globalRoles: { oryxAdmin: false, oryxStaff: false, oryxDeveloper: false, etrDevice: false },
+      memberships: userMemberships(safe, memberships),
+      identitySource: "realtime-database-index"
+    };
+    if (!existing.email && values.email) existing.email = safeText(values.email, 254) || null;
+    if (!existing.displayName && values.displayName) existing.displayName = safeText(values.displayName, 160) || null;
+    if (values.oryxAdmin === true) existing.globalRoles.oryxAdmin = true;
+    if (values.oryxStaff === true) existing.globalRoles.oryxStaff = true;
+    if (values.oryxDeveloper === true) existing.globalRoles.oryxDeveloper = true;
+    if (values.etrDevice === true) existing.globalRoles.etrDevice = true;
+    users.set(safe, existing);
+  };
+
+  for (const uid of Object.keys(memberships || {})) ensure(uid);
+  for (const [uid, profile] of Object.entries(adminProfiles || {})) {
+    ensure(uid, {
+      email: profile?.email,
+      displayName: profile?.displayName,
+      oryxAdmin: profile?.active === true && profile?.role === "superadmin",
+      oryxStaff: profile?.active === true
+    });
+  }
+  for (const record of Object.values(installations || {})) {
+    const metadata = record?.metadata || {};
+    ensure(metadata.owner_uid || metadata.ownerUid, {
+      email: metadata.owner_email || metadata.ownerEmail,
+      displayName: metadata.owner_display_name || metadata.ownerDisplayName
+    });
+    ensure(metadata.device_uid || metadata.deviceUid, {
+      displayName: metadata.display_name || metadata.displayName,
+      etrDevice: true
+    });
+  }
+  for (const record of Object.values(enrollments || {})) {
+    ensure(record?.ownerUid);
+    ensure(record?.deviceUid, { etrDevice: true });
+  }
+  return users;
 }
 
 function auditRecord({ actor, action, targetType, targetId, reason, before = null, after = null, now }) {
@@ -196,6 +257,16 @@ function auditRecord({ actor, action, targetType, targetId, reason, before = nul
   };
 }
 
+function isAuthPermissionFailure(error) {
+  const code = String(error?.code || "").toLowerCase();
+  const message = String(error?.message || error || "").toLowerCase();
+  return code === "auth/insufficient-permission" ||
+    code === "auth/insufficient-permissions" ||
+    message.includes("insufficient permission") ||
+    message.includes("permission denied") ||
+    message.includes("requires a permission");
+}
+
 export function createAdminService({
   db,
   auth,
@@ -203,9 +274,7 @@ export function createAdminService({
   getConnectedInstallations = () => [],
   now = () => Date.now()
 }) {
-  if (!db?.ref || !auth?.getUser || !auth?.listUsers || !auth?.setCustomUserClaims) {
-    throw new Error("EtR admin service requires Firebase Admin Database and Auth");
-  }
+  if (!db?.ref) throw new Error("EtR admin service requires Firebase Admin Database");
   const bootstrapEmails = new Set(
     String(adminEmails || "")
       .split(",")
@@ -214,70 +283,138 @@ export function createAdminService({
   );
   if (!bootstrapEmails.size) throw new Error("ETR_ADMIN_EMAILS must contain at least one verified address");
 
+  const authState = {
+    available: Boolean(auth?.getUser && auth?.listUsers && auth?.updateUser && auth?.revokeRefreshTokens),
+    code: null
+  };
+
+  function allowlisted(decoded) {
+    return decoded?.email_verified === true && bootstrapEmails.has(normalizedEmail(decoded?.email));
+  }
+
+  function accessLevel(decoded) {
+    const claimed = claimsAdminLevel(decoded);
+    if (claimed !== "none") return claimed;
+    return allowlisted(decoded) ? "write" : "none";
+  }
+
+  function markAuthUnavailable(error) {
+    authState.available = false;
+    authState.code = String(error?.code || "auth/insufficient-permission").slice(0, 120);
+  }
+
+  function authUnavailableError() {
+    return httpError(
+      503,
+      "admin/auth-management-unavailable",
+      "La gestion des comptes Firebase n’est pas encore autorisée sur le serveur. Les installations et les droits EtR restent administrables."
+    );
+  }
+
+  async function bestEffortListUsers(maximum = MAX_USERS) {
+    if (!authState.available || typeof auth?.listUsers !== "function") {
+      return { available: false, users: [], truncated: false };
+    }
+    try {
+      const page = await listAllUsers(auth, maximum);
+      return { available: true, ...page };
+    } catch (error) {
+      if (!isAuthPermissionFailure(error)) throw error;
+      markAuthUnavailable(error);
+      return { available: false, users: [], truncated: false };
+    }
+  }
+
+  async function bestEffortGetUser(uid) {
+    if (!authState.available || typeof auth?.getUser !== "function") return { available: false, user: null };
+    try {
+      return { available: true, user: await auth.getUser(uid) };
+    } catch (error) {
+      if (!isAuthPermissionFailure(error)) throw error;
+      markAuthUnavailable(error);
+      return { available: false, user: null };
+    }
+  }
+
+  async function knownUser(uid) {
+    const [membershipsSnap, adminProfilesSnap, installationsSnap, enrollmentsSnap] = await Promise.all([
+      db.ref("memberships").get(),
+      db.ref("adminProfiles").get(),
+      db.ref("installations").get(),
+      db.ref("enrollmentRequests").get()
+    ]);
+    return knownUserIndex({
+      memberships: objectValue(membershipsSnap),
+      adminProfiles: objectValue(adminProfilesSnap),
+      installations: objectValue(installationsSnap),
+      enrollments: objectValue(enrollmentsSnap)
+    }).get(uid) || null;
+  }
+
   async function writeAudit(record) {
     await db.ref("adminAudit").push(record);
   }
 
-  async function ensureSession(decoded) {
-    const level = adminLevel(decoded);
-    if (level !== "none") {
-      return {
-        authorized: true,
-        level,
-        refreshRequired: false,
-        uid: decoded.uid,
-        email: decoded.email || null,
-        recentAuthentication: recentAuthentication(decoded, now)
-      };
-    }
-    const email = String(decoded?.email || "").trim().toLowerCase();
-    if (decoded?.email_verified !== true || !bootstrapEmails.has(email)) {
-      throw httpError(403, "admin/access-denied", "Compte non autorisé pour l’administration EtR");
-    }
-    const user = await auth.getUser(decoded.uid);
-    const existingClaims = user.customClaims || {};
-    if (existingClaims.oryxAdmin !== true || existingClaims.oryxStaff !== true) {
-      await auth.setCustomUserClaims(decoded.uid, {
-        ...existingClaims,
-        oryxAdmin: true,
-        oryxStaff: true
-      });
-      await db.ref(`adminProfiles/${decoded.uid}`).set({
-        email,
-        role: "superadmin",
-        active: true,
-        grantedAt: new Date(now()).toISOString(),
-        grantedBy: "bootstrap-email-allowlist"
-      });
+  async function ensureAllowlistProfile(decoded) {
+    if (!allowlisted(decoded)) return false;
+    const email = normalizedEmail(decoded.email);
+    const path = `adminProfiles/${decoded.uid}`;
+    const before = (await db.ref(path).get()).val() || null;
+    const expected = {
+      email,
+      role: "superadmin",
+      active: true,
+      grantedAt: before?.grantedAt || new Date(now()).toISOString(),
+      grantedBy: before?.grantedBy || "verified-email-allowlist"
+    };
+    const unchanged = before?.email === expected.email && before?.role === expected.role && before?.active === true;
+    if (!unchanged) {
+      await db.ref(path).set(expected);
       await writeAudit(auditRecord({
         actor: decoded,
-        action: "admin.bootstrap",
+        action: "admin.allowlist.authorize",
         targetType: "user",
         targetId: decoded.uid,
-        reason: "Adresse administrateur EtR vérifiée",
-        before: existingClaims,
-        after: { ...existingClaims, oryxAdmin: true, oryxStaff: true },
+        reason: "Adresse administrateur ORYX vérifiée et inscrite dans la liste d’autorisation",
+        before,
+        after: expected,
         now
       }));
     }
+    return true;
+  }
+
+  async function ensureSession(decoded) {
+    const level = accessLevel(decoded);
+    if (level === "none") {
+      throw httpError(403, "admin/access-denied", "Compte non autorisé pour l’administration EtR");
+    }
+    const byAllowlist = claimsAdminLevel(decoded) === "none" && allowlisted(decoded);
+    if (byAllowlist) await ensureAllowlistProfile(decoded);
     return {
       authorized: true,
-      level: "write",
-      refreshRequired: true,
+      level,
+      refreshRequired: false,
+      authorizationSource: byAllowlist ? "verified-email-allowlist" : "firebase-custom-claims",
       uid: decoded.uid,
-      email,
-      recentAuthentication: recentAuthentication(decoded, now)
+      email: decoded.email || null,
+      recentAuthentication: recentAuthentication(decoded, now),
+      capabilities: {
+        fleetAdministration: true,
+        membershipAdministration: true,
+        firebaseUserManagement: authState.available === false ? false : null
+      }
     };
   }
 
   function requireRead(decoded) {
-    const level = adminLevel(decoded);
+    const level = accessLevel(decoded);
     if (level === "none") throw httpError(403, "admin/access-denied", "Accès administrateur requis");
     return level;
   }
 
   function requireWrite(decoded) {
-    if (adminLevel(decoded) !== "write") throw httpError(403, "admin/write-denied", "Droit administrateur en écriture requis");
+    if (accessLevel(decoded) !== "write") throw httpError(403, "admin/write-denied", "Droit administrateur en écriture requis");
     if (!recentAuthentication(decoded, now)) {
       throw httpError(401, "admin/recent-auth-required", "Reconnectez-vous avant cette opération sensible");
     }
@@ -286,19 +423,22 @@ export function createAdminService({
   async function overview(decoded) {
     requireRead(decoded);
     const connected = new Set(getConnectedInstallations());
-    const [installationsSnap, membershipsSnap, enrollmentSnap, usersPage] = await Promise.all([
+    const [installationsSnap, membershipsSnap, enrollmentSnap, adminProfilesSnap, usersPage] = await Promise.all([
       db.ref("installations").get(),
       db.ref("memberships").get(),
       db.ref("enrollmentRequests").get(),
-      listAllUsers(auth, MAX_USERS)
+      db.ref("adminProfiles").get(),
+      bestEffortListUsers(MAX_USERS)
     ]);
     const installations = objectValue(installationsSnap);
     const memberships = objectValue(membershipsSnap);
     const enrollments = objectValue(enrollmentSnap);
+    const adminProfiles = objectValue(adminProfilesSnap);
     const activeMemberships = Object.values(memberships).reduce((total, list) => {
       if (!list || typeof list !== "object") return total;
       return total + Object.values(list).filter((membership) => membership?.active === true).length;
     }, 0);
+    const known = knownUserIndex({ memberships, adminProfiles, installations, enrollments });
     return {
       generatedAt: new Date(now()).toISOString(),
       installations: {
@@ -306,14 +446,22 @@ export function createAdminService({
         connected: Object.keys(installations).filter((id) => connected.has(id)).length
       },
       users: {
-        total: usersPage.users.length,
-        disabled: usersPage.users.filter((user) => user.disabled).length,
-        truncated: usersPage.truncated
+        total: usersPage.available ? usersPage.users.length : known.size,
+        disabled: usersPage.available ? usersPage.users.filter((user) => user.disabled).length : null,
+        truncated: usersPage.truncated,
+        source: usersPage.available ? "firebase-auth" : "realtime-database-index",
+        managementAvailable: usersPage.available
       },
       memberships: { active: activeMemberships },
       enrollments: {
         pending: Object.values(enrollments).filter((record) => ["pending", "claimed"].includes(record?.status)).length,
         completed: Object.values(enrollments).filter((record) => record?.status === "completed").length
+      },
+      capabilities: {
+        fleetAdministration: true,
+        membershipAdministration: true,
+        firebaseUserManagement: usersPage.available,
+        firebaseAuthErrorCode: usersPage.available ? null : authState.code
       }
     };
   }
@@ -340,11 +488,37 @@ export function createAdminService({
 
   async function listUsers(decoded, limit = MAX_USERS) {
     requireRead(decoded);
-    const memberships = objectValue(await db.ref("memberships").get());
-    const page = await listAllUsers(auth, listLimit(limit, MAX_USERS));
+    const [membershipsSnap, adminProfilesSnap, installationsSnap, enrollmentsSnap, page] = await Promise.all([
+      db.ref("memberships").get(),
+      db.ref("adminProfiles").get(),
+      db.ref("installations").get(),
+      db.ref("enrollmentRequests").get(),
+      bestEffortListUsers(listLimit(limit, MAX_USERS))
+    ]);
+    const memberships = objectValue(membershipsSnap);
+    if (page.available) {
+      return {
+        items: page.users.map((user) => userSummary(user, memberships)).sort((a, b) => String(a.email || a.uid).localeCompare(String(b.email || b.uid))),
+        truncated: page.truncated,
+        limited: false,
+        managementAvailable: true,
+        source: "firebase-auth"
+      };
+    }
+    const known = knownUserIndex({
+      memberships,
+      adminProfiles: objectValue(adminProfilesSnap),
+      installations: objectValue(installationsSnap),
+      enrollments: objectValue(enrollmentsSnap)
+    });
+    const maximum = listLimit(limit, MAX_USERS);
+    const items = [...known.values()].sort((a, b) => String(a.email || a.uid).localeCompare(String(b.email || b.uid)));
     return {
-      items: page.users.map((user) => userSummary(user, memberships)).sort((a, b) => String(a.email || a.uid).localeCompare(String(b.email || b.uid))),
-      truncated: page.truncated
+      items: items.slice(0, maximum),
+      truncated: items.length > maximum,
+      limited: true,
+      managementAvailable: false,
+      source: "realtime-database-index"
     };
   }
 
@@ -385,7 +559,13 @@ export function createAdminService({
     const active = input?.active === true;
     const reason = safeReason(input?.reason);
     if (!ROLES.has(role)) throw httpError(400, "admin/invalid-role", "Rôle EtR invalide");
-    const targetUser = await auth.getUser(uid);
+
+    const lookup = await bestEffortGetUser(uid);
+    const indexed = lookup.available ? null : await knownUser(uid);
+    if (!lookup.available && !indexed) {
+      throw httpError(409, "admin/user-unknown", "Utilisateur inconnu dans les index EtR. Vérifiez l’UID avant d’attribuer un droit.");
+    }
+    const targetEmail = lookup.user?.email || indexed?.email || null;
     const path = `memberships/${uid}/${installationId}`;
     const before = (await db.ref(path).get()).val() || null;
     const after = {
@@ -405,10 +585,14 @@ export function createAdminService({
       targetId: `${uid}:${installationId}`,
       reason,
       before,
-      after: { ...after, targetEmail: targetUser.email || null },
+      after: {
+        ...after,
+        targetEmail,
+        identitySource: lookup.available ? "firebase-auth" : "realtime-database-index"
+      },
       now
     }));
-    return { ok: true, membership: after };
+    return { ok: true, membership: after, target: { uid, email: targetEmail } };
   }
 
   async function updateInstallationMetadata(decoded, input) {
@@ -447,7 +631,9 @@ export function createAdminService({
     if (safeText(input?.confirmation, 80) !== installationId) {
       throw httpError(400, "admin/confirmation-required", "Recopiez l’identifiant de l’installation pour confirmer");
     }
-    const targetUser = await auth.getUser(uid);
+    const lookup = await bestEffortGetUser(uid);
+    if (!lookup.available) throw authUnavailableError();
+    const targetUser = lookup.user;
     if (!targetUser.emailVerified) throw httpError(409, "admin/email-not-verified", "Le nouveau propriétaire doit avoir une adresse vérifiée");
     const memberships = objectValue(await db.ref("memberships").get());
     const updates = {};
@@ -485,17 +671,29 @@ export function createAdminService({
 
   async function setUserStatus(decoded, input) {
     requireWrite(decoded);
+    if (!authState.available || typeof auth?.updateUser !== "function" || typeof auth?.revokeRefreshTokens !== "function") {
+      throw authUnavailableError();
+    }
     const uid = safeUid(input?.uid);
     const disabled = input?.disabled === true;
     const reason = safeReason(input?.reason);
     if (uid === decoded.uid) throw httpError(409, "admin/self-protection", "Vous ne pouvez pas désactiver votre propre compte");
-    const beforeUser = await auth.getUser(uid);
+    const lookup = await bestEffortGetUser(uid);
+    if (!lookup.available) throw authUnavailableError();
+    const beforeUser = lookup.user;
     const confirmationExpected = beforeUser.email || uid;
     if (safeText(input?.confirmation, 254) !== confirmationExpected) {
       throw httpError(400, "admin/confirmation-required", "Recopiez l’adresse e-mail ou l’UID pour confirmer");
     }
-    const afterUser = await auth.updateUser(uid, { disabled });
-    if (disabled) await auth.revokeRefreshTokens(uid);
+    let afterUser;
+    try {
+      afterUser = await auth.updateUser(uid, { disabled });
+      if (disabled) await auth.revokeRefreshTokens(uid);
+    } catch (error) {
+      if (!isAuthPermissionFailure(error)) throw error;
+      markAuthUnavailable(error);
+      throw authUnavailableError();
+    }
     await writeAudit(auditRecord({
       actor: decoded,
       action: disabled ? "user.disable" : "user.enable",
@@ -511,15 +709,24 @@ export function createAdminService({
 
   async function revokeSessions(decoded, input) {
     requireWrite(decoded);
+    if (!authState.available || typeof auth?.revokeRefreshTokens !== "function") throw authUnavailableError();
     const uid = safeUid(input?.uid);
     const reason = safeReason(input?.reason);
     if (uid === decoded.uid) throw httpError(409, "admin/self-protection", "Utilisez une reconnexion normale pour votre propre compte");
-    const user = await auth.getUser(uid);
+    const lookup = await bestEffortGetUser(uid);
+    if (!lookup.available) throw authUnavailableError();
+    const user = lookup.user;
     const confirmationExpected = user.email || uid;
     if (safeText(input?.confirmation, 254) !== confirmationExpected) {
       throw httpError(400, "admin/confirmation-required", "Recopiez l’adresse e-mail ou l’UID pour confirmer");
     }
-    await auth.revokeRefreshTokens(uid);
+    try {
+      await auth.revokeRefreshTokens(uid);
+    } catch (error) {
+      if (!isAuthPermissionFailure(error)) throw error;
+      markAuthUnavailable(error);
+      throw authUnavailableError();
+    }
     await writeAudit(auditRecord({
       actor: decoded,
       action: "user.sessions.revoke",
@@ -662,5 +869,7 @@ export const ADMIN_POLICY = Object.freeze({
   recentAuthenticationSeconds: RECENT_AUTH_SECONDS,
   maximumUsers: MAX_USERS,
   maximumInstallations: MAX_INSTALLATIONS,
-  maximumAuditEntries: MAX_AUDIT
+  maximumAuditEntries: MAX_AUDIT,
+  verifiedEmailAllowlistAccess: true,
+  gracefulFirebaseAuthDegradation: true
 });
