@@ -70,7 +70,7 @@ class RemoteScreenSessionTests(unittest.TestCase):
 
     def test_invalid_installation_claim_is_rejected(self):
         token = fake_id_token(installation_id="../../invalid")
-        with self.assertRaisesRegex(RuntimeError, "device_session_installation_missing"):
+        with self.assertRaisesRegex(RuntimeError, "device_session_installation_invalid"):
             self.agent.installation_id_from_id_token(token)
 
     def test_invalid_jwt_is_rejected(self):
@@ -139,6 +139,7 @@ class RemoteScreenRepositoryContractTests(unittest.TestCase):
         for marker in [
             "authenticate_existing_device_session",
             "installation_id_from_id_token",
+            "installation_id_from_local_device",
             "device_session_missing",
             "PRIMARY_TOKEN_FILE = Path(\"/var/lib/etr-core/firebase-auth.json\")",
             "load_json(PRIMARY_TOKEN_FILE)",
@@ -146,6 +147,7 @@ class RemoteScreenRepositoryContractTests(unittest.TestCase):
             "atomic_json_write",
             'payload.get("installationId")',
             'payload.get("etrDevice") is not True',
+            'f"etr-{serial[-12:].lower()}"',
         ]:
             self.assertIn(marker, source)
         self.assertNotIn("from firebase_bridge import INSTALLATION_ID", source)

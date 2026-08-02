@@ -1,12 +1,15 @@
 import asyncio
+import base64
 import importlib
 import json
 import os
 import socket
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +28,111 @@ firebase_bridge.atomic_json_write = lambda _path, _tokens: None
 sys.modules["firebase_bridge"] = firebase_bridge
 
 agent = importlib.import_module("remote_screen_agent")
+
+
+def unsigned_test_token(payload):
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+    return f"e30.{encoded}.signature"
+
+
+class RemoteScreenIdentityTests(unittest.TestCase):
+    def test_signed_installation_claim_has_priority(self):
+        token = unsigned_test_token(
+            {"etrDevice": True, "installationId": "etr-signed-device"}
+        )
+        self.assertEqual(
+            agent.installation_id_from_id_token(
+                token, fallback_installation_id="etr-local-device"
+            ),
+            "etr-signed-device",
+        )
+
+    def test_legacy_device_token_uses_controlled_local_fallback(self):
+        token = unsigned_test_token({"etrDevice": True})
+        self.assertEqual(
+            agent.installation_id_from_id_token(
+                token, fallback_installation_id="etr-0000dd7429c2"
+            ),
+            "etr-0000dd7429c2",
+        )
+
+    def test_local_raspberry_serial_derives_canonical_enrollment_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            serial_path = Path(directory) / "serial-number"
+            serial_path.write_bytes(b"00000000DD7429C2\x00")
+            missing_cpuinfo = Path(directory) / "cpuinfo-missing"
+            self.assertEqual(
+                agent.installation_id_from_local_device(
+                    serial_paths=(serial_path,),
+                    cpuinfo_path=missing_cpuinfo,
+                    configured="etr-obsolete-hostname",
+                ),
+                "etr-0000dd7429c2",
+            )
+
+    def test_local_configuration_is_used_only_when_serial_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing"
+            self.assertEqual(
+                agent.installation_id_from_local_device(
+                    serial_paths=(missing,),
+                    cpuinfo_path=missing,
+                    configured="etr-configured-device",
+                ),
+                "etr-configured-device",
+            )
+
+    def test_device_claim_is_still_required(self):
+        token = unsigned_test_token({"installationId": "etr-0000dd7429c2"})
+        with self.assertRaisesRegex(RuntimeError, "device_session_claim_missing"):
+            agent.installation_id_from_id_token(
+                token, fallback_installation_id="etr-0000dd7429c2"
+            )
+
+    def test_invalid_signed_installation_is_never_replaced_silently(self):
+        token = unsigned_test_token(
+            {"etrDevice": True, "installationId": "not valid !"}
+        )
+        with self.assertRaisesRegex(RuntimeError, "device_session_installation_invalid"):
+            agent.installation_id_from_id_token(
+                token, fallback_installation_id="etr-0000dd7429c2"
+            )
+
+    def test_authentication_refreshes_shared_session_and_uses_local_fallback(self):
+        token = unsigned_test_token({"etrDevice": True})
+        writes = []
+        with (
+            mock.patch.object(agent, "load_json", return_value={"refreshToken": "refresh-old"}),
+            mock.patch.object(
+                agent,
+                "refresh_tokens",
+                return_value={"idToken": token, "refreshToken": "refresh-new"},
+            ),
+            mock.patch.object(
+                agent,
+                "installation_id_from_local_device",
+                return_value="etr-0000dd7429c2",
+            ),
+            mock.patch.object(
+                agent,
+                "atomic_json_write",
+                side_effect=lambda path, value: writes.append((path, value)),
+            ),
+        ):
+            id_token, installation_id = agent.authenticate_existing_device_session()
+        self.assertEqual(id_token, token)
+        self.assertEqual(installation_id, "etr-0000dd7429c2")
+        self.assertEqual(
+            writes,
+            [
+                (
+                    agent.PRIMARY_TOKEN_FILE,
+                    {"idToken": token, "refreshToken": "refresh-new"},
+                )
+            ],
+        )
 
 
 class FakeWebSocket:
