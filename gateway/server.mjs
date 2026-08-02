@@ -5,8 +5,10 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import admin from "firebase-admin";
 import { createFirebaseIdTokenVerifier } from "./firebase-token-verifier.mjs";
+import { createDeviceConnectionAuthorizer } from "./device-authorization.mjs";
 import { installEnrollmentRoutes } from "./enrollment-http.mjs";
 import { installAdminRoutes } from "./admin.mjs";
+import { installGatewayHealthRoutes } from "./health.mjs";
 import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = Number(process.env.PORT || 8080);
@@ -69,20 +71,23 @@ async function verifyIdToken(token) {
   return verifyFirebaseIdToken(token);
 }
 
+const authorizeDeviceConnection = createDeviceConnectionAuthorizer({
+  verifyIdToken,
+  databaseURL: DATABASE_URL
+});
+
 async function clientCanView(decoded, installationId) {
   if (decoded.oryxAdmin === true || decoded.oryxStaff === true || decoded.oryxDeveloper === true) return true;
   const snap = await db.ref(`memberships/${decoded.uid}/${installationId}`).get();
   return snap.child("active").val() === true;
 }
 
-async function deviceCanConnect(decoded, installationId) {
-  const snap = await db.ref(`deviceAccess/${decoded.uid}`).get();
-  return snap.val() === installationId;
-}
-
 function jsonError(res, error) {
   const status = Number(error.status || 500);
-  res.status(status).json({ error: status >= 500 ? "Erreur de passerelle" : error.message });
+  res.status(status).json({
+    error: status >= 500 ? "Erreur de passerelle" : error.message,
+    code: error.code || undefined
+  });
 }
 
 app.use((req, res, next) => {
@@ -113,15 +118,7 @@ installAdminRoutes({
   getConnectedInstallations: () => [...devices.keys()]
 });
 
-app.get("/healthz", (_req, res) => {
-  let viewers = 0;
-  let readyViewers = 0;
-  for (const device of devices.values()) {
-    if (device.viewer?.readyState === WebSocket.OPEN) viewers += 1;
-    if (device.viewer?.vncReady === true) readyViewers += 1;
-  }
-  res.json({ ok: true, devices: devices.size, viewers, readyViewers, enrollment: "v1", admin: "v1" });
-});
+installGatewayHealthRoutes({ app, devices });
 
 app.post("/api/remote-session", async (req, res) => {
   try {
@@ -196,9 +193,26 @@ server.on("upgrade", async (req, socket, head) => {
     const url = new URL(req.url, "http://gateway.local");
     if (url.pathname === "/device") {
       const installationId = String(url.searchParams.get("installationId") || "");
-      if (!/^[A-Za-z0-9._-]{2,80}$/.test(installationId)) throw Object.assign(new Error("Installation invalide"), { status: 400 });
-      const decoded = await verifyIdToken(bearer(req));
-      if (!(await deviceCanConnect(decoded, installationId))) throw Object.assign(new Error("Équipement non autorisé"), { status: 403 });
+      if (!/^[A-Za-z0-9._-]{2,80}$/.test(installationId)) {
+        throw Object.assign(new Error("Installation invalide"), {
+          status: 400,
+          code: "device-access/installation-invalid"
+        });
+      }
+      const authorization = await authorizeDeviceConnection({
+        token: bearer(req),
+        installationId
+      });
+      if (!authorization.allowed) {
+        console.warn("Remote device binding mismatch", {
+          installationId,
+          linkedInstallationId: authorization.linkedInstallationId || null
+        });
+        throw Object.assign(new Error("Équipement non autorisé"), {
+          status: 403,
+          code: "device-access/mismatch"
+        });
+      }
       wss.handleUpgrade(req, socket, head, (ws) => {
         ws.kind = "device";
         ws.installationId = installationId;
@@ -206,6 +220,7 @@ server.on("upgrade", async (req, socket, head) => {
         const previous = devices.get(installationId);
         if (previous && previous.readyState === WebSocket.OPEN) previous.close(4001, "Connexion remplacée");
         devices.set(installationId, ws);
+        console.log("Remote device connected", { installationId });
         wss.emit("connection", ws, req);
       });
       return;
@@ -243,7 +258,8 @@ server.on("upgrade", async (req, socket, head) => {
       causeMessage: String(cause?.message || "").slice(0, 600),
       status
     });
-    socket.write(`HTTP/1.1 ${status} Error\r\nConnection: close\r\n\r\n`);
+    const reason = http.STATUS_CODES[status] || "Error";
+    socket.write(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n\r\n`);
     socket.destroy();
   }
 });
@@ -351,6 +367,7 @@ wss.on("connection", (ws) => {
     if (ws.kind === "device") {
       if (devices.get(ws.installationId) === ws) devices.delete(ws.installationId);
       if (ws.viewer?.readyState === WebSocket.OPEN) ws.viewer.close(4003, "EtR déconnecté");
+      console.log("Remote device disconnected", { installationId: ws.installationId });
     } else if (ws.kind === "client" && ws.device?.readyState === WebSocket.OPEN) {
       if (ws.device.viewer === ws) ws.device.viewer = null;
       ws.device.send(JSON.stringify({ type: "close", sessionId: ws.sessionId }));

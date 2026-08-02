@@ -24,6 +24,7 @@ concurrency:
 permissions:
   contents: write
   id-token: write
+  actions: write
 
 jobs:
   test_and_deploy:
@@ -34,6 +35,7 @@ jobs:
       PROJECT_ID: oryx-froid-industriel
       REGION: ${{ inputs.region || 'europe-west1' }}
       SERVICE_NAME: etr-remote-gateway
+      EXPECTED_GATEWAY_VERSION: 1.1.1
 
     steps:
       - name: Récupérer les sources
@@ -55,6 +57,8 @@ jobs:
           npm run build:novnc
           npm test
           node --check server.mjs
+          node --check health.mjs
+          node --check device-authorization.mjs
           node --check enrollment.mjs
           node --check enrollment-http.mjs
           node --check device-bootstrap.mjs
@@ -65,6 +69,8 @@ jobs:
           grep -Fq 'createFirebaseDeviceSessionIssuer' enrollment-http.mjs
           grep -Fq '/api/admin/session' admin.mjs
           grep -Fq 'ETR_ADMIN_EMAILS' admin.mjs
+          grep -Fq 'createDeviceConnectionAuthorizer' server.mjs
+          grep -Fq 'installGatewayHealthRoutes' server.mjs
           ! grep -Fq 'auth.createCustomToken' enrollment-http.mjs
 
       - name: Construire et démarrer l'image Docker exacte
@@ -81,6 +87,7 @@ jobs:
             -e FIREBASE_API_KEY=ci-public-firebase-api-key-1234567890 \
             -e ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app \
             -e ETR_ADMIN_EMAILS=amotard.oryx@gmail.com \
+            -e K_REVISION=ci-local-revision \
             etr-gateway-ci:${GITHUB_SHA}
           cleanup() {
             docker logs etr-gateway-ci 2>&1 || true
@@ -97,16 +104,20 @@ jobs:
             sleep 1
           done
           [ "$ready" = true ] || { echo "::error::L'image Docker ne démarre pas"; exit 1; }
-          python3 -m json.tool /tmp/etr-docker-health.json
-          python3 - <<'PY'
-          import json
-          data=json.load(open('/tmp/etr-docker-health.json', encoding='utf-8'))
+          curl -fsS http://127.0.0.1:18080/api/health > /tmp/etr-docker-api-health.json
+          python3 -m json.tool /tmp/etr-docker-api-health.json
+          EXPECTED_GATEWAY_VERSION="$EXPECTED_GATEWAY_VERSION" python3 - <<'PY'
+          import json, os
+          data=json.load(open('/tmp/etr-docker-api-health.json', encoding='utf-8'))
           assert data.get('ok') is True
+          assert data.get('service') == 'etr-remote-gateway'
+          assert data.get('version') == os.environ['EXPECTED_GATEWAY_VERSION']
+          assert data.get('revision') == 'ci-local-revision'
           assert data.get('enrollment') == 'v1'
           assert data.get('admin') == 'v1'
           PY
 
-          for module in server.mjs firebase-token-verifier.mjs enrollment.mjs enrollment-http.mjs device-bootstrap.mjs firebase-device-session.mjs admin.mjs; do
+          for module in server.mjs health.mjs firebase-token-verifier.mjs device-authorization.mjs enrollment.mjs enrollment-http.mjs device-bootstrap.mjs firebase-device-session.mjs admin.mjs; do
             docker exec etr-gateway-ci test -s "/app/${module}"
           done
           admin_status=$(curl -sS -o /tmp/etr-admin-anonymous.json -w '%{http_code}' \
@@ -229,13 +240,16 @@ jobs:
           mkdir -p /tmp/etr-gateway-check
 
           health_status=000
-          for attempt in $(seq 1 36); do
+          for attempt in $(seq 1 48); do
             health_status=$(curl -sS -o /tmp/etr-gateway-check/health.json -w '%{http_code}' \
-              "$GATEWAY_URL/healthz" || echo 000)
-            if [ "$health_status" = "200" ] && python3 - <<'PY'
-          import json
+              "$GATEWAY_URL/api/health" || echo 000)
+            if [ "$health_status" = "200" ] && EXPECTED_GATEWAY_VERSION="$EXPECTED_GATEWAY_VERSION" GATEWAY_REVISION="$GATEWAY_REVISION" python3 - <<'PY'
+          import json, os
           data=json.load(open('/tmp/etr-gateway-check/health.json', encoding='utf-8'))
           assert data.get('ok') is True
+          assert data.get('service') == 'etr-remote-gateway'
+          assert data.get('version') == os.environ['EXPECTED_GATEWAY_VERSION']
+          assert data.get('revision') == os.environ['GATEWAY_REVISION']
           assert data.get('enrollment') == 'v1'
           assert data.get('admin') == 'v1'
           PY
@@ -246,7 +260,7 @@ jobs:
           done
           [ "$health_status" = "200" ] || {
             cat /tmp/etr-gateway-check/health.json 2>/dev/null || true
-            echo "::error::La dernière révision Cloud Run ne publie pas /healthz"
+            echo "::error::La dernière révision Cloud Run ne publie pas /api/health"
             exit 1
           }
 
@@ -287,9 +301,9 @@ jobs:
           diagnostic={
               'url': os.environ['GATEWAY_URL'],
               'revision': os.environ['GATEWAY_REVISION'],
-              'serviceVerifiedBy': 'health-enrollment-and-admin-routes',
+              'serviceVerifiedBy': 'api-health-enrollment-and-admin-routes',
               'healthStatus': int(os.environ['HEALTH_STATUS']),
-              'healthEndpointSupported': os.environ['HEALTH_STATUS']=='200',
+              'apiHealthEndpointSupported': os.environ['HEALTH_STATUS']=='200',
               'requestStatus': int(os.environ['REQUEST_STATUS']),
               'bootstrapStatus': int(os.environ['BOOTSTRAP_STATUS']),
               'adminStatus': int(os.environ['ADMIN_STATUS']),
@@ -301,8 +315,7 @@ jobs:
           json.dump(diagnostic, open('/tmp/etr-gateway-verification.json','w',encoding='utf-8'), ensure_ascii=False, indent=2)
           assert diagnostic['healthStatus'] == 200, diagnostic
           assert (diagnostic['healthBody'] or {}).get('ok') is True, diagnostic
-          assert (diagnostic['healthBody'] or {}).get('enrollment') == 'v1', diagnostic
-          assert (diagnostic['healthBody'] or {}).get('admin') == 'v1', diagnostic
+          assert (diagnostic['healthBody'] or {}).get('service') == 'etr-remote-gateway', diagnostic
           assert diagnostic['requestStatus'] == 400, diagnostic
           assert (diagnostic['requestBody'] or {}).get('code') == 'invalid_serial', diagnostic
           assert diagnostic['bootstrapStatus'] == 401, diagnostic
@@ -338,6 +351,12 @@ jobs:
             exit 1
           }
           python3 -c 'import json; data=json.load(open("/tmp/etr-session-health.json")); assert data=={"ok":True,"mode":"firebase-password-session","tokenExchange":True}'
+
+      - name: Déclencher la réparation rapide du Raspberry
+        if: github.event_name != 'pull_request' && steps.verify_session.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run etr-remote-screen-repair-fast.yml --ref main
 
       - name: Enregistrer la preuve du déploiement
         if: always() && github.event_name != 'pull_request'
@@ -379,8 +398,10 @@ jobs:
               'url': os.getenv('GATEWAY_URL') or None,
               'revision': os.getenv('GATEWAY_REVISION') or None,
               'trafficPercent': int(os.getenv('TRAFFIC_PERCENT') or 0),
+              'version': (diagnostic or {}).get('healthBody', {}).get('version') if diagnostic else None,
               'enrollment': 'v1',
               'admin': 'v1',
+              'deviceAuthorization': 'firebase-id-token-plus-deviceAccess',
               'adminRouteVerified': bool(diagnostic and diagnostic.get('adminStatus') == 401),
               'adminBootstrap': 'verified-email-allowlist',
               'deviceBootstrap': 'github-oidc-ed25519',

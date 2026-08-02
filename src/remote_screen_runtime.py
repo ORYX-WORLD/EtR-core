@@ -41,12 +41,24 @@ def authenticate_linked_device_session() -> tuple[str, str]:
     return id_token, installation_id
 
 
-agent.authenticate_existing_device_session = authenticate_linked_device_session
+def install_runtime_authenticator() -> None:
+    """Installe l'authentificateur lié uniquement au démarrage du service.
+
+    Ne pas modifier le module agent à l'import évite qu'un test ou un autre
+    consommateur Python remplace involontairement son authentificateur standard.
+    """
+
+    agent.authenticate_existing_device_session = authenticate_linked_device_session
 
 
-if __name__ == "__main__":
+def main() -> None:
+    install_runtime_authenticator()
     logging.basicConfig(
         level=os.getenv("ETR_REMOTE_LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     asyncio.run(agent.run_forever())
+
+
+if __name__ == "__main__":
+    main()
