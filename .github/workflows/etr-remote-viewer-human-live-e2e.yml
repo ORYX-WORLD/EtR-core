@@ -49,6 +49,19 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      - name: Installer Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Préparer un jeton OAuth éphémère pour le lien de vérification
+        id: google_access
+        shell: bash
+        run: |
+          set -euo pipefail
+          access_token=$(gcloud auth print-access-token)
+          test ${#access_token} -ge 40
+          echo "::add-mask::$access_token"
+          echo "access_token=$access_token" >> "$GITHUB_OUTPUT"
+
       - name: Lire la configuration Firebase publique
         id: firebase_config
         shell: bash
@@ -106,6 +119,7 @@ jobs:
         shell: bash
         env:
           FIREBASE_API_KEY: ${{ steps.firebase_config.outputs.api_key }}
+          GOOGLE_OAUTH_ACCESS_TOKEN: ${{ steps.google_access.outputs.access_token }}
         run: |
           set +e
           export ETR_HUMAN_E2E_OUTPUT=/tmp/etr-human-e2e/result.json
@@ -154,15 +168,18 @@ jobs:
         run: |
           set +e
           python3 - <<'PY' > /tmp/etr-remote-viewer-human-live-e2e-last.json
-          import json, os
+          import json, os, re
           from datetime import datetime, timezone
           from pathlib import Path
           def load(name):
               try:return json.loads(Path(name).read_text(encoding='utf-8'))
               except Exception:return None
           def safe(name, limit=4000):
-              try:return Path(name).read_text(encoding='utf-8', errors='replace')[-limit:]
+              try:value=Path(name).read_text(encoding='utf-8', errors='replace')[-limit:]
               except OSError:return ''
+              value=re.sub(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', '<adresse-masquee>', value)
+              value=re.sub(r'(?i)(bearer\s+|idtoken[=: ]+|refreshtoken[=: ]+|access_token[=: ]+)[A-Za-z0-9._~+\-/=]+', r'\1<secret-masque>', value)
+              return value
           report={
               'checkedAt':datetime.now(timezone.utc).isoformat(),
               'commit':os.getenv('GITHUB_SHA'),
