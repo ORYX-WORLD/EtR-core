@@ -11,12 +11,34 @@ from urllib.parse import urlencode
 import websockets
 from websockets.exceptions import ConnectionClosed
 
-from firebase_bridge import INSTALLATION_ID, authenticate
+from firebase_bridge import INSTALLATION_ID, load_tokens, refresh_tokens, save_tokens
 
 LOG = logging.getLogger("etr.remote-screen")
 LOCAL_VNC_HOST = os.getenv("ETR_LOCAL_VNC_HOST", "127.0.0.1")
 LOCAL_VNC_PORT = int(os.getenv("ETR_LOCAL_VNC_PORT", "5901"))
 GATEWAY = os.getenv("ETR_REMOTE_GATEWAY_WSS", "").strip()
+
+
+def authenticate_existing_device_session() -> str:
+    """Refresh the device session already created by the enrollment bridge.
+
+    The screen relay must never start a second enrollment flow. Both services
+    run under the same non-privileged user and deliberately share the enrolled
+    device token file. A missing session therefore means "wait for the bridge",
+    not "request another activation code".
+    """
+
+    cached = load_tokens()
+    refresh_token = str(cached.get("refreshToken") or "").strip()
+    if not refresh_token:
+        raise RuntimeError("device_session_missing")
+    data = refresh_tokens(refresh_token)
+    id_token = str(data.get("idToken") or "").strip()
+    next_refresh_token = str(data.get("refreshToken") or refresh_token).strip()
+    if not id_token or not next_refresh_token:
+        raise RuntimeError("device_session_refresh_incomplete")
+    save_tokens({"idToken": id_token, "refreshToken": next_refresh_token})
+    return id_token
 
 
 async def relay_vnc(ws):
@@ -122,9 +144,11 @@ async def run_forever():
         raise SystemExit("ETR_REMOTE_GATEWAY_WSS is not configured")
 
     delay = 2
+    session_wait_logged = False
     while True:
         try:
-            token = authenticate()
+            token = authenticate_existing_device_session()
+            session_wait_logged = False
             query = urlencode({"installationId": INSTALLATION_ID})
             url = f"{GATEWAY}{'&' if '?' in GATEWAY else '?'}{query}"
             LOG.info("Connecting installation %s to the remote gateway", INSTALLATION_ID)
@@ -136,8 +160,16 @@ async def run_forever():
                 ping_timeout=20,
                 close_timeout=5,
             ) as ws:
+                LOG.info("Installation %s connected to the remote gateway", INSTALLATION_ID)
                 delay = 2
                 await relay_vnc(ws)
+        except RuntimeError as exc:
+            if str(exc) == "device_session_missing":
+                if not session_wait_logged:
+                    LOG.info("Session appareil absente; attente de l'enrôlement Firebase principal")
+                    session_wait_logged = True
+            else:
+                LOG.warning("Remote device session unavailable: %s", exc)
         except (ConnectionClosed, OSError, asyncio.TimeoutError) as exc:
             LOG.warning("Remote gateway disconnected: %s", exc)
         except Exception:

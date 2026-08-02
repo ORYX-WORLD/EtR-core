@@ -37,13 +37,15 @@ for state_file in \
   /var/lib/etr-core/firebase-auth.json \
   /var/lib/etr-core/enrollment.json \
   /var/lib/etr-core/telemetry.json \
-  /var/lib/etr-core/remote-screen-auth.json \
   /var/lib/etr-core/bootstrap-private.pem; do
   if [ -f "$state_file" ]; then
     sudo chown oryx:oryx "$state_file"
     sudo chmod 600 "$state_file"
   fi
 done
+# Supprimer l'ancien second état d'authentification : l'écran distant réutilise
+# désormais l'identité technique déjà enrôlée du bridge Firebase principal.
+sudo rm -f /var/lib/etr-core/remote-screen-auth.json /var/lib/etr-core/remote-screen-auth.tmp
 
 # Identité asymétrique persistante du Raspberry. La clé privée ne quitte jamais
 # l'équipement ; seule la clé publique sera enregistrée par le runner GitHub.
@@ -94,10 +96,14 @@ sudo install -m 644 src/deploy/raspi/etr-kiosk.service /etc/systemd/system/etr-k
 sudo install -m 644 src/deploy/raspi/etr-vnc.service /etc/systemd/system/etr-vnc.service
 sudo install -m 644 src/deploy/raspi/etr-remote-screen.service /etc/systemd/system/etr-remote-screen.service
 
-# Protection de l'espace disque et jeton distinct du relais écran.
+# Protection de l'espace disque et partage de la session appareil enrôlée.
 sudo systemctl stop etr-remote-screen.service 2>/dev/null || true
 sudo install -d -m 755 -o oryx -g oryx /home/oryx/.local/bin
-sudo rm -f /var/lib/etr-core/remote-screen-auth.tmp
+sudo rm -f /var/lib/etr-core/remote-screen-auth.json /var/lib/etr-core/remote-screen-auth.tmp
+if [ -f /var/lib/etr-core/firebase-auth.json ]; then
+  sudo chown oryx:oryx /var/lib/etr-core/firebase-auth.json
+  sudo chmod 600 /var/lib/etr-core/firebase-auth.json
+fi
 sudo install -m 755 src/deploy/raspi/etr-storage-maintenance.sh /home/oryx/.local/bin/etr-storage-maintenance.sh
 echo '*/15 * * * * oryx /home/oryx/.local/bin/etr-storage-maintenance.sh' | \
   sudo tee /etc/cron.d/etr-storage-maintenance >/dev/null
