@@ -22,7 +22,8 @@ import requests
 import websockets
 
 from firebase_bridge import atomic_json_write, load_json, refresh_tokens
-from remote_screen_agent import installation_id_from_id_token
+from remote_screen_agent import installation_id_from_local_device
+from remote_screen_identity import resolve_remote_installation_id
 
 
 def utc_now() -> str:
@@ -43,7 +44,7 @@ def decode_payload(id_token: str) -> dict[str, Any]:
     return payload
 
 
-def refresh_device_session(token_file: Path) -> tuple[str, str, str]:
+def refresh_device_session(token_file: Path, *, database_url: str) -> tuple[str, str, str]:
     cached = load_json(token_file)
     refresh_token = str(cached.get("refreshToken") or "").strip()
     if not refresh_token:
@@ -53,7 +54,11 @@ def refresh_device_session(token_file: Path) -> tuple[str, str, str]:
     next_refresh = str(data.get("refreshToken") or refresh_token).strip()
     if not id_token or not next_refresh:
         raise RuntimeError("device_session_refresh_incomplete")
-    installation_id = installation_id_from_id_token(id_token)
+    installation_id = resolve_remote_installation_id(
+        id_token,
+        database_url=database_url,
+        local_fallback=installation_id_from_local_device(),
+    )
     atomic_json_write(token_file, {"idToken": id_token, "refreshToken": next_refresh})
     payload = decode_payload(id_token)
     uid = str(payload.get("sub") or payload.get("user_id") or "").strip()
@@ -75,7 +80,7 @@ def check_device_access(
         response = request_get(
             url,
             params={"auth": id_token},
-            headers={"Accept": "application/json", "User-Agent": "EtR-Remote-Probe/1.0"},
+            headers={"Accept": "application/json", "User-Agent": "EtR-Remote-Probe/2.0"},
             timeout=12,
         )
         try:
@@ -123,7 +128,10 @@ async def run_probe(token_file: Path) -> dict[str, Any]:
     if not database_url.startswith("https://"):
         raise RuntimeError("database_url_missing")
 
-    id_token, installation_id, uid = refresh_device_session(token_file)
+    id_token, installation_id, uid = refresh_device_session(
+        token_file,
+        database_url=database_url,
+    )
     access = check_device_access(
         database_url=database_url,
         uid=uid,
