@@ -1,0 +1,24 @@
+{
+  "checkedAt": "2026-08-02T16:04:37.752036+00:00",
+  "projectId": "oryx-froid-industriel",
+  "principalFingerprint": "5e8216604d7d2eb5",
+  "httpStatus": 200,
+  "errorCode": null,
+  "permissions": {
+    "firebaseauth.configs.get": false,
+    "firebaseauth.configs.update": false,
+    "firebaseauth.users.get": false,
+    "resourcemanager.projects.getIamPolicy": false,
+    "resourcemanager.projects.setIamPolicy": false,
+    "iam.roles.get": false,
+    "iam.roles.create": false,
+    "iam.roles.update": false,
+    "serviceusage.services.enable": true
+  },
+  "safeAutomaticPaths": {
+    "readConfig": false,
+    "updateConfig": false,
+    "bindPredefinedViewerRole": false,
+    "createMinimalCustomRole": false
+  }
+}
