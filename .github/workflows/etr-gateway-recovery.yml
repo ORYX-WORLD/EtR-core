@@ -1,0 +1,272 @@
+name: Rétablir la passerelle Cloud Run EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-gateway-recovery.yml
+
+concurrency:
+  group: etr-gateway-recovery
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+  actions: write
+
+jobs:
+  recover:
+    name: Déployer une révision neuve et rétablir le trafic
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PROJECT_ID: oryx-froid-industriel
+      REGION: europe-west1
+      SERVICE_NAME: etr-remote-gateway
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Vérifier l'image exacte avant récupération
+        working-directory: gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull -t etr-gateway-recovery:${GITHUB_SHA} .
+          docker run --rm -d \
+            --name etr-gateway-recovery \
+            -p 127.0.0.1:18082:8080 \
+            -e FIREBASE_PROJECT_ID=oryx-froid-industriel \
+            -e FIREBASE_DATABASE_URL=https://example-default-rtdb.europe-west1.firebasedatabase.app \
+            -e FIREBASE_API_KEY=ci-public-firebase-api-key-1234567890 \
+            -e ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app \
+            -e ETR_ADMIN_EMAILS=amotard.oryx@gmail.com \
+            etr-gateway-recovery:${GITHUB_SHA}
+          cleanup() {
+            docker logs etr-gateway-recovery 2>&1 || true
+            docker rm -f etr-gateway-recovery >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          ready=false
+          for attempt in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:18082/healthz > /tmp/etr-recovery-local-health.json; then
+              ready=true
+              break
+            fi
+            running=$(docker inspect etr-gateway-recovery --format '{{.State.Running}}' 2>/dev/null || echo false)
+            [ "$running" = true ] || { echo "::error::Le conteneur de récupération s'est arrêté"; exit 1; }
+            sleep 1
+          done
+          [ "$ready" = true ] || { echo "::error::Le conteneur ne sert pas /healthz"; exit 1; }
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-recovery-local-health.json', encoding='utf-8'))
+          assert data.get('ok') is True
+          assert data.get('enrollment') == 'v1'
+          assert data.get('admin') == 'v1'
+          PY
+
+      - name: Authentification Google Cloud
+        id: google_auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Installer Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Lire la configuration Firebase publique
+        id: firebase_config
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 6 --retry-delay 3 --retry-all-errors -fsS \
+            https://oryx-froid-industriel.web.app/__/firebase/init.json \
+            > /tmp/etr-recovery-firebase.json
+          firebase_api_key=$(python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-recovery-firebase.json', encoding='utf-8'))
+          assert data.get('projectId') == 'oryx-froid-industriel'
+          key=str(data.get('apiKey') or '').strip()
+          assert 20 <= len(key) <= 200
+          print(key)
+          PY
+          )
+          echo "::add-mask::$firebase_api_key"
+          echo "api_key=$firebase_api_key" >> "$GITHUB_OUTPUT"
+          rm -f /tmp/etr-recovery-firebase.json
+
+      - name: Déployer sans trafic puis router la révision exacte
+        id: deploy
+        shell: bash
+        env:
+          RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          FIREBASE_API_KEY: ${{ steps.firebase_config.outputs.api_key }}
+          ETR_ADMIN_EMAILS: ${{ vars.ETR_ADMIN_EMAILS || 'amotard.oryx@gmail.com' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-gateway-recovery
+          suffix="recovery-${GITHUB_RUN_NUMBER}"
+          gcloud services enable \
+            run.googleapis.com \
+            cloudbuild.googleapis.com \
+            artifactregistry.googleapis.com \
+            --project="$PROJECT_ID"
+
+          gcloud run deploy "$SERVICE_NAME" \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --source=gateway \
+            --service-account="$RUNTIME_SERVICE_ACCOUNT" \
+            --allow-unauthenticated \
+            --min-instances=1 \
+            --max-instances=1 \
+            --concurrency=80 \
+            --timeout=3600 \
+            --revision-suffix="$suffix" \
+            --no-traffic \
+            --set-env-vars="ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app,FIREBASE_PROJECT_ID=oryx-froid-industriel,FIREBASE_DATABASE_URL=https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app,FIREBASE_API_KEY=${FIREBASE_API_KEY},ETR_GITHUB_REPOSITORY=ORYX-WORLD/EtR-core,ETR_ADMIN_EMAILS=${ETR_ADMIN_EMAILS}" \
+            --quiet
+
+          url=$(gcloud run services describe "$SERVICE_NAME" \
+            --project="$PROJECT_ID" --region="$REGION" \
+            --format='value(status.url)')
+          revision=$(gcloud run services describe "$SERVICE_NAME" \
+            --project="$PROJECT_ID" --region="$REGION" \
+            --format='value(status.latestReadyRevisionName)')
+          test -n "$url"
+          test -n "$revision"
+          printf '%s' "$url" > /tmp/etr-gateway-recovery/url
+          printf '%s' "$revision" > /tmp/etr-gateway-recovery/revision
+
+          gcloud run services update-traffic "$SERVICE_NAME" \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --to-revisions="${revision}=100" \
+            --quiet
+
+          traffic=$(gcloud run services describe "$SERVICE_NAME" \
+            --project="$PROJECT_ID" --region="$REGION" \
+            --format='json(status.traffic)')
+          printf '%s\n' "$traffic" > /tmp/etr-gateway-recovery/traffic.json
+          REVISION="$revision" python3 - <<'PY'
+          import json, os
+          data=json.load(open('/tmp/etr-gateway-recovery/traffic.json', encoding='utf-8'))
+          revision=os.environ['REVISION']
+          assert any(
+              int(item.get('percent', 0)) == 100 and (
+                  item.get('revisionName') == revision or item.get('latestRevision') is True
+              )
+              for item in data
+          ), data
+          PY
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Vérifier la révision publique et la session appareil
+        id: verify
+        shell: bash
+        env:
+          GATEWAY_URL: ${{ steps.deploy.outputs.url }}
+          GATEWAY_REVISION: ${{ steps.deploy.outputs.revision }}
+        run: |
+          set -euo pipefail
+          health_status=000
+          for attempt in $(seq 1 48); do
+            health_status=$(curl -sS -o /tmp/etr-gateway-recovery/health.json -w '%{http_code}' \
+              "$GATEWAY_URL/healthz" || echo 000)
+            if [ "$health_status" = "200" ] && python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-gateway-recovery/health.json', encoding='utf-8'))
+          assert data.get('ok') is True
+          assert data.get('enrollment') == 'v1'
+          assert data.get('admin') == 'v1'
+          PY
+            then
+              break
+            fi
+            sleep 5
+          done
+          [ "$health_status" = "200" ] || { cat /tmp/etr-gateway-recovery/health.json 2>/dev/null || true; exit 1; }
+
+          oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=etr-bootstrap"
+          curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$oidc_url" \
+            > /tmp/etr-gateway-recovery/oidc.json
+          oidc_token=$(python3 -c 'import json; print(json.load(open("/tmp/etr-gateway-recovery/oidc.json"))["value"])')
+          status=$(curl -sS -o /tmp/etr-gateway-recovery/session.json -w '%{http_code}' \
+            -X POST "$GATEWAY_URL/api/enrollment/session-health" \
+            -H "Authorization: Bearer ${oidc_token}" \
+            -H 'Content-Type: application/json' \
+            -d '{}')
+          unset oidc_token
+          rm -f /tmp/etr-gateway-recovery/oidc.json
+          [ "$status" = "200" ] || { cat /tmp/etr-gateway-recovery/session.json; exit 1; }
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-gateway-recovery/session.json', encoding='utf-8'))
+          assert data == {'ok': True, 'mode': 'firebase-password-session', 'tokenExchange': True}
+          PY
+          echo "Révision publique vérifiée : $GATEWAY_REVISION" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Déclencher la réparation du Raspberry
+        if: steps.verify.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run etr-remote-screen-repair.yml --ref main
+
+      - name: Enregistrer la preuve de récupération
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          GATEWAY_URL: ${{ steps.deploy.outputs.url }}
+          GATEWAY_REVISION: ${{ steps.deploy.outputs.revision }}
+        run: |
+          set +e
+          mkdir -p /tmp/etr-gateway-recovery
+          [ -n "$GATEWAY_URL" ] && curl -fsS "$GATEWAY_URL/healthz" > /tmp/etr-gateway-recovery/health-final.json 2>/dev/null
+          python3 - <<'PY' > /tmp/etr-gateway-recovery-last.json
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path('/tmp/etr-gateway-recovery')
+          def load(name):
+              try:
+                  data=json.loads((root/name).read_text(encoding='utf-8'))
+                  return data
+              except Exception: return None
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'commit':os.getenv('GITHUB_SHA'),
+              'status':'success' if os.getenv('JOB_STATUS') == 'success' else 'failure',
+              'deployOutcome':os.getenv('DEPLOY_OUTCOME'),
+              'verifyOutcome':os.getenv('VERIFY_OUTCOME'),
+              'url':os.getenv('GATEWAY_URL') or None,
+              'revision':os.getenv('GATEWAY_REVISION') or None,
+              'traffic':load('traffic.json'),
+              'health':load('health-final.json') or load('health.json'),
+              'sessionHealth':load('session.json'),
+          }
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+          cat /tmp/etr-gateway-recovery-last.json
+          git fetch origin main
+          git checkout -B recovery-report origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-gateway-recovery-last.json .github/deployment/gateway-recovery-last.json
+          git config user.name "EtR gateway recovery agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/gateway-recovery-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR gateway recovery [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
