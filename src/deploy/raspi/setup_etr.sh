@@ -93,11 +93,14 @@ sudo install -m 644 src/deploy/raspi/spi-desktop.service.d/blanking.conf /etc/sy
 sudo install -m 644 src/deploy/raspi/etr-kiosk.service /etc/systemd/system/etr-kiosk.service
 
 # Écran distant : VNC reste local au Raspberry et le relais est uniquement sortant.
+# Un ancien drop-in token.conf pouvait prendre le dessus sur l'unité versionnée ;
+# aucun override local n'est nécessaire pour ce service, donc on le supprime.
+sudo systemctl stop etr-remote-screen.service 2>/dev/null || true
+sudo rm -rf /etc/systemd/system/etr-remote-screen.service.d
 sudo install -m 644 src/deploy/raspi/etr-vnc.service /etc/systemd/system/etr-vnc.service
 sudo install -m 644 src/deploy/raspi/etr-remote-screen.service /etc/systemd/system/etr-remote-screen.service
 
 # Protection de l'espace disque et partage de la session appareil enrôlée.
-sudo systemctl stop etr-remote-screen.service 2>/dev/null || true
 sudo install -d -m 755 -o oryx -g oryx /home/oryx/.local/bin
 sudo rm -f /var/lib/etr-core/remote-screen-auth.json /var/lib/etr-core/remote-screen-auth.tmp
 if [ -f /var/lib/etr-core/firebase-auth.json ]; then
@@ -122,6 +125,12 @@ sudo rm -f /home/oryx/.cache/etr-kiosk-chromium/SingletonCookie \
 sudo systemctl reset-failed etr-dashboard.service etr-firebase-bridge.service etr-wifi-portal.service etr-kiosk.service 2>/dev/null || true
 
 sudo systemctl daemon-reload
+# Prouver que systemd charge le fichier de jetons partagé et aucune ancienne
+# surcharge remote-screen-auth.json avant de démarrer le relais.
+remote_unit=$(sudo systemctl cat etr-remote-screen.service)
+grep -Fq 'ETR_TOKEN_FILE=/var/lib/etr-core/firebase-auth.json' <<<"$remote_unit"
+! grep -Fq 'ETR_TOKEN_FILE=/var/lib/etr-core/remote-screen-auth.json' <<<"$remote_unit"
+
 sudo systemctl enable etr.service etr-dashboard.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service
 sudo systemctl restart etr.service
 
