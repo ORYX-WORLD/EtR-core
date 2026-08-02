@@ -19,6 +19,7 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
         for marker in [
             "buildPlusAlias",
             "ETR_HUMAN_E2E_EMAIL_BASE",
+            "${match[1]}+${tag}@${match[2]}",
             'method: "accounts:signUp"',
             'method: "accounts:sendOobCode"',
             'requestType: "VERIFY_EMAIL"',
@@ -47,6 +48,7 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
             "GOOGLE_OAUTH_ACCESS_TOKEN",
             "console.log(email)",
             "console.log(password)",
+            "@gmail\\.com",
         ]:
             self.assertNotIn(forbidden, script)
 
@@ -60,14 +62,14 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
         ]:
             self.assertNotIn(forbidden, report_section)
 
-    def test_workflow_uses_wif_only_for_temporary_membership(self):
+    def test_workflow_uses_connected_mailbox_and_wif_only_for_membership(self):
         workflow = (ROOT / ".github/workflows/etr-remote-viewer-human-live-e2e.yml").read_text(encoding="utf-8")
         for marker in [
             "id-token: write",
             "google-github-actions/auth@v3",
             "GCP_WORKLOAD_IDENTITY_PROVIDER",
             "GCP_SERVICE_ACCOUNT",
-            "ETR_HUMAN_E2E_EMAIL_BASE: amotard.oryx@gmail.com",
+            "ETR_HUMAN_E2E_EMAIL_BASE: contact@corefrigeration.com",
             "firebase/init.json",
             "remote-screen-human-live-e2e.mjs",
             "etr-remote-viewer-human-live-e2e-last.json",
@@ -116,7 +118,7 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
             '"refreshToken":',
             "'authorization':",
             '"authorization":',
-            "amotard.oryx@gmail.com",
+            "contact@corefrigeration.com",
         ]:
             self.assertNotIn(forbidden, proof)
 
