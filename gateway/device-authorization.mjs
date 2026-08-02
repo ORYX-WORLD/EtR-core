@@ -1,5 +1,90 @@
+import { decodeJwt, decodeProtectedHeader } from "jose";
+
 function gatewayError(message, status, code, cause) {
   return Object.assign(new Error(message, { cause }), { status, code });
+}
+
+export function decodeFirebaseDeviceIdentity(
+  token,
+  {
+    projectId = process.env.FIREBASE_PROJECT_ID || "oryx-froid-industriel",
+    now = Math.floor(Date.now() / 1000)
+  } = {}
+) {
+  if (!token) {
+    throw gatewayError(
+      "Jeton appareil manquant",
+      401,
+      "device-access/token-missing"
+    );
+  }
+  if (!projectId) {
+    throw gatewayError(
+      "Projet Firebase appareil non configuré",
+      503,
+      "device-access/project-missing"
+    );
+  }
+
+  let header;
+  let payload;
+  try {
+    header = decodeProtectedHeader(token);
+    payload = decodeJwt(token);
+  } catch (error) {
+    throw gatewayError(
+      "Jeton appareil invalide",
+      401,
+      "device-access/token-invalid",
+      error
+    );
+  }
+
+  const issuer = `https://securetoken.google.com/${projectId}`;
+  if (header.alg !== "RS256") {
+    throw gatewayError(
+      "Algorithme du jeton appareil invalide",
+      401,
+      "device-access/token-invalid"
+    );
+  }
+  if (payload.aud !== projectId || payload.iss !== issuer) {
+    throw gatewayError(
+      "Projet du jeton appareil invalide",
+      401,
+      "device-access/token-project-invalid"
+    );
+  }
+  if (typeof payload.sub !== "string" || payload.sub.length === 0 || payload.sub.length > 128) {
+    throw gatewayError(
+      "UID appareil invalide",
+      401,
+      "device-access/uid-invalid"
+    );
+  }
+  if (!Number.isFinite(payload.exp) || payload.exp <= now - 5) {
+    throw gatewayError(
+      "Jeton appareil expiré",
+      401,
+      "device-access/token-expired"
+    );
+  }
+  if (!Number.isFinite(payload.iat) || payload.iat > now + 5) {
+    throw gatewayError(
+      "Date d'émission du jeton appareil invalide",
+      401,
+      "device-access/token-invalid"
+    );
+  }
+  if (!Number.isFinite(payload.auth_time) || payload.auth_time > now + 5) {
+    throw gatewayError(
+      "Date d'authentification appareil invalide",
+      401,
+      "device-access/token-invalid"
+    );
+  }
+
+  return { ...payload, uid: payload.sub };
 }
 
 export async function readDeviceBinding({
@@ -29,7 +114,7 @@ export async function readDeviceBinding({
   let response;
   try {
     response = await fetchImpl(url, {
-      headers: { accept: "application/json", "user-agent": "EtR-Gateway/2.0" },
+      headers: { accept: "application/json", "user-agent": "EtR-Gateway/2.1" },
       signal: AbortSignal.timeout(10_000)
     });
   } catch (error) {
@@ -82,16 +167,19 @@ export async function readDeviceBinding({
 }
 
 export function createDeviceConnectionAuthorizer({
-  verifyIdToken,
+  projectId = process.env.FIREBASE_PROJECT_ID || "oryx-froid-industriel",
   databaseURL,
   fetchImpl = globalThis.fetch
 } = {}) {
-  if (typeof verifyIdToken !== "function") {
-    throw new Error("Device connection authorizer requires verifyIdToken");
+  if (!projectId) {
+    throw new Error("Device connection authorizer requires projectId");
   }
 
   return async function authorizeDeviceConnection({ token, installationId }) {
-    const decoded = await verifyIdToken(token);
+    // Structural Firebase claim validation is followed immediately by an RTDB
+    // read authenticated with the same token. RTDB performs the cryptographic
+    // token validation and its rules require auth.uid to equal this UID.
+    const decoded = decodeFirebaseDeviceIdentity(token, { projectId });
     const linkedInstallationId = await readDeviceBinding({
       databaseURL,
       uid: decoded.uid,

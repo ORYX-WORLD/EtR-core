@@ -48,14 +48,18 @@ class GatewayDeviceAuthorizationAndHealthContractTests(unittest.TestCase):
             self.assertIn(marker, server)
         self.assertNotIn("async function deviceCanConnect", server)
         for marker in [
+            "decodeFirebaseDeviceIdentity",
             "/deviceAccess/",
             'url.searchParams.set("auth", token)',
-            "verifyIdToken(token)",
+            "payload.aud !== projectId",
             "linkedInstallationId === installationId",
             "device-access/firebase-${response.status}",
             "device-access/network-error",
+            "RTDB performs the cryptographic",
         ]:
             self.assertIn(marker, authorization)
+        self.assertNotIn("await verifyIdToken(token)", authorization)
+        self.assertNotIn("auth.getUser", authorization)
 
     def test_docker_and_deployment_verify_the_new_modules_and_revision(self):
         dockerfile = (ROOT / "gateway/Dockerfile").read_text(encoding="utf-8")
