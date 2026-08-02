@@ -1,12 +1,12 @@
 {
-  "checkedAt": "2026-08-02T13:47:47.922205+00:00",
-  "commit": "46221b05258ba5480141a226219a1b825b8b15f3",
+  "checkedAt": "2026-08-02T14:12:19.223465+00:00",
+  "commit": "b6ec046ab98a143843981f26c2f2fae13c28edc9",
   "status": "failure",
   "project": "oryx-froid-industriel",
   "region": "europe-west1",
   "service": "etr-remote-gateway",
   "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
-  "revision": "etr-remote-gateway-00018-kxq",
+  "revision": "etr-remote-gateway-00019-2sd",
   "trafficPercent": 100,
   "version": "1.1.1",
   "enrollment": "v1",
@@ -28,7 +28,7 @@
   },
   "verification": {
     "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
-    "revision": "etr-remote-gateway-00018-kxq",
+    "revision": "etr-remote-gateway-00019-2sd",
     "serviceVerifiedBy": "api-health-enrollment-and-admin-routes",
     "healthStatus": 200,
     "apiHealthEndpointSupported": true,
@@ -39,12 +39,13 @@
       "ok": true,
       "service": "etr-remote-gateway",
       "version": "1.1.1",
-      "revision": "etr-remote-gateway-00018-kxq",
+      "revision": "etr-remote-gateway-00019-2sd",
       "devices": 0,
       "viewers": 0,
       "readyViewers": 0,
       "enrollment": "v1",
-      "admin": "v1"
+      "admin": "v1",
+      "liveViewerDiagnostic": "github-oidc"
     },
     "requestBody": {
       "error": "Numéro de série invalide",
