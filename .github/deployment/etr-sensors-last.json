@@ -1,12 +1,12 @@
 {
-  "checkedAt": "2026-08-02T11:10:31.484133+00:00",
+  "checkedAt": "2026-08-02T11:13:38.344526+00:00",
   "jobStatus": "success",
   "host": "etr-core",
   "machine": "aarch64",
   "kernel": "6.12.47+rpt-rpi-v8",
   "model": "Raspberry Pi 4 Model B Rev 1.5",
   "bootId": "c0ba0185-5c47-4f2b-a254-e42eddfdba0d",
-  "installedCommit": "e2cf2307abfc6ce9c5883d7068cee83ea1a3d4f4",
+  "installedCommit": "e65a4c5619ffc3b48131ef972d07166adb62089b",
   "installExitCode": "0",
   "rebootScheduled": false,
   "spiDevice": true,
@@ -49,18 +49,18 @@
       "id": "pressure_1",
       "ain": 0,
       "status": "ok",
-      "value": 0.13,
+      "value": 0.14,
       "unit": "bar",
-      "signal_v": 0.5119,
+      "signal_v": 0.5123,
       "resistance_ohm": null
     },
     {
       "id": "pressure_2",
       "ain": 1,
       "status": "ok",
-      "value": 0.28,
+      "value": 0.29,
       "unit": "bar",
-      "signal_v": 0.5248,
+      "signal_v": 0.5254,
       "resistance_ohm": null
     },
     {
