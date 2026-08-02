@@ -1,8 +1,8 @@
 {
-  "checkedAt": "2026-08-02T14:10:45.955427+00:00",
+  "checkedAt": "2026-08-02T14:15:03.287820+00:00",
   "jobStatus": "success",
   "host": "etr-core",
-  "installedCommit": "17cd3b5e64543572d662374c3fc9d0cc7647d6ea",
+  "installedCommit": "30bdf02bd7b17188ff8e037d49302fafdc8c3f67",
   "installationId": "etr-core",
   "repairExitCode": 0,
   "connected": true,
@@ -11,17 +11,18 @@
     "ok": true,
     "service": "etr-remote-gateway",
     "version": "1.1.1",
-    "revision": "etr-remote-gateway-00018-kxq",
+    "revision": "etr-remote-gateway-00019-2sd",
     "devices": 1,
     "viewers": 0,
     "readyViewers": 0,
     "enrollment": "v1",
-    "admin": "v1"
+    "admin": "v1",
+    "liveViewerDiagnostic": "github-oidc"
   },
   "firebaseBridgeService": "active",
   "remoteScreenService": "active",
   "vncService": "active",
   "repairStdout": "ETR_INSTALLATION_ID=etr-core\nRéparation de l'écran distant appliquée : liaison deviceAccess, session partagée et services écran réalignés.\n",
   "repairStderr": "",
-  "journal": "Aug 02 16:10:42 etr-core systemd[1]: Stopping etr-remote-screen.service - EtR secure outbound remote screen...\nAug 02 16:10:42 etr-core systemd[1]: etr-remote-screen.service: Deactivated successfully.\nAug 02 16:10:42 etr-core systemd[1]: Stopped etr-remote-screen.service - EtR secure outbound remote screen.\nAug 02 16:10:42 etr-core systemd[1]: etr-remote-screen.service: Consumed 1.184s CPU time.\nAug 02 16:10:42 etr-core systemd[1]: Starting etr-remote-screen.service - EtR secure outbound remote screen...\nAug 02 16:10:43 etr-core systemd[1]: Started etr-remote-screen.service - EtR secure outbound remote screen.\nAug 02 16:10:44 etr-core python[74779]: 2026-08-02 16:10:44,096 INFO etr.remote-screen: Connecting installation etr-core to the remote gateway\nAug 02 16:10:44 etr-core python[74779]: 2026-08-02 16:10:44,297 INFO etr.remote-screen: Installation etr-core connected to the remote gateway\n"
+  "journal": "Aug 02 16:15:00 etr-core systemd[1]: Stopping etr-remote-screen.service - EtR secure outbound remote screen...\nAug 02 16:15:00 etr-core systemd[1]: etr-remote-screen.service: Deactivated successfully.\nAug 02 16:15:00 etr-core systemd[1]: Stopped etr-remote-screen.service - EtR secure outbound remote screen.\nAug 02 16:15:00 etr-core systemd[1]: etr-remote-screen.service: Consumed 1.032s CPU time.\nAug 02 16:15:00 etr-core systemd[1]: Starting etr-remote-screen.service - EtR secure outbound remote screen...\nAug 02 16:15:00 etr-core systemd[1]: Started etr-remote-screen.service - EtR secure outbound remote screen.\nAug 02 16:15:01 etr-core python[77576]: 2026-08-02 16:15:01,484 INFO etr.remote-screen: Connecting installation etr-core to the remote gateway\nAug 02 16:15:01 etr-core python[77576]: 2026-08-02 16:15:01,708 INFO etr.remote-screen: Installation etr-core connected to the remote gateway\n"
 }
