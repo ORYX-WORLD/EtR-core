@@ -6,8 +6,12 @@ from typing import Any
 import requests
 from flask import Flask, jsonify, render_template
 
-DASHBOARD_VERSION = "1.2.0"
+DASHBOARD_VERSION = "1.2.1"
 DEFAULT_API_URL = "http://127.0.0.1:8080/api/v1/status"
+# Le dashboard n'est accessible que sur la boucle locale. Il est affiché dans
+# l'iframe du portail tactile EtR servi sur le port 8090. Toute autre origine
+# reste interdite par la directive frame-ancestors.
+TOUCH_PORTAL_ORIGIN = "http://127.0.0.1:8090"
 
 
 def create_app(config: dict[str, Any] | None = None) -> Flask:
@@ -29,7 +33,8 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self'; "
             "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
-            "base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+            "base-uri 'self'; form-action 'none'; "
+            f"frame-ancestors {TOUCH_PORTAL_ORIGIN}"
         )
         return response
 
@@ -39,7 +44,14 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
 
     @app.get("/healthz")
     def health():
-        return jsonify({"ok": True, "service": "etr-dashboard", "version": DASHBOARD_VERSION})
+        return jsonify(
+            {
+                "ok": True,
+                "service": "etr-dashboard",
+                "version": DASHBOARD_VERSION,
+                "embedded_by": TOUCH_PORTAL_ORIGIN,
+            }
+        )
 
     @app.get("/api/status")
     def api_status():
