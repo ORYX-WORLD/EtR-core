@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Relance explicite du relais après publication de la révision HTTPS 00020.
+# Relance explicite du relais après publication de la révision 00025 avec vérification Identity Toolkit.
 
 INSTALL_DIR=${ETR_INSTALL_DIR:-/home/oryx/EtR-core}
 ENV_FILE=${ETR_ENV_FILE:-/etc/etr-core/firebase-bridge.env}
