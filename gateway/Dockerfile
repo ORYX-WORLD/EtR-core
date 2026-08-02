@@ -12,6 +12,7 @@ RUN mkdir -p public \
 # Runtime modules are listed explicitly so a new security-critical component
 # cannot be assumed present merely because it exists in the repository.
 COPY server.mjs ./
+COPY health.mjs ./
 COPY firebase-token-verifier.mjs ./
 COPY enrollment.mjs ./
 COPY enrollment-http.mjs ./
