@@ -1,0 +1,200 @@
+name: Auditer la configuration e-mail Identity Platform
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-identity-email-config-audit.yml
+      - docs/EMAIL_DELIVERABILITY_AUDIT.md
+
+concurrency:
+  group: etr-identity-email-config-audit
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  audit:
+    name: Lire les modèles, le callback et la méthode d'envoi
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PROJECT_ID: oryx-froid-industriel
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Authentification Google Cloud en lecture
+        id: google_auth
+        continue-on-error: true
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Installer Google Cloud CLI
+        id: setup_gcloud
+        if: steps.google_auth.outcome == 'success'
+        continue-on-error: true
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Lire et assainir la configuration Identity Platform
+        id: identity_config
+        if: always()
+        shell: bash
+        env:
+          GOOGLE_AUTH_OUTCOME: ${{ steps.google_auth.outcome }}
+          GCLOUD_SETUP_OUTCOME: ${{ steps.setup_gcloud.outcome }}
+        run: |
+          set -u
+          mkdir -p /tmp/etr-identity-email-audit
+          status=0
+          error_code=
+
+          if [ "$GOOGLE_AUTH_OUTCOME" != "success" ]; then
+            error_code=google_auth_failed
+          elif [ "$GCLOUD_SETUP_OUTCOME" != "success" ]; then
+            error_code=gcloud_setup_failed
+          else
+            access_token=$(gcloud auth print-access-token 2>/tmp/etr-identity-email-audit/token-error.txt || true)
+            if [ ${#access_token} -lt 40 ]; then
+              error_code=access_token_unavailable
+            else
+              echo "::add-mask::$access_token"
+              status=$(curl --retry 3 --retry-delay 2 --retry-all-errors -sS \
+                -o /tmp/etr-identity-email-audit/raw-config.json \
+                -w '%{http_code}' \
+                -H "Authorization: Bearer ${access_token}" \
+                -H 'Accept: application/json' \
+                "https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT_ID}/config" || true)
+              unset access_token
+              status=${status:-0}
+              if [ "$status" != "200" ]; then
+                error_code=identity_config_http_${status}
+              fi
+            fi
+          fi
+
+          if [ ! -s /tmp/etr-identity-email-audit/raw-config.json ]; then
+            ERROR_CODE="$error_code" python3 - <<'PY' > /tmp/etr-identity-email-audit/raw-config.json
+          import json, os
+          print(json.dumps({'error': {'status': os.getenv('ERROR_CODE') or 'identity_config_unavailable'}}))
+          PY
+          fi
+
+          HTTP_STATUS="$status" ERROR_CODE="$error_code" python3 - <<'PY' \
+            > /tmp/etr-identity-email-config-last.json
+          import json, os, re
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          try:
+              raw=json.loads(Path('/tmp/etr-identity-email-audit/raw-config.json').read_text(encoding='utf-8'))
+          except Exception:
+              raw={}
+          try:
+              status=int(os.getenv('HTTP_STATUS') or 0)
+          except ValueError:
+              status=0
+
+          notification=raw.get('notification') if isinstance(raw.get('notification'),dict) else {}
+          send_email=notification.get('sendEmail') if isinstance(notification.get('sendEmail'),dict) else {}
+          smtp=send_email.get('smtp') if isinstance(send_email.get('smtp'),dict) else {}
+          dns_info=send_email.get('dnsInfo') if isinstance(send_email.get('dnsInfo'),dict) else {}
+          raw_error=raw.get('error') if isinstance(raw.get('error'),dict) else {}
+
+          def safe_template(name):
+              value=send_email.get(name) if isinstance(send_email.get(name),dict) else {}
+              body=str(value.get('body') or '')
+              return {
+                  'senderLocalPart': value.get('senderLocalPart'),
+                  'senderDisplayName': value.get('senderDisplayName'),
+                  'subject': value.get('subject'),
+                  'replyTo': value.get('replyTo'),
+                  'bodyFormat': value.get('bodyFormat'),
+                  'customized': value.get('customized'),
+                  'bodyContainsLinkPlaceholder': '%LINK%' in body,
+                  'bodyContainsDisplayNamePlaceholder': '%DISPLAY_NAME%' in body,
+                  'bodyLooksFrench': bool(re.search(r'\b(vérifi|adresse|mot de passe|bonjour|confirmer)\w*\b', body, re.I)),
+              }
+
+          report={
+              'checkedAt': datetime.now(timezone.utc).isoformat(),
+              'projectId': os.getenv('PROJECT_ID'),
+              'workflowSteps': {
+                  'googleAuth': os.getenv('GOOGLE_AUTH_OUTCOME') or 'unknown',
+                  'gcloudSetup': os.getenv('GCLOUD_SETUP_OUTCOME') or 'skipped',
+              },
+              'identityConfig': {
+                  'httpStatus': status,
+                  'readable': status == 200,
+                  'errorCode': None if status == 200 else (
+                      os.getenv('ERROR_CODE') or
+                      str(raw_error.get('status') or raw_error.get('message') or 'unknown')[:160]
+                  ),
+                  'defaultLocale': notification.get('defaultLocale'),
+                  'method': send_email.get('method'),
+                  'callbackUri': send_email.get('callbackUri'),
+                  'dnsInfo': {
+                      'customDomain': dns_info.get('customDomain'),
+                      'useCustomDomain': dns_info.get('useCustomDomain'),
+                      'pendingCustomDomain': dns_info.get('pendingCustomDomain'),
+                      'customDomainState': dns_info.get('customDomainState'),
+                  },
+                  'smtp': {
+                      'configured': bool(smtp),
+                      'senderEmail': smtp.get('senderEmail'),
+                      'host': smtp.get('host'),
+                      'port': smtp.get('port'),
+                      'usernameConfigured': bool(smtp.get('username')),
+                      'passwordConfigured': bool(smtp.get('password')),
+                      'securityMode': smtp.get('securityMode'),
+                  },
+                  'verifyEmailTemplate': safe_template('verifyEmailTemplate'),
+                  'resetPasswordTemplate': safe_template('resetPasswordTemplate'),
+                  'changeEmailTemplate': safe_template('changeEmailTemplate'),
+                  'revertSecondFactorAdditionTemplate': safe_template('revertSecondFactorAdditionTemplate'),
+                  'authorizedDomains': raw.get('authorizedDomains') if isinstance(raw.get('authorizedDomains'),list) else [],
+                  'defaultHostingSite': raw.get('defaultHostingSite'),
+              },
+              'recommendedNextStage': (
+                  'prepare-safe-config-patch' if status == 200
+                  else 'request-firebaseauth-configs-get-only'
+              ),
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+
+          cat /tmp/etr-identity-email-config-last.json
+          echo "http_status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Publier la preuve assainie
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          git fetch origin main
+          git checkout -B identity-email-config-report origin/main
+          mkdir -p .github/deployment
+          if [ -s /tmp/etr-identity-email-config-last.json ]; then
+            cp /tmp/etr-identity-email-config-last.json \
+              .github/deployment/etr-identity-email-config-last.json
+          else
+            printf '{"identityConfig":{"readable":false},"recommendedNextStage":"audit-report-missing"}\n' \
+              > .github/deployment/etr-identity-email-config-last.json
+          fi
+          git config user.name "EtR Identity email config audit"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-identity-email-config-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR Identity email config audit [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
