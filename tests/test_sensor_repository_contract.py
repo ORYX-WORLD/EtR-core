@@ -10,6 +10,7 @@ class SensorRepositoryContractTests(unittest.TestCase):
             "src/ads1263.py",
             "src/ads1263_probe.py",
             "src/sensor_acquisition.py",
+            "src/sensor_acquisition_runtime.py",
             "config/sensors-home-lab.json",
             "src/deploy/raspi/etr-sensor-acquisition.service",
             "src/deploy/raspi/etr-ads1263-spi0-cs2-overlay.dts",
@@ -20,6 +21,7 @@ class SensorRepositoryContractTests(unittest.TestCase):
             "tests/test_ads1263.py",
             "tests/test_ads1263_probe.py",
             "tests/test_sensor_acquisition.py",
+            "tests/test_sensor_acquisition_runtime.py",
             "docs/TELEMETRY_CONTRACT.md",
             "docs/PROJECT_TRACKER.md",
         ]
@@ -35,6 +37,9 @@ class SensorRepositoryContractTests(unittest.TestCase):
             "Group=oryx",
             "SupplementaryGroups=spi gpio",
             "WorkingDirectory=/var/lib/etr-core",
+            "ExecStartPre=+/usr/bin/install -d -m 700 -o oryx -g oryx /var/lib/etr-core",
+            "ExecStartPre=+/usr/bin/pinctrl set 18 op dh",
+            "sensor_acquisition_runtime.py",
             "ReadWritePaths=/var/lib/etr-core",
             "ProtectHome=read-only",
             "NoNewPrivileges=true",
@@ -54,6 +59,9 @@ class SensorRepositoryContractTests(unittest.TestCase):
             "SPI_CS2_UNAVAILABLE_AFTER_REBOOT",
             '"device": 2',
             '"use_data_ready_gpio": False',
+            '"use_hardware_reset_gpio": False',
+            "pinctrl set 18 op dh",
+            "sensor_acquisition_runtime.py",
             "sensors-home-lab.json",
             "etr-sensor-acquisition.service",
         ]:
@@ -67,6 +75,14 @@ class SensorRepositoryContractTests(unittest.TestCase):
         ]:
             self.assertIn(marker, overlay)
         self.assertNotIn("User=root", unit)
+
+    def test_shared_state_directory_is_not_reassigned_to_root(self):
+        wifi_unit = (ROOT / "src/deploy/raspi/etr-wifi-portal.service").read_text(encoding="utf-8")
+        self.assertIn(
+            "ExecStartPre=/usr/bin/install -d -m 700 -o oryx -g oryx /var/lib/etr-core",
+            wifi_unit,
+        )
+        self.assertNotIn("StateDirectory=etr-core", wifi_unit)
 
     def test_physical_workflow_requires_real_adc_and_pressure_signals(self):
         workflow = (ROOT / ".github/workflows/etr-sensor-lab.yml").read_text(encoding="utf-8")
@@ -96,6 +112,7 @@ class SensorRepositoryContractTests(unittest.TestCase):
 
     def test_driver_preserves_touchscreen_gpio17(self):
         driver = (ROOT / "src/ads1263.py").read_text(encoding="utf-8")
+        runtime = (ROOT / "src/sensor_acquisition_runtime.py").read_text(encoding="utf-8")
         config = (ROOT / "config/sensors-home-lab.json").read_text(encoding="utf-8")
         for marker in [
             "device: int = 2",
@@ -104,8 +121,15 @@ class SensorRepositoryContractTests(unittest.TestCase):
             "use_hardware_reset_gpio: bool = True",
         ]:
             self.assertIn(marker, driver)
+        for marker in [
+            'kwargs["manual_chip_select"] = False',
+            'kwargs["use_data_ready_gpio"] = False',
+            'kwargs["use_hardware_reset_gpio"] = False',
+        ]:
+            self.assertIn(marker, runtime)
         self.assertIn('"device": 2', config)
         self.assertIn('"use_data_ready_gpio": false', config)
+        self.assertIn('"use_hardware_reset_gpio": false', config)
 
     def test_dashboard_exposes_the_sensor_bench_without_unsafe_html(self):
         template = (ROOT / "dashboard/templates/index.html").read_text(encoding="utf-8")

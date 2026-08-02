@@ -10,13 +10,18 @@ Type=simple
 User=oryx
 Group=oryx
 SupplementaryGroups=spi gpio
-# lgpio crée son tube .lgd-nfy* dans le répertoire courant. Le dépôt est rendu
-# volontairement en lecture seule par ProtectHome ; utiliser le répertoire
-# d'état évite les échecs xCreatePipe tout en conservant la sandbox systemd.
 WorkingDirectory=/var/lib/etr-core
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/usr/bin/python3 /home/oryx/EtR-core/src/sensor_acquisition.py --config /etc/etr-core/sensors.json --state /var/lib/etr-core/telemetry.json
+# Le portail Wi-Fi tourne sous root et ne doit jamais retirer l'écriture à oryx.
+# Cette préparation idempotente rétablit les droits avant chaque démarrage.
+ExecStartPre=+/usr/bin/install -d -m 700 -o oryx -g oryx /var/lib/etr-core
+# GPIO18 est la ligne RESET active bas du HAT. Le tactile laisse cette broche
+# libre mais son état de boot est entrée + pull-down : la forcer à l'état haut
+# sort l'ADS1263 du reset. Le processus oryx effectue ensuite CMD_RESET par SPI.
+ExecStartPre=+/usr/bin/pinctrl set 18 op dh
+ExecStartPre=/usr/bin/sleep 0.3
+ExecStart=/usr/bin/python3 /home/oryx/EtR-core/src/sensor_acquisition_runtime.py --config /etc/etr-core/sensors.json --state /var/lib/etr-core/telemetry.json
 Restart=always
 RestartSec=5
 TimeoutStopSec=15

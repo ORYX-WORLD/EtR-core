@@ -10,10 +10,15 @@ SERVICE=etr-sensor-acquisition.service
 OVERLAY_NAME=etr-ads1263-spi0-cs2
 OVERLAY_SOURCE=${INSTALL_DIR}/src/deploy/raspi/${OVERLAY_NAME}-overlay.dts
 
-if [ ! -f "${INSTALL_DIR}/src/sensor_acquisition.py" ] || [ ! -f "${INSTALL_DIR}/src/ads1263.py" ]; then
-  echo "Sources d'acquisition ADS1263 absentes dans ${INSTALL_DIR}" >&2
-  exit 2
-fi
+for source in \
+  "${INSTALL_DIR}/src/sensor_acquisition.py" \
+  "${INSTALL_DIR}/src/sensor_acquisition_runtime.py" \
+  "${INSTALL_DIR}/src/ads1263.py"; do
+  if [ ! -f "$source" ]; then
+    echo "Source d'acquisition ADS1263 absente : $source" >&2
+    exit 2
+  fi
+done
 if [ ! -f "${OVERLAY_SOURCE}" ]; then
   echo "Overlay ADS1263 absent : ${OVERLAY_SOURCE}" >&2
   exit 2
@@ -21,6 +26,10 @@ fi
 
 sudo apt-get update
 sudo apt-get install -y device-tree-compiler python3-lgpio python3-spidev
+if ! command -v pinctrl >/dev/null 2>&1; then
+  echo "Commande pinctrl absente : impossible de libérer RESET/GPIO18" >&2
+  exit 2
+fi
 
 # Raspberry Pi OS Bookworm utilise /boot/firmware ; les versions plus anciennes
 # utilisent /boot. L'overlay tft35a occupe SPI0.0 et SPI0.1. L'overlay EtR,
@@ -107,7 +116,7 @@ adc.update(
         "device": 2,
         "manual_chip_select": False,
         "use_data_ready_gpio": False,
-        "use_hardware_reset_gpio": True,
+        "use_hardware_reset_gpio": False,
     }
 )
 temporary = path.with_suffix(".json.tmp")
@@ -116,6 +125,14 @@ temporary.replace(path)
 PY
 sudo chown root:oryx "${CONFIG_FILE}"
 sudo chmod 640 "${CONFIG_FILE}"
+
+# L'écran laisse GPIO18 en entrée avec pull-down, ce qui maintient RESET actif.
+# Le service répète cette préparation avant chaque démarrage ; l'installateur la
+# réalise aussi immédiatement pour le premier essai sans redémarrage.
+sudo pinctrl set 18 op dh
+sleep 0.3
+sudo chown oryx:oryx "${STATE_DIR}"
+sudo chmod 700 "${STATE_DIR}"
 
 sudo systemctl restart "${SERVICE}"
 for attempt in $(seq 1 45); do
