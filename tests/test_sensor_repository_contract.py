@@ -8,6 +8,7 @@ class SensorRepositoryContractTests(unittest.TestCase):
     def test_ads1263_delivery_contract_is_complete(self):
         required = [
             "src/ads1263.py",
+            "src/ads1263_probe.py",
             "src/sensor_acquisition.py",
             "config/sensors-home-lab.json",
             "src/deploy/raspi/etr-sensor-acquisition.service",
@@ -15,7 +16,9 @@ class SensorRepositoryContractTests(unittest.TestCase):
             "src/deploy/raspi/install_sensor_acquisition.sh",
             ".github/workflows/etr-sensor-lab.yml",
             ".github/workflows/etr-spi-pin-diagnostic.yml",
+            ".github/workflows/etr-ads1263-probe.yml",
             "tests/test_ads1263.py",
+            "tests/test_ads1263_probe.py",
             "tests/test_sensor_acquisition.py",
             "docs/TELEMETRY_CONTRACT.md",
             "docs/PROJECT_TRACKER.md",
@@ -31,11 +34,14 @@ class SensorRepositoryContractTests(unittest.TestCase):
             "User=oryx",
             "Group=oryx",
             "SupplementaryGroups=spi gpio",
+            "WorkingDirectory=/var/lib/etr-core",
             "ReadWritePaths=/var/lib/etr-core",
+            "ProtectHome=read-only",
             "NoNewPrivileges=true",
             "/usr/bin/python3",
         ]:
             self.assertIn(marker, unit)
+        self.assertNotIn("WorkingDirectory=/home/oryx/EtR-core", unit)
         for marker in [
             "device-tree-compiler",
             "python3-lgpio",
@@ -76,6 +82,17 @@ class SensorRepositoryContractTests(unittest.TestCase):
             "etr-sensors-last.json",
         ]:
             self.assertIn(marker, workflow)
+
+    def test_raw_probe_runs_from_a_writable_directory(self):
+        workflow = (ROOT / ".github/workflows/etr-ads1263-probe.yml").read_text(encoding="utf-8")
+        for marker in [
+            "cd /tmp/etr-ads1263-probe",
+            "/home/oryx/EtR-core/src/ads1263_probe.py",
+            "WorkingDirectory --value",
+            '"/var/lib/etr-core"',
+        ]:
+            self.assertIn(marker, workflow)
+        self.assertNotIn("cd /home/oryx/EtR-core\n          sudo python3 src/ads1263_probe.py", workflow)
 
     def test_driver_preserves_touchscreen_gpio17(self):
         driver = (ROOT / "src/ads1263.py").read_text(encoding="utf-8")
