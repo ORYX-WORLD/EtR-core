@@ -77,6 +77,16 @@ jobs:
           fi
           exit "$code"
 
+      - name: Programmer le redémarrage SPI
+        id: reboot
+        if: always() && steps.install.outputs.exit_code == '42'
+        shell: bash
+        run: |
+          set -euo pipefail
+          unit="etr-spi-reboot-$(date +%s)"
+          sudo systemd-run --unit="$unit" --on-active=2min /usr/bin/systemctl reboot
+          echo "Redémarrage du Raspberry programmé dans deux minutes pour activer SPI."
+
       - name: Contrôler les lectures physiques
         shell: bash
         run: |
@@ -137,6 +147,7 @@ jobs:
         shell: bash
         env:
           INSTALL_EXIT_CODE: ${{ steps.install.outputs.exit_code }}
+          REBOOT_OUTCOME: ${{ steps.reboot.outcome }}
         run: |
           set +e
           mkdir -p .github/deployment
@@ -160,6 +171,7 @@ jobs:
               'machine': platform.machine(),
               'installedCommit': os.popen('sudo -u oryx -H git -C /home/oryx/EtR-core rev-parse HEAD 2>/dev/null').read().strip() or None,
               'installExitCode': os.getenv('INSTALL_EXIT_CODE') or None,
+              'rebootScheduled': os.getenv('REBOOT_OUTCOME') == 'success',
               'spiDevice': Path('/dev/spidev0.0').exists(),
               'gpioChip': Path('/dev/gpiochip0').exists(),
               'hardware': telemetry.get('hardware', {}),
