@@ -1,4 +1,4 @@
-name: Diagnostiquer l'écran distant EtR
+name: Vérifier l'écran distant EtR
 
 on:
   workflow_dispatch:
@@ -7,8 +7,10 @@ on:
     paths:
       - .github/workflows/etr-remote-screen-check.yml
       - src/remote_screen_agent.py
-      - src/deploy/raspi/etr-vnc.service
+      - src/firebase_bridge.py
       - src/deploy/raspi/etr-remote-screen.service
+      - src/deploy/raspi/etr-vnc.service
+      - tests/test_remote_screen_session.py
 
 concurrency:
   group: etr-remote-screen-physical
@@ -18,8 +20,8 @@ permissions:
   contents: write
 
 jobs:
-  diagnose:
-    name: Vérifier Raspberry, VNC et présence Cloud
+  verify:
+    name: Vérifier la liaison Raspberry vers passerelle et VNC
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 15
 
@@ -48,7 +50,15 @@ jobs:
           fi
           sudo -u oryx -H git -C "$install_dir" rev-parse HEAD
 
-      - name: Réinstaller et relancer les services d'écran
+      - name: Exécuter les tests ciblés
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /home/oryx/EtR-core
+          sudo -u oryx -H ./.venv/bin/python -m unittest -v tests.test_remote_screen_session
+          ./.venv/bin/python -m py_compile src/remote_screen_agent.py
+
+      - name: Installer et redémarrer le relais écran
         shell: bash
         run: |
           set -euo pipefail
@@ -56,6 +66,9 @@ jobs:
           sudo install -m 644 "$install_dir/src/deploy/raspi/etr-vnc.service" /etc/systemd/system/etr-vnc.service
           sudo install -m 644 "$install_dir/src/deploy/raspi/etr-remote-screen.service" /etc/systemd/system/etr-remote-screen.service
           sudo systemctl daemon-reload
+          sudo test -s /var/lib/etr-core/firebase-auth.json
+          sudo chown oryx:oryx /var/lib/etr-core/firebase-auth.json
+          sudo chmod 600 /var/lib/etr-core/firebase-auth.json
           sudo systemctl enable etr-vnc.service etr-remote-screen.service
           sudo systemctl restart etr-vnc.service
           sudo systemctl restart etr-remote-screen.service
@@ -69,60 +82,46 @@ jobs:
               fi
               sleep 2
             done
-            [ "$ready" = true ] || {
+            if [ "$ready" != true ]; then
               sudo systemctl status "$service" --no-pager -l || true
               sudo journalctl -u "$service" -n 120 --no-pager || true
               exit 1
-            }
+            fi
           done
 
-      - name: Vérifier la configuration et la liaison locale
-        id: local
+      - name: Vérifier le VNC local et la présence Cloud
+        id: physical
         shell: bash
-        run: |
-          set -euo pipefail
-          env_file=/etc/etr-core/firebase-bridge.env
-          gateway_wss=$(sudo sed -n 's/^ETR_REMOTE_GATEWAY_WSS=//p' "$env_file" | tail -n 1)
-          [ -n "$gateway_wss" ] || { echo "::error::ETR_REMOTE_GATEWAY_WSS absent"; exit 1; }
-          [[ "$gateway_wss" == wss://*.run.app/device ]] || { echo "::error::Passerelle WSS inattendue"; exit 1; }
-          gateway_origin=${gateway_wss/wss:\/\//https:\/\/}
-          gateway_origin=${gateway_origin%/device}
-          echo "gateway_origin=$gateway_origin" >> "$GITHUB_OUTPUT"
-
-          sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901' || {
-            sudo ss -ltnp || true
-            echo "::error::VNC local absent sur 127.0.0.1:5901"
-            exit 1
-          }
-          ! sudo ss -H -ltnp | grep -qE '(0\.0\.0\.0|\[::\]):5901' || {
-            echo "::error::VNC local exposé sur toutes les interfaces"
-            exit 1
-          }
-          nc -z -w 3 127.0.0.1 5901
-
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          path=Path('/var/lib/etr-core/remote-screen-auth.json')
-          data=json.loads(path.read_text(encoding='utf-8'))
-          assert isinstance(data.get('refreshToken'), str) and len(data['refreshToken']) > 20
-          assert isinstance(data.get('idToken'), str) and len(data['idToken']) > 20
-          print('État Firebase écran distant présent, contenu non affiché.')
-          PY
-
-      - name: Attendre la présence du Raspberry dans la passerelle
-        id: cloud
-        shell: bash
-        env:
-          GATEWAY_ORIGIN: ${{ steps.local.outputs.gateway_origin }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/etr-remote-screen
+          env_file=/etc/etr-core/firebase-bridge.env
+          remote_wss=$(sudo sed -n 's/^ETR_REMOTE_GATEWAY_WSS=//p' "$env_file" | tail -n 1)
+          [ -n "$remote_wss" ]
+          gateway_origin=${remote_wss/wss:\/\//https:\/\/}
+          gateway_origin=${gateway_origin%%\?*}
+          gateway_origin=${gateway_origin%/device}
+          gateway_origin=${gateway_origin%/}
+          [[ "$gateway_origin" == https://*.run.app ]]
+          echo "gateway_origin=$gateway_origin" >> "$GITHUB_OUTPUT"
+
+          sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901'
+          if sudo ss -H -ltnp | grep -qE '(0\.0\.0\.0|\[::\]):5901'; then
+            echo "::error::VNC ne doit pas écouter sur toutes les interfaces"
+            exit 1
+          fi
+
+          set +e
+          timeout 4 bash -c 'exec 3<>/dev/tcp/127.0.0.1/5901; head -c 12 <&3' \
+            > /tmp/etr-remote-screen/vnc-banner.txt 2>/tmp/etr-remote-screen/vnc-banner.err
+          set -e
+          grep -Eq '^RFB 003\.[0-9]{3}$' /tmp/etr-remote-screen/vnc-banner.txt
+
           connected=false
           for _ in $(seq 1 60); do
             if curl --retry 2 --retry-delay 1 --retry-all-errors -fsS \
-                "$GATEWAY_ORIGIN/healthz" > /tmp/etr-remote-screen/health.json; then
-              devices=$(python3 -c 'import json; print(int(json.load(open("/tmp/etr-remote-screen/health.json")).get("devices",0)))')
+                "$gateway_origin/healthz" > /tmp/etr-remote-screen/gateway-health.json; then
+              devices=$(python3 -c 'import json; print(int(json.load(open("/tmp/etr-remote-screen/gateway-health.json")).get("devices",0)))')
               if [ "$devices" -ge 1 ]; then
                 connected=true
                 break
@@ -130,90 +129,117 @@ jobs:
             fi
             sleep 2
           done
-          cat /tmp/etr-remote-screen/health.json | python3 -m json.tool || true
-          echo "connected=$connected" >> "$GITHUB_OUTPUT"
           [ "$connected" = true ] || {
+            cat /tmp/etr-remote-screen/gateway-health.json 2>/dev/null || true
             sudo journalctl -u etr-remote-screen.service -n 180 --no-pager || true
-            echo "::error::La passerelle Cloud ne voit aucun EtR connecté"
             exit 1
           }
 
-      - name: Conserver les diagnostics sûrs
+          sudo journalctl -u etr-remote-screen.service --since '-5 minutes' --no-pager \
+            > /tmp/etr-remote-screen/agent-journal.txt
+          grep -Fq 'connected to the remote gateway' /tmp/etr-remote-screen/agent-journal.txt
+          if grep -Fq 'awaiting_claim' /tmp/etr-remote-screen/agent-journal.txt; then
+            echo "::error::Le relais écran a relancé un enrôlement au lieu de réutiliser la session appareil"
+            exit 1
+          fi
+
+      - name: Publier le rapport physique
         if: always()
         shell: bash
         env:
           JOB_STATUS: ${{ job.status }}
-          GATEWAY_ORIGIN: ${{ steps.local.outputs.gateway_origin }}
+          GATEWAY_ORIGIN: ${{ steps.physical.outputs.gateway_origin }}
         run: |
           set +e
           mkdir -p /tmp/etr-remote-screen
-          sudo journalctl -u etr-remote-screen.service -n 220 --no-pager \
-            | sed -E 's/(Bearer |idToken|refreshToken)[^ ]+/<secret-masque>/g' \
-            > /tmp/etr-remote-screen/agent-journal.txt
-          sudo systemctl status etr-remote-screen.service --no-pager -l \
-            > /tmp/etr-remote-screen/agent-status.txt 2>&1
-          sudo systemctl status etr-vnc.service --no-pager -l \
-            > /tmp/etr-remote-screen/vnc-status.txt 2>&1
-          curl -fsS "$GATEWAY_ORIGIN/healthz" > /tmp/etr-remote-screen/health.json 2>/dev/null || true
+          sudo journalctl -u etr-remote-screen.service -n 160 --no-pager \
+            > /tmp/etr-remote-screen/agent-journal-final.txt 2>&1
+          sudo journalctl -u etr-vnc.service -n 80 --no-pager \
+            > /tmp/etr-remote-screen/vnc-journal.txt 2>&1
+          if [ -n "${GATEWAY_ORIGIN:-}" ]; then
+            curl -fsS "$GATEWAY_ORIGIN/healthz" > /tmp/etr-remote-screen/gateway-health.json 2>/dev/null
+          fi
+          set -e
 
-          cd "$GITHUB_WORKSPACE"
-          mkdir -p .github/deployment
-          python3 - <<'PY' > .github/deployment/etr-remote-screen-last.json
+          python3 - <<'PY' > /tmp/etr-remote-screen-last.json
           import json, os, platform, socket, subprocess
           from datetime import datetime, timezone
           from pathlib import Path
 
           root=Path('/tmp/etr-remote-screen')
+          def text(name, limit=8000):
+              try: return (root/name).read_text(encoding='utf-8', errors='replace')[-limit:]
+              except OSError: return ''
           def load(name):
               try:
-                  value=json.loads((root/name).read_text(encoding='utf-8'))
-                  return value if isinstance(value,dict) else {}
-              except Exception:
-                  return {}
-          def text(name, limit=12000):
-              try: return (root/name).read_text(encoding='utf-8',errors='replace')[-limit:]
-              except OSError: return ''
+                  data=json.loads((root/name).read_text(encoding='utf-8'))
+                  return data if isinstance(data, dict) else {}
+              except Exception: return {}
           def command(args):
-              try: return subprocess.run(args,check=False,capture_output=True,text=True,timeout=8).stdout.strip()
+              try: return subprocess.run(args, check=False, capture_output=True, text=True, timeout=8).stdout.strip()
               except Exception: return ''
-          def active(name): return command(['systemctl','is-active',name]) == 'active'
 
-          auth_ok=False
-          try:
-              auth=json.loads(Path('/var/lib/etr-core/remote-screen-auth.json').read_text(encoding='utf-8'))
-              auth_ok=all(isinstance(auth.get(key),str) and len(auth[key])>20 for key in ('idToken','refreshToken'))
-          except Exception: pass
-
+          installation=command([
+              '/home/oryx/EtR-core/.venv/bin/python','-c',
+              'import sys; sys.path.insert(0,"/home/oryx/EtR-core/src"); import firebase_bridge; print(firebase_bridge.INSTALLATION_ID)'
+          ])
+          token_path=Path('/var/lib/etr-core/firebase-auth.json')
           report={
-              'checkedAt':datetime.now(timezone.utc).isoformat(),
-              'jobStatusBeforeFinalization':os.getenv('JOB_STATUS'),
-              'host':socket.gethostname(),
-              'machine':platform.machine(),
-              'kernel':platform.release(),
-              'installedCommit':command(['sudo','-u','oryx','-H','git','-C','/home/oryx/EtR-core','rev-parse','HEAD']) or None,
-              'gatewayOrigin':os.getenv('GATEWAY_ORIGIN') or None,
-              'gatewayHealth':load('health.json'),
-              'remoteScreenServiceActive':active('etr-remote-screen.service'),
-              'vncServiceActive':active('etr-vnc.service'),
-              'vncListeningLoopback':'127.0.0.1:5901' in command(['ss','-ltn']),
-              'firebaseAuthStatePresent':auth_ok,
-              'agentStatus':text('agent-status.txt',5000),
-              'vncStatus':text('vnc-status.txt',5000),
-              'agentJournal':text('agent-journal.txt',12000),
+              'checkedAt': datetime.now(timezone.utc).isoformat(),
+              'jobStatus': os.getenv('JOB_STATUS'),
+              'host': socket.gethostname(),
+              'machine': platform.machine(),
+              'installedCommit': command(['sudo','-u','oryx','-H','git','-C','/home/oryx/EtR-core','rev-parse','HEAD']) or None,
+              'installationId': installation or None,
+              'gatewayOrigin': os.getenv('GATEWAY_ORIGIN') or None,
+              'gatewayHealth': load('gateway-health.json'),
+              'primaryTokenFile': {
+                  'path': str(token_path),
+                  'exists': token_path.is_file(),
+                  'stat': command(['stat','-c','%U:%G %a',str(token_path)]) or None,
+              },
+              'legacyRemoteTokenFileExists': Path('/var/lib/etr-core/remote-screen-auth.json').exists(),
+              'vnc': {
+                  'service': command(['systemctl','is-active','etr-vnc.service']),
+                  'banner': text('vnc-banner.txt', 200).strip(),
+              },
+              'remoteAgent': {
+                  'service': command(['systemctl','is-active','etr-remote-screen.service']),
+                  'unitEnvironment': command(['systemctl','show','etr-remote-screen.service','-p','Environment','--value']),
+                  'journal': text('agent-journal-final.txt'),
+              },
+              'vncJournal': text('vnc-journal.txt', 4000),
           }
-          print(json.dumps(report,ensure_ascii=False,indent=2))
+          print(json.dumps(report, ensure_ascii=False, indent=2))
           PY
-          cat .github/deployment/etr-remote-screen-last.json
+          cat /tmp/etr-remote-screen-last.json
 
+          cd "$GITHUB_WORKSPACE"
           git fetch origin main
           git checkout -B main origin/main
-          cp .github/deployment/etr-remote-screen-last.json /tmp/etr-remote-screen-last.json
           mkdir -p .github/deployment
           cp /tmp/etr-remote-screen-last.json .github/deployment/etr-remote-screen-last.json
-          git config user.name "EtR remote screen diagnostic agent"
+          git config user.name "EtR remote screen verification"
           git config user.email "actions@users.noreply.github.com"
           git add .github/deployment/etr-remote-screen-last.json
           if ! git diff --cached --quiet; then
-            git commit -m 'chore: record EtR remote screen diagnostic [skip ci]'
+            git commit -m 'chore: record EtR remote screen verification [skip ci]'
             git push origin main
           fi
+
+      - name: Exiger la disponibilité de l'écran distant
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-remote-screen-last.json', encoding='utf-8'))
+          assert data['jobStatus'] == 'success'
+          assert data['primaryTokenFile']['exists'] is True
+          assert data['primaryTokenFile']['stat'] == 'oryx:oryx 600'
+          assert data['legacyRemoteTokenFileExists'] is False
+          assert data['vnc']['service'] == 'active'
+          assert data['vnc']['banner'].startswith('RFB 003.')
+          assert data['remoteAgent']['service'] == 'active'
+          assert int(data['gatewayHealth'].get('devices') or 0) >= 1
+          PY
