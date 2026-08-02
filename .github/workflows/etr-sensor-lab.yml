@@ -15,6 +15,7 @@ on:
       - dashboard/**
       - tests/test_ads1263.py
       - tests/test_sensor_acquisition.py
+      - tests/test_sensor_repository_contract.py
       - docs/PROJECT_TRACKER.md
       - docs/TELEMETRY_CONTRACT.md
 
@@ -62,7 +63,7 @@ jobs:
           cd /home/oryx/EtR-core
           python3 -m py_compile src/ads1263.py src/sensor_acquisition.py src/app.py dashboard/app.py
           python3 -m json.tool config/sensors-home-lab.json >/dev/null
-          PYTHONPATH=. python3 -m unittest -v tests.test_ads1263 tests.test_sensor_acquisition
+          PYTHONPATH=. python3 -m unittest -v tests.test_ads1263 tests.test_sensor_acquisition tests.test_sensor_repository_contract
 
       - name: Installer le service d'acquisition
         id: install
@@ -73,7 +74,9 @@ jobs:
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" -eq 42 ]; then
-            echo "::error title=Redémarrage Raspberry requis::SPI a été activé mais /dev/spidev0.0 n'existe pas encore. Redémarrer puis relancer ce workflow."
+            echo "::error title=Redémarrage Raspberry requis::SPI est configuré mais aucun /dev/spidev0.* n'est encore disponible."
+          elif [ "$code" -eq 43 ]; then
+            echo "::error title=SPI toujours indisponible::Le Raspberry a redémarré mais aucun nœud /dev/spidev0.* n'est exposé ; consulter le diagnostic publié."
           fi
           exit "$code"
 
@@ -92,7 +95,8 @@ jobs:
         run: |
           set -euo pipefail
           sudo systemctl is-active --quiet etr-sensor-acquisition.service
-          test -c /dev/spidev0.0
+          spi_node=$(find /dev -maxdepth 1 -type c -name 'spidev0.*' -print -quit)
+          test -n "$spi_node"
           test -c /dev/gpiochip0
 
           fresh=false
@@ -152,9 +156,16 @@ jobs:
           set +e
           mkdir -p .github/deployment
           python3 - <<'PY' > .github/deployment/etr-sensors-last.json
-          import json, os, platform, socket
+          import glob, json, os, platform, socket, subprocess
           from datetime import datetime, timezone
           from pathlib import Path
+
+          def command(args):
+              try:
+                  return subprocess.run(args, check=False, capture_output=True, text=True, timeout=8).stdout.strip()
+              except Exception:
+                  return ''
+
           telemetry={}
           path=Path('/tmp/etr-sensor-telemetry.json')
           if path.exists():
@@ -164,15 +175,45 @@ jobs:
           for item in telemetry.get('sensors', []):
               if isinstance(item, dict):
                   sensors.append({key:item.get(key) for key in ('id','ain','status','value','unit','signal_v','resistance_ohm')})
+
+          config={}
+          config_path=Path('/etc/etr-core/sensors.json')
+          if config_path.exists():
+              try: config=json.loads(config_path.read_text(encoding='utf-8'))
+              except Exception: config={}
+
+          boot_lines=[]
+          boot_config_path=None
+          for candidate in (Path('/boot/firmware/config.txt'), Path('/boot/config.txt')):
+              if candidate.exists():
+                  boot_config_path=str(candidate)
+                  try:
+                      boot_lines=[line.strip() for line in candidate.read_text(encoding='utf-8', errors='replace').splitlines() if 'spi' in line.lower() or 'dtoverlay' in line.lower()]
+                  except Exception:
+                      boot_lines=[]
+                  break
+
+          spi_nodes=sorted(glob.glob('/dev/spidev0.*'))
           print(json.dumps({
               'checkedAt': datetime.now(timezone.utc).isoformat(),
               'jobStatus': '${{ job.status }}',
               'host': socket.gethostname(),
               'machine': platform.machine(),
-              'installedCommit': os.popen('sudo -u oryx -H git -C /home/oryx/EtR-core rev-parse HEAD 2>/dev/null').read().strip() or None,
+              'kernel': platform.release(),
+              'model': Path('/proc/device-tree/model').read_bytes().replace(b'\x00', b'').decode('utf-8', 'replace') if Path('/proc/device-tree/model').exists() else None,
+              'bootId': Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+              'installedCommit': command(['sudo','-u','oryx','-H','git','-C','/home/oryx/EtR-core','rev-parse','HEAD']) or None,
               'installExitCode': os.getenv('INSTALL_EXIT_CODE') or None,
               'rebootScheduled': os.getenv('REBOOT_OUTCOME') == 'success',
-              'spiDevice': Path('/dev/spidev0.0').exists(),
+              'spiDevice': bool(spi_nodes),
+              'spiNodes': spi_nodes,
+              'selectedSpiDevice': (config.get('adc') or {}).get('device') if isinstance(config.get('adc'), dict) else None,
+              'spiConfigured': command(['raspi-config','nonint','get_spi']) or None,
+              'bootConfigPath': boot_config_path,
+              'bootConfigSpiLines': boot_lines,
+              'spiModules': command(['bash','-lc',"lsmod | awk 'NR==1 || /spi/'"]),
+              'spiMasters': sorted(glob.glob('/sys/class/spi_master/*')),
+              'spiKernelDevices': sorted(glob.glob('/sys/bus/spi/devices/*')),
               'gpioChip': Path('/dev/gpiochip0').exists(),
               'hardware': telemetry.get('hardware', {}),
               'sensors': sensors,
