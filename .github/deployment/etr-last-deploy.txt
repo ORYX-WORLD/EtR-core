@@ -1,7 +1,7 @@
-date_utc=2026-08-02T12:52:52Z
+date_utc=2026-08-02T13:04:28Z
 job_status=success
 host=etr-core
-installed_commit=8f1d8282dc9bb8ef22f39f1f7cb81408aba843bf
+installed_commit=4d0f4da6370cbc6a9b3b12ef587bb5499e8db5e8
 configuration_source=firebase-hosting-reserved-url+cloud-run-fixed-origin
 gateway_origin=https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
 bootstrap_registration=success
@@ -9,7 +9,7 @@ bootstrap_installation_id=etr-0000dd7429c2
 bootstrap_public_key_fingerprint=4125946b82dcd0233397037de43b02eb1c089c59f2609f6fb203126e68450575
 etr.service=Result=success,User=oryx,ActiveState=active,SubState=running
 etr-dashboard.service=Result=success,User=oryx,ActiveState=active,SubState=running
-etr-firebase-bridge.service=Result=success,User=oryx,ActiveState=active,SubState=running
+etr-firebase-bridge.service=Result=exit-code,User=oryx,ActiveState=activating,SubState=auto-restart
 etr-wifi-portal.service=Result=success,User=root,ActiveState=active,SubState=running
 spi-desktop.service=Result=success,User=root,ActiveState=active,SubState=running
 etr-kiosk.service=Result=success,User=oryx,ActiveState=active,SubState=running
