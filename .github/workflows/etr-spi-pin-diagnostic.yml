@@ -26,6 +26,17 @@ jobs:
       - name: Récupérer les sources de diagnostic
         uses: actions/checkout@v5
 
+      - name: Compiler l’overlay sans l’installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          source=src/deploy/raspi/etr-ads1263-spi0-cs2-overlay.dts
+          output=/tmp/etr-ads1263-spi0-cs2.dtbo
+          command -v dtc >/dev/null
+          dtc -@ -I dts -O dtb -o "$output" "$source"
+          test -s "$output"
+          echo "Overlay compilé sans modifier /boot : $(stat -c '%s octets' "$output")"
+
       - name: Inspecter sans modifier le Raspberry
         shell: bash
         run: |
@@ -57,11 +68,13 @@ jobs:
           fi
 
           echo '=== ETAT DES BROCHES CRITIQUES ==='
-          if command -v pinctrl >/dev/null 2>&1; then
-            pinctrl get 7 8 9 10 11 17 18 22 24 25 || true
-          elif command -v raspi-gpio >/dev/null 2>&1; then
-            raspi-gpio get 7 8 9 10 11 17 18 22 24 25 || true
-          fi
+          for pin in 7 8 9 10 11 17 18 22 24 25; do
+            if command -v pinctrl >/dev/null 2>&1; then
+              pinctrl get "$pin" || true
+            elif command -v raspi-gpio >/dev/null 2>&1; then
+              raspi-gpio get "$pin" || true
+            fi
+          done
 
           echo '=== ARBRE SPI0 ACTIF ==='
           if command -v dtc >/dev/null 2>&1; then
@@ -101,9 +114,9 @@ jobs:
                   modalias = None
               spi_devices.append({'name': path.name, 'driver': driver, 'modalias': modalias})
           print(json.dumps({
-              'gpio17Mentioned': 'gpio-17' in text or 'GPIO17' in text,
-              'gpio18Mentioned': 'gpio-18' in text or 'GPIO18' in text,
-              'gpio22Mentioned': 'gpio-22' in text or 'GPIO22' in text,
+              'gpio17UsedByTouch': 'GPIO17' in text and 'pendown' in text,
+              'gpio18Free': 'GPIO18              )' in text,
+              'gpio22Free': 'GPIO22              )' in text,
               'spiDevices': spi_devices,
               'spidevNodes': sorted(str(p) for p in Path('/dev').glob('spidev*')),
           }, indent=2))
