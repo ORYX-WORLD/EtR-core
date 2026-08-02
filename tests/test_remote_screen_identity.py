@@ -1,14 +1,20 @@
 import base64
 import json
 import os
+import sys
 import unittest
+from pathlib import Path
 from unittest import mock
 
-from src.remote_screen_identity import (
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+sys.path.insert(0, str(SRC))
+
+from remote_screen_identity import (  # noqa: E402
     installation_id_from_device_access,
     resolve_remote_installation_id,
 )
-from src import remote_screen_runtime
+import remote_screen_runtime  # noqa: E402
 
 
 def unsigned_token(payload):
@@ -156,12 +162,9 @@ class RemoteScreenRuntimeTests(unittest.TestCase):
 
 class RemoteScreenIdentityRepositoryContractTests(unittest.TestCase):
     def test_service_uses_linked_identity_runtime(self):
-        from pathlib import Path
-
-        root = Path(__file__).resolve().parents[1]
-        service = (root / "src/deploy/raspi/etr-remote-screen.service").read_text(encoding="utf-8")
-        runtime = (root / "src/remote_screen_runtime.py").read_text(encoding="utf-8")
-        identity = (root / "src/remote_screen_identity.py").read_text(encoding="utf-8")
+        service = (ROOT / "src/deploy/raspi/etr-remote-screen.service").read_text(encoding="utf-8")
+        runtime = (ROOT / "src/remote_screen_runtime.py").read_text(encoding="utf-8")
+        identity = (ROOT / "src/remote_screen_identity.py").read_text(encoding="utf-8")
         for marker in [
             "remote_screen_runtime.py",
             "ETR_TOKEN_FILE=/var/lib/etr-core/firebase-auth.json",
