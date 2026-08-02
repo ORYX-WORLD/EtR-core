@@ -1,16 +1,18 @@
 {
-  "checkedAt": "2026-08-02T13:23:59.096371+00:00",
-  "commit": "2727c5e301b778e23a22c16a226865a90997397e",
+  "checkedAt": "2026-08-02T13:36:55.814099+00:00",
+  "commit": "d90a40301577690cbecf726949b3951c5722a99c",
   "status": "failure",
   "project": "oryx-froid-industriel",
   "region": "europe-west1",
   "service": "etr-remote-gateway",
   "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
-  "revision": "etr-remote-gateway-00016-wl4",
+  "revision": "etr-remote-gateway-00017-m2d",
   "trafficPercent": 100,
+  "version": "1.1.1",
   "enrollment": "v1",
   "admin": "v1",
-  "adminRouteVerified": false,
+  "deviceAuthorization": "firebase-id-token-plus-deviceAccess",
+  "adminRouteVerified": true,
   "adminBootstrap": "verified-email-allowlist",
   "deviceBootstrap": "github-oidc-ed25519",
   "deviceSessionIssuance": false,
@@ -21,8 +23,40 @@
     "authentication": "success",
     "firebaseConfig": "success",
     "deploy": "success",
-    "verify": "failure",
-    "firebaseSession": "skipped"
+    "verify": "success",
+    "firebaseSession": "failure"
   },
-  "verification": null
+  "verification": {
+    "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
+    "revision": "etr-remote-gateway-00017-m2d",
+    "serviceVerifiedBy": "api-health-enrollment-and-admin-routes",
+    "healthStatus": 200,
+    "apiHealthEndpointSupported": true,
+    "requestStatus": 400,
+    "bootstrapStatus": 401,
+    "adminStatus": 401,
+    "healthBody": {
+      "ok": true,
+      "service": "etr-remote-gateway",
+      "version": "1.1.1",
+      "revision": "etr-remote-gateway-00017-m2d",
+      "devices": 0,
+      "viewers": 0,
+      "readyViewers": 0,
+      "enrollment": "v1",
+      "admin": "v1"
+    },
+    "requestBody": {
+      "error": "Numéro de série invalide",
+      "code": "invalid_serial"
+    },
+    "bootstrapBody": {
+      "error": "Jeton de déploiement manquant",
+      "code": "github_oidc_missing"
+    },
+    "adminBody": {
+      "error": "Jeton manquant",
+      "code": "auth/id-token-missing"
+    }
+  }
 }
