@@ -21,6 +21,7 @@ test("builds a deterministic gateway health payload", () => {
       readyViewers: 1,
       enrollment: "v1",
       admin: "v1",
+      liveViewerDiagnostic: "github-oidc"
     },
   );
 });
@@ -41,4 +42,5 @@ test("installs local and public health routes", () => {
   assert.equal(payload.ok, true);
   assert.equal(payload.service, "etr-remote-gateway");
   assert.equal(payload.devices, 0);
+  assert.equal(payload.liveViewerDiagnostic, "github-oidc");
 });
