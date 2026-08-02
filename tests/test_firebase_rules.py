@@ -51,7 +51,7 @@ class FirebaseRulesContractTests(unittest.TestCase):
         self.assertIn("updated_at').isString()", validation)
         self.assertIn("val() === $installationId", validation)
 
-    def test_human_writes_require_verified_email_for_every_role_path(self):
+    def test_human_writes_require_verified_email_and_active_membership(self):
         expressions = [
             self.installation["configuration"][".write"],
             self.installation["maintenance"][".write"],
@@ -61,7 +61,22 @@ class FirebaseRulesContractTests(unittest.TestCase):
         ]
         for expression in expressions:
             self.assertIn("auth.token.email_verified === true", expression)
+            self.assertIn("child('active').val() === true", expression)
             self.assertIn("oryxDeveloper", expression)
+
+    def test_inactive_membership_never_grants_a_human_write_path(self):
+        expressions = {
+            "configuration": self.installation["configuration"][".write"],
+            "maintenance": self.installation["maintenance"][".write"],
+            "commissioning": self.installation["commands"]["commissioning"][".write"],
+            "maintenance_command": self.installation["commands"]["maintenance"][".write"],
+            "operation": self.installation["commands"]["operation"][".write"],
+        }
+        for name, expression in expressions.items():
+            active_index = expression.find("child('active').val() === true")
+            role_index = expression.find("child('role').val()")
+            self.assertGreaterEqual(active_index, 0, f"{name}: active guard missing")
+            self.assertGreater(role_index, active_index, f"{name}: role evaluated before active guard")
 
     def test_private_operational_branches_are_never_client_accessible(self):
         for branch in [
