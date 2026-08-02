@@ -1,6 +1,6 @@
 {
-  "checkedAt": "2026-08-02T13:45:28.507452+00:00",
-  "commit": "46221b05258ba5480141a226219a1b825b8b15f3",
+  "checkedAt": "2026-08-02T14:10:10.619388+00:00",
+  "commit": "b6ec046ab98a143843981f26c2f2fae13c28edc9",
   "jobStatus": "success",
   "gatewayUrl": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
   "expectedVersion": "1.1.1",
@@ -8,7 +8,7 @@
     "root": {
       "status": 404,
       "body": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n<body>\n<pre>Cannot GET /</pre>\n</body>\n</html>\n",
-      "headers": "HTTP/2 404 \ncontent-security-policy: default-src 'none'\nx-content-type-options: nosniff\ncontent-type: text/html; charset=utf-8\nx-cloud-trace-context: 545b7f9664b483f2a9e6a9b73cb108fd\ndate: Sun, 02 Aug 2026 13:45:25 GMT\nserver: Google Frontend\ncontent-length: 139\nalt-svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000\n\n"
+      "headers": "HTTP/2 404 \ncontent-security-policy: default-src 'none'\nx-content-type-options: nosniff\ncontent-type: text/html; charset=utf-8\nx-cloud-trace-context: 0a34d15043d16e7cc5aaa878fb2a5d41\ndate: Sun, 02 Aug 2026 14:10:08 GMT\nserver: Google Frontend\ncontent-length: 139\nalt-svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000\n\n"
     },
     "api_health": {
       "status": 200,
@@ -16,19 +16,19 @@
         "ok": true,
         "service": "etr-remote-gateway",
         "version": "1.1.1",
-        "revision": "etr-remote-gateway-00017-m2d",
-        "devices": 0,
+        "revision": "etr-remote-gateway-00018-kxq",
+        "devices": 1,
         "viewers": 0,
         "readyViewers": 0,
         "enrollment": "v1",
         "admin": "v1"
       },
-      "headers": "HTTP/2 200 \ncache-control: no-store\ncontent-type: application/json; charset=utf-8\netag: W/\"ae-AFDmzXdvK1ZAHkymDq9X5b1b3Gk\"\nx-cloud-trace-context: 78bf4600ab87d08ecdb1266d4ef14981;o=1\ndate: Sun, 02 Aug 2026 13:45:24 GMT\nserver: Google Frontend\ncontent-length: 174\nalt-svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000\n\n"
+      "headers": "HTTP/2 200 \ncache-control: no-store\ncontent-type: application/json; charset=utf-8\netag: W/\"ae-c42qyCpwNtcvgkAgmyKq1Js+e8E\"\nx-cloud-trace-context: cbcfdd207184c8ef2e74bb804b6e5b74;o=1\ndate: Sun, 02 Aug 2026 14:10:08 GMT\nserver: Google Frontend\ncontent-length: 174\nalt-svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000\n\n"
     },
     "compatibility_health": {
       "status": 404,
       "body": "<!DOCTYPE html>\n<html lang=en>\n  <meta charset=utf-8>\n  <meta name=viewport content=\"initial-scale=1, minimum-scale=1, width=device-width\">\n  <title>Error 404 (Not Found)!!1</title>\n  <style>\n    *{margin:0;padding:0}html,code{font:15px/22px arial,sans-serif}html{background:#fff;color:#222;padding:15px}body{margin:7% auto 0;max-width:390px;min-height:180px;padding:30px 0 15px}* > body{background:url(//www.google.com/images/errors/robot.png) 100% 5px no-repeat;padding-right:205px}p{margin:11px 0 22px;overflow:hidden}ins{color:#777;text-decoration:none}a img{border:0}@media screen and (max-width:772px){body{background:none;margin-top:0;max-width:none;padding-right:0}}#logo{background:url(//www.google.com/images/branding/googlelogo/1x/googlelogo_color_150x54dp.png) no-repeat;margin-left:-5px}@media only screen and (min-resolution:192dpi){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat 0% 0%/100% 100%;-moz-border-image:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) 0}}@media only screen and (-webkit-min-device-pixel-ratio:2){#logo{background:url(//www.google.com/images/branding/googlelogo/2x/googlelogo_color_150x54dp.png) no-repeat;-webkit-background-size:100% 100%}}#logo{display:inline-block;height:54px;width:150px}\n  </style>\n  <a href=//www.google.com/><span id=logo aria-label=Google></span></a>\n  <p><b>404.</b> <ins>That’s an error.</ins>\n  <p>The requested URL <code>/healthz</code> was not found on this server.  <ins>That’s all we know.</ins>\n",
-      "headers": "HTTP/2 404 \ncontent-type: text/html; charset=UTF-8\nreferrer-policy: no-referrer\ncontent-length: 1568\ndate: Sun, 02 Aug 2026 13:45:25 GMT\nalt-svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000\n\n"
+      "headers": "HTTP/2 404 \ncontent-type: text/html; charset=UTF-8\nreferrer-policy: no-referrer\ncontent-length: 1568\ndate: Sun, 02 Aug 2026 14:10:08 GMT\nalt-svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000\n\n"
     },
     "enrollment": {
       "status": 400,
@@ -36,7 +36,7 @@
         "error": "Numéro de série invalide",
         "code": "invalid_serial"
       },
-      "headers": "HTTP/2 400 \ncontent-type: application/json; charset=utf-8\netag: W/\"3e-3bMczEpZ/0OOnorHpK/qRkJBlv4\"\nx-cloud-trace-context: 11edab2257c400a43d51346a0dc5d852\ndate: Sun, 02 Aug 2026 13:45:25 GMT\nserver: Google Frontend\ncontent-length: 62\nalt-svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000\n\n"
+      "headers": "HTTP/2 400 \ncontent-type: application/json; charset=utf-8\netag: W/\"3e-3bMczEpZ/0OOnorHpK/qRkJBlv4\"\nx-cloud-trace-context: 2b35239f289c1b8576f6cddd10c6f235\ndate: Sun, 02 Aug 2026 14:10:08 GMT\nserver: Google Frontend\ncontent-length: 62\nalt-svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000\n\n"
     },
     "admin": {
       "status": 401,
@@ -44,7 +44,7 @@
         "error": "Jeton manquant",
         "code": "auth/id-token-missing"
       },
-      "headers": "HTTP/2 401 \ncache-control: no-store\ncontent-type: application/json; charset=utf-8\netag: W/\"39-ogeN5VUSYalza/ebFtH6zPiYWK0\"\nx-cloud-trace-context: 084c53dcee233e5e84b76bb56096a18e\ndate: Sun, 02 Aug 2026 13:45:25 GMT\nserver: Google Frontend\ncontent-length: 57\nalt-svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000\n\n"
+      "headers": "HTTP/2 401 \ncache-control: no-store\ncontent-type: application/json; charset=utf-8\netag: W/\"39-ogeN5VUSYalza/ebFtH6zPiYWK0\"\nx-cloud-trace-context: 7114b7a701784b4d63a06d0e2fa7084b\ndate: Sun, 02 Aug 2026 14:10:08 GMT\nserver: Google Frontend\ncontent-length: 57\nalt-svc: h3=\":443\"; ma=2592000,h3-29=\":443\"; ma=2592000\n\n"
     }
   }
 }
