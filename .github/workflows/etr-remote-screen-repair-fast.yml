@@ -72,17 +72,28 @@ jobs:
         id: repair
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
           start_epoch=$(date +%s)
           echo "start_epoch=$start_epoch" >> "$GITHUB_OUTPUT"
-          output=$(bash /home/oryx/EtR-core/src/deploy/raspi/repair_remote_screen.sh)
-          printf '%s\n' "$output"
+          bash /home/oryx/EtR-core/src/deploy/raspi/repair_remote_screen.sh \
+            > /tmp/etr-screen-fast/repair.stdout \
+            2> /tmp/etr-screen-fast/repair.stderr
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/etr-screen-fast/repair.stdout || true
+          cat /tmp/etr-screen-fast/repair.stderr >&2 || true
+          output=$(cat /tmp/etr-screen-fast/repair.stdout 2>/dev/null || true)
           installation_id=$(sed -n 's/^ETR_INSTALLATION_ID=//p' <<<"$output" | tail -n 1)
+          echo "installation_id=$installation_id" >> "$GITHUB_OUTPUT"
+          [ "$code" = "0" ] || {
+            echo "::error::La réparation écran a échoué avec le code $code"
+            exit "$code"
+          }
           [[ "$installation_id" =~ ^[A-Za-z0-9._-]{2,80}$ ]] || {
             echo "::error::Identité EtR invalide : $installation_id"
             exit 1
           }
-          echo "installation_id=$installation_id" >> "$GITHUB_OUTPUT"
 
       - name: Vérifier VNC et attendre la connexion WSS
         id: verify
@@ -92,12 +103,19 @@ jobs:
           START_EPOCH: ${{ steps.repair.outputs.start_epoch }}
         run: |
           set -euo pipefail
-          for service in etr-firebase-bridge.service etr-vnc.service etr-remote-screen.service; do
+          for service in etr-vnc.service etr-remote-screen.service; do
+            ready=false
             for attempt in $(seq 1 45); do
-              sudo systemctl is-active --quiet "$service" && break
+              if sudo systemctl is-active --quiet "$service"; then
+                ready=true
+                break
+              fi
               sleep 2
             done
-            sudo systemctl is-active --quiet "$service"
+            [ "$ready" = true ] || {
+              sudo systemctl status "$service" --no-pager -l || true
+              exit 1
+            }
           done
           sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901'
           ! sudo ss -H -ltnp | grep -qE '(0\.0\.0\.0|\[::\]):5901'
@@ -118,6 +136,12 @@ jobs:
           fi
           journal=$(sudo journalctl -u etr-remote-screen.service --since "@${START_EPOCH}" --no-pager)
           ! grep -Fq 'server rejected WebSocket connection: HTTP 500' <<<"$journal"
+          curl -fsS "$GATEWAY_URL/api/health" > /tmp/etr-screen-fast/gateway-health.json
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-screen-fast/gateway-health.json', encoding='utf-8'))
+          assert int(data.get('devices', 0)) >= 1
+          PY
 
       - name: Publier la preuve
         if: always()
@@ -125,6 +149,7 @@ jobs:
         env:
           JOB_STATUS: ${{ job.status }}
           INSTALLATION_ID: ${{ steps.repair.outputs.installation_id }}
+          REPAIR_EXIT_CODE: ${{ steps.repair.outputs.exit_code }}
           CONNECTED: ${{ steps.verify.outputs.connected }}
           START_EPOCH: ${{ steps.repair.outputs.start_epoch }}
         run: |
@@ -134,25 +159,36 @@ jobs:
             | sed -E 's/(Bearer |idToken|refreshToken)[^ ]+/<secret-masque>/g' \
             > /tmp/etr-screen-fast/journal.txt
           python3 - <<'PY' > /tmp/etr-remote-screen-fast-last.json
-          import json, os, subprocess
+          import json, os, re, subprocess
           from datetime import datetime, timezone
           from pathlib import Path
           def command(args):
               try:return subprocess.run(args,check=False,capture_output=True,text=True,timeout=8).stdout.strip()
               except Exception:return ''
-          try: journal=Path('/tmp/etr-screen-fast/journal.txt').read_text(encoding='utf-8',errors='replace')[-12000:]
-          except OSError: journal=''
+          def safe(path, limit=12000):
+              try:value=Path(path).read_text(encoding='utf-8',errors='replace')[-limit:]
+              except OSError:return ''
+              value=re.sub(r'(?i)(idToken|refreshToken|FIREBASE_API_KEY)=\S+',r'\1=<secret-masque>',value)
+              value=re.sub(r'(?i)Bearer\s+\S+','Bearer <secret-masque>',value)
+              return value
+          try: health=json.loads(Path('/tmp/etr-screen-fast/gateway-health.json').read_text(encoding='utf-8'))
+          except Exception: health={}
           report={
               'checkedAt':datetime.now(timezone.utc).isoformat(),
               'jobStatus':os.getenv('JOB_STATUS'),
               'host':command(['hostname']),
               'installedCommit':command(['sudo','-u','oryx','-H','git','-C','/home/oryx/EtR-core','rev-parse','HEAD']) or None,
               'installationId':os.getenv('INSTALLATION_ID') or None,
+              'repairExitCode':int(os.getenv('REPAIR_EXIT_CODE') or 999),
               'connected':os.getenv('CONNECTED') == 'true',
               'gatewayUrl':os.getenv('GATEWAY_URL'),
+              'gatewayHealth':health,
+              'firebaseBridgeService':command(['systemctl','is-active','etr-firebase-bridge.service']),
               'remoteScreenService':command(['systemctl','is-active','etr-remote-screen.service']),
               'vncService':command(['systemctl','is-active','etr-vnc.service']),
-              'journal':journal,
+              'repairStdout':safe('/tmp/etr-screen-fast/repair.stdout'),
+              'repairStderr':safe('/tmp/etr-screen-fast/repair.stderr'),
+              'journal':safe('/tmp/etr-screen-fast/journal.txt'),
           }
           print(json.dumps(report,ensure_ascii=False,indent=2))
           PY
