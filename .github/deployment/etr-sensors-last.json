@@ -1,12 +1,34 @@
 {
-  "checkedAt": "2026-08-02T10:02:05.416912+00:00",
+  "checkedAt": "2026-08-02T10:06:02.558002+00:00",
   "jobStatus": "failure",
   "host": "etr-core",
   "machine": "aarch64",
-  "installedCommit": "da6025a12d084e4c3b040fec65e9408b55296aa5",
+  "kernel": "6.12.47+rpt-rpi-v8",
+  "model": "Raspberry Pi 4 Model B Rev 1.5",
+  "bootId": "e7c472bf-b715-49b2-8953-de644bf55221",
+  "installedCommit": "d1f2637528c625394a6dda72290b49ecbb3cf85f",
   "installExitCode": "42",
   "rebootScheduled": true,
   "spiDevice": false,
+  "spiNodes": [],
+  "selectedSpiDevice": 0,
+  "spiConfigured": "0",
+  "bootConfigPath": "/boot/firmware/config.txt",
+  "bootConfigSpiLines": [
+    "dtparam=spi=on",
+    "#dtoverlay=vc4-kms-v3d",
+    "dtoverlay=dwc2,dr_mode=host",
+    "dtparam=spi=on",
+    "dtoverlay=tft35a:rotate=90"
+  ],
+  "spiModules": "Module                  Size  Used by\nspidev                 24576  0\nspi_bcm2835            20480  0",
+  "spiMasters": [
+    "/sys/class/spi_master/spi0"
+  ],
+  "spiKernelDevices": [
+    "/sys/bus/spi/devices/spi0.0",
+    "/sys/bus/spi/devices/spi0.1"
+  ],
   "gpioChip": true,
   "hardware": {},
   "sensors": []
