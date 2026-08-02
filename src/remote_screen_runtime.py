@@ -7,8 +7,12 @@ import asyncio
 import logging
 import os
 
-import remote_screen_agent as agent
-from remote_screen_identity import resolve_remote_installation_id
+try:  # Import comme module de paquet pendant les tests.
+    from . import remote_screen_agent as agent
+    from .remote_screen_identity import resolve_remote_installation_id
+except ImportError:  # Exécution directe du fichier par systemd.
+    import remote_screen_agent as agent
+    from remote_screen_identity import resolve_remote_installation_id
 
 
 def authenticate_linked_device_session() -> tuple[str, str]:
