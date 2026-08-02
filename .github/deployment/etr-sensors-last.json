@@ -1,17 +1,19 @@
 {
-  "checkedAt": "2026-08-02T10:21:37.344608+00:00",
+  "checkedAt": "2026-08-02T10:25:21.116748+00:00",
   "jobStatus": "failure",
   "host": "etr-core",
   "machine": "aarch64",
   "kernel": "6.12.47+rpt-rpi-v8",
   "model": "Raspberry Pi 4 Model B Rev 1.5",
-  "bootId": "44f8b6a0-67ab-4dda-9abf-129b803c24a6",
-  "installedCommit": "c2c84443d9b121f2316c476492313d5f4ebe4106",
-  "installExitCode": "42",
-  "rebootScheduled": true,
-  "spiDevice": false,
-  "spiNodes": [],
-  "selectedSpiDevice": 0,
+  "bootId": "c0ba0185-5c47-4f2b-a254-e42eddfdba0d",
+  "installedCommit": "46317b87421d767b5648de922ada6dc1bd0b4ee9",
+  "installExitCode": "0",
+  "rebootScheduled": false,
+  "spiDevice": true,
+  "spiNodes": [
+    "/dev/spidev0.2"
+  ],
+  "selectedSpiDevice": 2,
   "spiConfigured": "0",
   "bootConfigPath": "/boot/firmware/config.txt",
   "bootConfigSpiLines": [
@@ -29,9 +31,17 @@
   ],
   "spiKernelDevices": [
     "/sys/bus/spi/devices/spi0.0",
-    "/sys/bus/spi/devices/spi0.1"
+    "/sys/bus/spi/devices/spi0.1",
+    "/sys/bus/spi/devices/spi0.2"
   ],
   "gpioChip": true,
-  "hardware": {},
+  "hardware": {
+    "adc": "ADS1263",
+    "hat": "Waveshare High-Precision AD HAT",
+    "status": "offline",
+    "chip_id": null,
+    "mode": "single_ended_aincom",
+    "reference": "AVDD_AVSS"
+  },
   "sensors": []
 }
