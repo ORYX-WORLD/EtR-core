@@ -6,6 +6,7 @@ DISPLAY_ID=":1"
 X_SOCKET="/tmp/.X11-unix/X1"
 XORG_PID=""
 LXDE_PID=""
+REPO_DIR="/home/oryx/EtR-core"
 
 cleanup() {
   set +e
@@ -16,7 +17,24 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-install -d -o oryx -g oryx /home/oryx/.cache /home/oryx/.config
+install -d -o oryx -g oryx \
+  /home/oryx/.cache \
+  /home/oryx/.config \
+  /home/oryx/Desktop \
+  /home/oryx/.local/share/applications
+
+# Le bureau reste utilisable sans clavier : après avoir masqué le kiosque avec
+# le bouton « Bureau Linux », ce raccourci relance l'interface EtR par l'API
+# locale privilégiée du portail.
+if [ -f "$REPO_DIR/src/deploy/raspi/etr-dashboard.desktop" ]; then
+  install -m 755 -o oryx -g oryx \
+    "$REPO_DIR/src/deploy/raspi/etr-dashboard.desktop" \
+    /home/oryx/Desktop/Revenir-a-EtR.desktop
+  install -m 644 -o oryx -g oryx \
+    "$REPO_DIR/src/deploy/raspi/etr-dashboard.desktop" \
+    /home/oryx/.local/share/applications/etr-dashboard.desktop
+fi
+
 touch /home/oryx/.Xauthority
 chown oryx:oryx /home/oryx/.Xauthority
 rm -f /tmp/.X1-lock
