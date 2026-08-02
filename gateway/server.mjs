@@ -6,9 +6,11 @@ import express from "express";
 import admin from "firebase-admin";
 import { createFirebaseIdTokenVerifier } from "./firebase-token-verifier.mjs";
 import { createDeviceConnectionAuthorizer } from "./device-authorization.mjs";
+import { createDeviceBootstrapService } from "./device-bootstrap.mjs";
 import { installEnrollmentRoutes } from "./enrollment-http.mjs";
 import { installAdminRoutes } from "./admin.mjs";
 import { installGatewayHealthRoutes } from "./health.mjs";
+import { installRemoteScreenDiagnosticRoute } from "./remote-screen-diagnostic.mjs";
 import { WebSocketServer, WebSocket } from "ws";
 
 const PORT = Number(process.env.PORT || 8080);
@@ -37,6 +39,7 @@ const verifyFirebaseIdToken = createFirebaseIdTokenVerifier({
     });
   }
 });
+const deviceBootstrap = createDeviceBootstrapService({ db, now: () => Date.now() });
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
@@ -73,6 +76,7 @@ async function verifyIdToken(token) {
 
 const authorizeDeviceConnection = createDeviceConnectionAuthorizer({
   verifyIdToken,
+  projectId: FIREBASE_PROJECT_ID,
   databaseURL: DATABASE_URL
 });
 
@@ -80,6 +84,24 @@ async function clientCanView(decoded, installationId) {
   if (decoded.oryxAdmin === true || decoded.oryxStaff === true || decoded.oryxDeveloper === true) return true;
   const snap = await db.ref(`memberships/${decoded.uid}/${installationId}`).get();
   return snap.child("active").val() === true;
+}
+
+function issueViewerTicket({ installationId, uid, ttlMs = 60_000 }) {
+  if (!/^[A-Za-z0-9._-]{2,80}$/.test(String(installationId || ""))) {
+    throw Object.assign(new Error("Installation invalide"), { status: 400, code: "viewer-ticket/installation-invalid" });
+  }
+  const ttl = Math.max(5_000, Math.min(60_000, Number(ttlMs || 60_000)));
+  const ticket = crypto.randomBytes(32).toString("base64url");
+  tickets.set(ticket, {
+    installationId: String(installationId),
+    uid: String(uid || "unknown").slice(0, 180),
+    expiresAt: Date.now() + ttl
+  });
+  return ticket;
+}
+
+function publicGatewayOrigin(req) {
+  return String(process.env.PUBLIC_GATEWAY_ORIGIN || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
 }
 
 function jsonError(res, error) {
@@ -107,7 +129,8 @@ installEnrollmentRoutes({
   app,
   db,
   auth: admin.auth(),
-  verifyIdToken
+  verifyIdToken,
+  deviceBootstrap
 });
 
 installAdminRoutes({
@@ -119,6 +142,14 @@ installAdminRoutes({
 });
 
 installGatewayHealthRoutes({ app, devices });
+
+installRemoteScreenDiagnosticRoute({
+  app,
+  deviceBootstrap,
+  getDevice: installationId => devices.get(installationId),
+  issueViewerTicket,
+  gatewayOrigin: process.env.PUBLIC_GATEWAY_ORIGIN || ""
+});
 
 app.post("/api/remote-session", async (req, res) => {
   try {
@@ -134,15 +165,14 @@ app.post("/api/remote-session", async (req, res) => {
     if (!device || device.readyState !== WebSocket.OPEN) {
       return res.status(409).json({ error: "EtR hors ligne ou passerelle non configurée" });
     }
-    const ticket = crypto.randomBytes(32).toString("base64url");
-    tickets.set(ticket, {
+    const ticket = issueViewerTicket({
       installationId,
       uid: decoded.uid,
-      expiresAt: Date.now() + 60_000
+      ttlMs: 60_000
     });
-    const gatewayOrigin = process.env.PUBLIC_GATEWAY_ORIGIN || `${req.protocol}://${req.get("host")}`;
+    res.setHeader("Cache-Control", "no-store");
     res.json({
-      viewerUrl: `${gatewayOrigin}/viewer?ticket=${encodeURIComponent(ticket)}`,
+      viewerUrl: `${publicGatewayOrigin(req)}/viewer?ticket=${encodeURIComponent(ticket)}`,
       expiresIn: 60
     });
   } catch (error) {
