@@ -144,6 +144,8 @@ jobs:
           test -n "$revision"
           printf '%s' "$url" > /tmp/etr-gateway-recovery/url
           printf '%s' "$revision" > /tmp/etr-gateway-recovery/revision
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
 
           gcloud run services update-traffic "$SERVICE_NAME" \
             --project="$PROJECT_ID" \
@@ -157,17 +159,19 @@ jobs:
           printf '%s\n' "$traffic" > /tmp/etr-gateway-recovery/traffic.json
           REVISION="$revision" python3 - <<'PY'
           import json, os
-          data=json.load(open('/tmp/etr-gateway-recovery/traffic.json', encoding='utf-8'))
+          payload=json.load(open('/tmp/etr-gateway-recovery/traffic.json', encoding='utf-8'))
+          if isinstance(payload, dict):
+              data=(payload.get('status') or {}).get('traffic') or payload.get('traffic') or []
+          else:
+              data=payload
           revision=os.environ['REVISION']
           assert any(
               int(item.get('percent', 0)) == 100 and (
                   item.get('revisionName') == revision or item.get('latestRevision') is True
               )
               for item in data
-          ), data
+          ), payload
           PY
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          echo "revision=$revision" >> "$GITHUB_OUTPUT"
 
       - name: Vérifier la révision publique et la session appareil
         id: verify
