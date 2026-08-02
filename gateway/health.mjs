@@ -1,6 +1,6 @@
 import { WebSocket } from "ws";
 
-export const GATEWAY_VERSION = "1.1.2";
+export const GATEWAY_VERSION = "1.1.1";
 
 export function buildGatewayHealth(
   devices,
