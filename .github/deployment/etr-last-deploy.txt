@@ -1,7 +1,7 @@
-date_utc=2026-08-02T10:56:53Z
+date_utc=2026-08-02T11:01:04Z
 job_status=failure
 host=etr-core
-installed_commit=b717e258077104f1caf6b472d53804fe63951a66
+installed_commit=7d147e361d1bd99974af151c224a0c7303900a89
 configuration_source=firebase-hosting-reserved-url+cloud-run-fixed-origin
 gateway_origin=https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
 bootstrap_registration=failure
