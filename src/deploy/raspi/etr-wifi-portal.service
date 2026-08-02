@@ -1,5 +1,5 @@
 [Unit]
-Description=EtR Wi-Fi onboarding portal
+Description=EtR Wi-Fi onboarding portal and local touch controls
 Wants=NetworkManager.service
 After=NetworkManager.service
 
@@ -10,7 +10,7 @@ WorkingDirectory=/home/oryx/EtR-core
 StateDirectory=etr-core
 StateDirectoryMode=0755
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/wifi_portal.py
+ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/touch_shell.py
 Restart=always
 RestartSec=5
 PrivateTmp=true
