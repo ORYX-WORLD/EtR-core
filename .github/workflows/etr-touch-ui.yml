@@ -1,0 +1,198 @@
+name: Vérifier le retour tactile EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-touch-ui.yml
+      - src/touch_shell.py
+      - src/deploy/raspi/etr-show-dashboard.sh
+      - src/deploy/raspi/etr-dashboard.desktop
+      - src/deploy/raspi/etr-wifi-portal.service
+      - src/deploy/raspi/start_spi_desktop.sh
+      - tests/test_touch_shell.py
+
+concurrency:
+  group: etr-touch-ui-physical
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  verify-touch-ui:
+    name: Tester le bouton Linux et le retour EtR
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 15
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Actualiser le code installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          repo_url=https://github.com/ORYX-WORLD/EtR-core.git
+          if [ ! -d "$install_dir/.git" ]; then
+            sudo -u oryx -H git clone "$repo_url" "$install_dir"
+          else
+            sudo -u oryx -H git -C "$install_dir" remote set-url origin "$repo_url"
+            if [ -n "$(sudo -u oryx -H git -C "$install_dir" status --porcelain)" ]; then
+              sudo -u oryx -H git -C "$install_dir" stash push --include-untracked -m "Sauvegarde automatique interface tactile $(date -u +%Y%m%dT%H%M%SZ)"
+            fi
+            sudo -u oryx -H git -C "$install_dir" fetch origin main
+            sudo -u oryx -H git -C "$install_dir" checkout main
+            sudo -u oryx -H git -C "$install_dir" pull --ff-only origin main
+          fi
+          sudo -u oryx -H git -C "$install_dir" rev-parse HEAD
+
+      - name: Installer la surcouche tactile et le raccourci
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          sudo install -m 644 "$install_dir/src/deploy/raspi/etr-wifi-portal.service" /etc/systemd/system/etr-wifi-portal.service
+          sudo install -m 755 "$install_dir/src/deploy/raspi/start_spi_desktop.sh" /usr/local/bin/start_spi_desktop.sh
+          sudo systemctl daemon-reload
+          sudo systemctl restart etr-wifi-portal.service
+          sudo systemctl restart spi-desktop.service
+
+          for service in etr-wifi-portal.service spi-desktop.service; do
+            ready=false
+            for _ in $(seq 1 60); do
+              if sudo systemctl is-active --quiet "$service"; then
+                ready=true
+                break
+              fi
+              sleep 2
+            done
+            [ "$ready" = true ] || {
+              sudo systemctl status "$service" --no-pager -l || true
+              sudo journalctl -u "$service" -n 100 --no-pager || true
+              exit 1
+            }
+          done
+
+          sudo systemctl restart etr-kiosk.service
+          for _ in $(seq 1 45); do
+            sudo systemctl is-active --quiet etr-kiosk.service && break
+            sleep 2
+          done
+          sudo systemctl is-active --quiet etr-kiosk.service
+
+      - name: Exécuter les tests tactiles versionnés
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /home/oryx/EtR-core
+          sudo -u oryx -H ./.venv/bin/python -m unittest tests.test_touch_shell -v
+
+      - name: Vérifier le bouton et le raccourci sur le Raspberry
+        shell: bash
+        run: |
+          set -euo pipefail
+          portal_html=$(curl -fsS --retry 10 --retry-delay 2 http://127.0.0.1:8090/)
+          grep -Fq 'id="etrLinuxDesktop"' <<<"$portal_html"
+          grep -Fq 'Bureau Linux' <<<"$portal_html"
+          grep -Fq 'color:#fff' <<<"$portal_html"
+          grep -Fq '/api/local-ui/desktop' <<<"$portal_html"
+
+          systemctl cat etr-wifi-portal.service | grep -Fq '/home/oryx/EtR-core/src/touch_shell.py'
+          test -x /home/oryx/Desktop/Revenir-a-EtR.desktop
+          grep -Fq 'Name=Revenir à EtR' /home/oryx/Desktop/Revenir-a-EtR.desktop
+          grep -Fq '/api/local-ui/dashboard' /home/oryx/EtR-core/src/deploy/raspi/etr-show-dashboard.sh
+
+      - name: Tester le parcours tableau vers Linux puis retour EtR
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST -H 'Accept: application/json' \
+            http://127.0.0.1:8090/api/local-ui/desktop \
+            | tee /tmp/etr-touch-desktop-response.json
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-touch-desktop-response.json', encoding='utf-8'))
+          assert data == {'mode': 'linux-desktop', 'ok': True}
+          PY
+
+          desktop_visible=false
+          for _ in $(seq 1 30); do
+            if ! sudo systemctl is-active --quiet etr-kiosk.service; then
+              desktop_visible=true
+              break
+            fi
+            sleep 1
+          done
+          [ "$desktop_visible" = true ] || {
+            sudo systemctl status etr-kiosk.service --no-pager -l || true
+            exit 1
+          }
+          sudo systemctl is-active --quiet spi-desktop.service
+
+          sudo -u oryx -H /bin/bash /home/oryx/EtR-core/src/deploy/raspi/etr-show-dashboard.sh
+
+          kiosk_ready=false
+          for _ in $(seq 1 45); do
+            if sudo systemctl is-active --quiet etr-kiosk.service && \
+               pgrep -u oryx -f 'chromium.*etr-kiosk-chromium' >/dev/null; then
+              kiosk_ready=true
+              break
+            fi
+            sleep 2
+          done
+          [ "$kiosk_ready" = true ] || {
+            sudo systemctl status etr-kiosk.service --no-pager -l || true
+            sudo journalctl -u etr-kiosk.service -n 100 --no-pager || true
+            exit 1
+          }
+
+          curl -fsS http://127.0.0.1:8090/api/status >/tmp/etr-touch-final-status.json
+          python3 -m json.tool /tmp/etr-touch-final-status.json
+
+      - name: Publier le rapport physique
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -u
+          report_tmp=/tmp/etr-touch-ui-last.txt
+          installed_commit=$(sudo -u oryx -H git -C /home/oryx/EtR-core rev-parse HEAD 2>/dev/null || echo unavailable)
+          portal_marker=false
+          shortcut=false
+          chromium=false
+          curl -fsS http://127.0.0.1:8090/ 2>/dev/null | grep -Fq 'id="etrLinuxDesktop"' && portal_marker=true
+          test -x /home/oryx/Desktop/Revenir-a-EtR.desktop && shortcut=true
+          pgrep -u oryx -f 'chromium.*etr-kiosk-chromium' >/dev/null 2>&1 && chromium=true
+          {
+            echo "date_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "job_status=$JOB_STATUS"
+            echo "host=$(hostname)"
+            echo "installed_commit=$installed_commit"
+            echo "portal_button=$portal_marker"
+            echo "desktop_shortcut=$shortcut"
+            echo "spi_desktop=$(sudo systemctl is-active spi-desktop.service 2>/dev/null || echo unknown)"
+            echo "wifi_portal=$(sudo systemctl is-active etr-wifi-portal.service 2>/dev/null || echo unknown)"
+            echo "kiosk=$(sudo systemctl is-active etr-kiosk.service 2>/dev/null || echo unknown)"
+            echo "chromium=$chromium"
+            echo "portal_http=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/ 2>/dev/null || echo 000)"
+          } > "$report_tmp"
+          cat "$report_tmp"
+
+          git fetch origin main
+          git checkout -B main origin/main
+          mkdir -p .github/deployment
+          cp "$report_tmp" .github/deployment/etr-touch-ui-last.txt
+          git config user.name actions
+          git config user.email actions@github.com
+          git add .github/deployment/etr-touch-ui-last.txt
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m 'chore: record EtR touch UI verification [skip ci]'
+          git push origin main
