@@ -91,7 +91,9 @@ class RepositoryContractTests(unittest.TestCase):
             "/api/admin/session", "/api/admin/overview", "/api/admin/installations", "/api/admin/users",
             "/api/admin/enrollments", "/api/admin/audit", "/api/admin/membership",
             "/api/admin/transfer-owner", "/api/admin/user-status", "/api/admin/revoke-sessions",
-            "ETR_ADMIN_EMAILS", "oryxAdmin: true", "RECENT_AUTH_SECONDS", "adminAudit",
+            "ETR_ADMIN_EMAILS", "verified-email-allowlist", "admin.allowlist.authorize",
+            "refreshRequired: false", "admin/auth-management-unavailable",
+            "gracefulFirebaseAuthDegradation", "RECENT_AUTH_SECONDS", "adminAudit",
         ]:
             self.assertIn(marker, admin)
         for marker in ['"adminProfiles"', '"adminAudit"']:

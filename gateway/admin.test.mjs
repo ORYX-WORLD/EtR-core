@@ -109,6 +109,21 @@ function authFixture(initialUsers) {
   };
 }
 
+function restrictedAuthFixture() {
+  const denied = async () => {
+    throw Object.assign(new Error("Insufficient permission to manage Firebase users"), {
+      code: "auth/insufficient-permission"
+    });
+  };
+  return {
+    getUser: denied,
+    listUsers: denied,
+    setCustomUserClaims: denied,
+    updateUser: denied,
+    revokeRefreshTokens: denied
+  };
+}
+
 const NOW = Date.parse("2026-07-26T10:00:00.000Z");
 const recentAdmin = {
   uid: "admin-uid",
@@ -118,9 +133,15 @@ const recentAdmin = {
   oryxStaff: true,
   auth_time: Math.floor(NOW / 1000) - 60
 };
+const recentAllowlistedAdmin = {
+  uid: "admin-uid",
+  email: "amotard.oryx@gmail.com",
+  email_verified: true,
+  auth_time: Math.floor(NOW / 1000) - 60
+};
 
-function fixture() {
-  const db = databaseFixture({
+function initialDatabase() {
+  return {
     installations: {
       "etr-site-001": {
         metadata: {
@@ -162,7 +183,11 @@ function fixture() {
         expiresAt: "2026-07-27T09:00:00.000Z"
       }
     }
-  });
+  };
+}
+
+function fixture() {
+  const db = databaseFixture(initialDatabase());
   const auth = authFixture([
     user("admin-uid", "amotard.oryx@gmail.com", { customClaims: { oryxAdmin: true, oryxStaff: true } }),
     user("owner-uid", "owner@example.com"),
@@ -178,23 +203,29 @@ function fixture() {
   return { db, auth, service };
 }
 
-test("bootstraps only the verified allowlisted administrator and records an audit", async () => {
+test("authorizes the verified allowlisted administrator without requiring Auth Admin", async () => {
   const db = databaseFixture();
   const auth = authFixture([user("admin-uid", "amotard.oryx@gmail.com")]);
   const service = createAdminService({ db, auth, adminEmails: "amotard.oryx@gmail.com", now: () => NOW });
-  const session = await service.ensureSession({
-    uid: "admin-uid",
-    email: "amotard.oryx@gmail.com",
-    email_verified: true,
-    auth_time: Math.floor(NOW / 1000)
-  });
+  const session = await service.ensureSession(recentAllowlistedAdmin);
   assert.equal(session.authorized, true);
-  assert.equal(session.refreshRequired, true);
-  assert.deepEqual(auth.users.get("admin-uid").customClaims, { oryxAdmin: true, oryxStaff: true });
+  assert.equal(session.level, "write");
+  assert.equal(session.refreshRequired, false);
+  assert.equal(session.authorizationSource, "verified-email-allowlist");
+  assert.deepEqual(auth.users.get("admin-uid").customClaims, {});
   assert.equal(db.data.adminProfiles["admin-uid"].role, "superadmin");
   const audit = Object.values(db.data.adminAudit);
   assert.equal(audit.length, 1);
-  assert.equal(audit[0].action, "admin.bootstrap");
+  assert.equal(audit[0].action, "admin.allowlist.authorize");
+});
+
+test("does not duplicate the allowlist audit on every session", async () => {
+  const db = databaseFixture();
+  const auth = authFixture([user("admin-uid", "amotard.oryx@gmail.com")]);
+  const service = createAdminService({ db, auth, adminEmails: "amotard.oryx@gmail.com", now: () => NOW });
+  await service.ensureSession(recentAllowlistedAdmin);
+  await service.ensureSession(recentAllowlistedAdmin);
+  assert.equal(Object.values(db.data.adminAudit).length, 1);
 });
 
 test("rejects a verified account outside the administrator allowlist", async () => {
@@ -213,6 +244,7 @@ test("returns a sanitized overview, fleet and enrollment queue", async () => {
   assert.equal(overview.installations.total, 1);
   assert.equal(overview.installations.connected, 1);
   assert.equal(overview.users.total, 3);
+  assert.equal(overview.users.managementAvailable, true);
   assert.equal(overview.enrollments.pending, 1);
 
   const fleet = await service.listInstallations(recentAdmin);
@@ -227,6 +259,51 @@ test("returns a sanitized overview, fleet and enrollment queue", async () => {
   assert.equal(serialized.includes("must-never-be-returned"), false);
   assert.equal(serialized.includes("codeHash"), false);
   assert.equal(serialized.includes("rotationTokenHash"), false);
+});
+
+test("keeps the fleet admin available when Firebase user management permission is absent", async () => {
+  const db = databaseFixture(initialDatabase());
+  const service = createAdminService({
+    db,
+    auth: restrictedAuthFixture(),
+    adminEmails: "amotard.oryx@gmail.com",
+    getConnectedInstallations: () => ["etr-site-001"],
+    now: () => NOW
+  });
+
+  const session = await service.ensureSession(recentAllowlistedAdmin);
+  assert.equal(session.authorized, true);
+  assert.equal(session.level, "write");
+
+  const overview = await service.overview(recentAllowlistedAdmin);
+  assert.equal(overview.installations.total, 1);
+  assert.equal(overview.users.managementAvailable, false);
+  assert.equal(overview.users.source, "realtime-database-index");
+  assert.equal(overview.capabilities.fleetAdministration, true);
+
+  const users = await service.listUsers(recentAllowlistedAdmin);
+  assert.equal(users.limited, true);
+  assert.equal(users.managementAvailable, false);
+  assert.equal(users.items.some((entry) => entry.uid === "owner-uid"), true);
+
+  const membership = await service.setMembership(recentAllowlistedAdmin, {
+    uid: "owner-uid",
+    installationId: "etr-site-001",
+    role: "maintenance",
+    active: true,
+    reason: "Mise à jour du rôle depuis le back-office ORYX"
+  });
+  assert.equal(membership.membership.role, "maintenance");
+
+  await assert.rejects(
+    service.transferOwner(recentAllowlistedAdmin, {
+      installationId: "etr-site-001",
+      uid: "owner-uid",
+      reason: "Transfert de propriétaire demandé",
+      confirmation: "etr-site-001"
+    }),
+    (error) => error.status === 503 && error.code === "admin/auth-management-unavailable"
+  );
 });
 
 test("writes a membership to both indexes and audits the change", async () => {
