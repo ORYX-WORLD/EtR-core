@@ -1,5 +1,7 @@
 name: Sonder la session écran distante EtR
 
+# Relance post-déploiement de la passerelle 1.1.1 : comparer la liaison RTDB
+# et l'upgrade WebSocket avec exactement la même session technique.
 on:
   workflow_dispatch:
   push:
