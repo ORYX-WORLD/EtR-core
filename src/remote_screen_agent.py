@@ -8,17 +8,19 @@ import logging
 import os
 import re
 from contextlib import suppress
+from pathlib import Path
 from urllib.parse import urlencode
 
 import websockets
 from websockets.exceptions import ConnectionClosed
 
-from firebase_bridge import load_tokens, refresh_tokens, save_tokens
+from firebase_bridge import atomic_json_write, load_json, refresh_tokens
 
 LOG = logging.getLogger("etr.remote-screen")
 LOCAL_VNC_HOST = os.getenv("ETR_LOCAL_VNC_HOST", "127.0.0.1")
 LOCAL_VNC_PORT = int(os.getenv("ETR_LOCAL_VNC_PORT", "5901"))
 GATEWAY = os.getenv("ETR_REMOTE_GATEWAY_WSS", "").strip()
+PRIMARY_TOKEN_FILE = Path("/var/lib/etr-core/firebase-auth.json")
 INSTALLATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{2,80}$")
 
 
@@ -50,13 +52,12 @@ def installation_id_from_id_token(id_token: str) -> str:
 def authenticate_existing_device_session() -> tuple[str, str]:
     """Refresh and identify the device session created by the main bridge.
 
-    The screen relay must never start a second enrollment flow. Both services
-    run under the same non-privileged user and deliberately share the enrolled
-    device token file. A missing session therefore means "wait for the bridge",
-    not "request another activation code".
+    The primary token path is fixed deliberately. Historical systemd drop-ins
+    used a second token file and could silently restart another enrollment. The
+    screen relay now ignores any legacy ETR_TOKEN_FILE override.
     """
 
-    cached = load_tokens()
+    cached = load_json(PRIMARY_TOKEN_FILE)
     refresh_token = str(cached.get("refreshToken") or "").strip()
     if not refresh_token:
         raise RuntimeError("device_session_missing")
@@ -66,7 +67,10 @@ def authenticate_existing_device_session() -> tuple[str, str]:
     if not id_token or not next_refresh_token:
         raise RuntimeError("device_session_refresh_incomplete")
     installation_id = installation_id_from_id_token(id_token)
-    save_tokens({"idToken": id_token, "refreshToken": next_refresh_token})
+    atomic_json_write(
+        PRIMARY_TOKEN_FILE,
+        {"idToken": id_token, "refreshToken": next_refresh_token},
+    )
     return id_token, installation_id
 
 
