@@ -1,8 +1,10 @@
-"""Minimal ADS1263 driver for the Waveshare High-Precision AD HAT.
+"""ADS1263 driver for the Waveshare High-Precision AD HAT.
 
-The implementation follows the public Waveshare reference driver while using
-``lgpio`` on current Raspberry Pi OS releases. Hardware modules are imported
-lazily so unit tests can run on non-Raspberry-Pi hosts.
+The implementation follows the public Waveshare protocol while supporting a
+shared SPI0 bus. On the EtR prototype, SPI0.0 and SPI0.1 are occupied by the
+`tft35a` display and touch controller; the ADS1263 is exposed as SPI0.2 with
+GPIO22 managed by the kernel. GPIO17 is already used by the touchscreen IRQ,
+so data-ready can be polled from the ADS1263 status byte instead.
 """
 from __future__ import annotations
 
@@ -17,7 +19,7 @@ class ADS1263Error(RuntimeError):
 
 
 class ADS1263Timeout(ADS1263Error):
-    """Raised when DRDY never becomes active."""
+    """Raised when the ADC never reports a completed conversion."""
 
 
 class ADS1263ChecksumError(ADS1263Error):
@@ -67,11 +69,14 @@ class ADS1263:
         self,
         *,
         bus: int = 0,
-        device: int = 0,
+        device: int = 2,
         speed_hz: int = 2_000_000,
         gpio_chip: int = 0,
         pins: ADS1263Pins | None = None,
         drdy_timeout_seconds: float = 1.5,
+        manual_chip_select: bool = False,
+        use_data_ready_gpio: bool = False,
+        use_hardware_reset_gpio: bool = True,
         spi_module: Any | None = None,
         gpio_module: Any | None = None,
     ) -> None:
@@ -81,10 +86,14 @@ class ADS1263:
         self.gpio_chip = int(gpio_chip)
         self.pins = pins or ADS1263Pins()
         self.drdy_timeout_seconds = float(drdy_timeout_seconds)
+        self.manual_chip_select = bool(manual_chip_select)
+        self.use_data_ready_gpio = bool(use_data_ready_gpio)
+        self.use_hardware_reset_gpio = bool(use_hardware_reset_gpio)
         self._spidev_module = spi_module
         self._lgpio = gpio_module
         self._spi: Any | None = None
         self._gpio_handle: int | None = None
+        self._claimed_pins: set[int] = set()
         self._initialized = False
         self.chip_id: int | None = None
 
@@ -102,7 +111,9 @@ class ADS1263:
             except ImportError as error:  # pragma: no cover - hardware only
                 raise ADS1263Error("python3-spidev is not installed") from error
             self._spidev_module = spidev
-        if self._lgpio is None:
+        if self._lgpio is None and (
+            self.manual_chip_select or self.use_data_ready_gpio or self.use_hardware_reset_gpio
+        ):
             try:
                 import lgpio  # type: ignore
             except ImportError as error:  # pragma: no cover - hardware only
@@ -114,14 +125,20 @@ class ADS1263:
             return int(self.chip_id or 0)
         self._load_modules()
         assert self._spidev_module is not None
-        assert self._lgpio is not None
 
         try:
-            self._gpio_handle = self._lgpio.gpiochip_open(self.gpio_chip)
-            self._lgpio.gpio_claim_output(self._gpio_handle, 0, self.pins.reset, 1)
-            self._lgpio.gpio_claim_output(self._gpio_handle, 0, self.pins.chip_select, 1)
-            pull_up = int(getattr(self._lgpio, "SET_PULL_UP", 32))
-            self._lgpio.gpio_claim_input(self._gpio_handle, pull_up, self.pins.data_ready)
+            if self._lgpio is not None:
+                self._gpio_handle = self._lgpio.gpiochip_open(self.gpio_chip)
+                if self.use_hardware_reset_gpio:
+                    self._lgpio.gpio_claim_output(self._gpio_handle, 0, self.pins.reset, 1)
+                    self._claimed_pins.add(self.pins.reset)
+                if self.manual_chip_select:
+                    self._lgpio.gpio_claim_output(self._gpio_handle, 0, self.pins.chip_select, 1)
+                    self._claimed_pins.add(self.pins.chip_select)
+                if self.use_data_ready_gpio:
+                    pull_up = int(getattr(self._lgpio, "SET_PULL_UP", 32))
+                    self._lgpio.gpio_claim_input(self._gpio_handle, pull_up, self.pins.data_ready)
+                    self._claimed_pins.add(self.pins.data_ready)
 
             self._spi = self._spidev_module.SpiDev()
             self._spi.open(self.bus, self.device)
@@ -129,9 +146,14 @@ class ADS1263:
             self._spi.mode = 0b01
             self._spi.bits_per_word = 8
             if hasattr(self._spi, "no_cs"):
-                self._spi.no_cs = True
+                self._spi.no_cs = self.manual_chip_select
 
-            self._hardware_reset()
+            if self.use_hardware_reset_gpio:
+                self._hardware_reset()
+            else:
+                self.write_command(self.CMD_RESET)
+                time.sleep(0.25)
+
             chip_id = self.read_chip_id()
             if chip_id != 0x01:
                 raise ADS1263Error(f"ADS1263 chip ID invalid: {chip_id}")
@@ -176,10 +198,12 @@ class ADS1263:
         return [int(value) & 0xFF for value in self._spi.xfer2(values)]
 
     def _select(self) -> None:
-        self._write_gpio(self.pins.chip_select, 0)
+        if self.manual_chip_select:
+            self._write_gpio(self.pins.chip_select, 0)
 
     def _deselect(self) -> None:
-        self._write_gpio(self.pins.chip_select, 1)
+        if self.manual_chip_select:
+            self._write_gpio(self.pins.chip_select, 1)
 
     def write_command(self, command: int) -> None:
         self._select()
@@ -198,8 +222,8 @@ class ADS1263:
     def read_register(self, register: int) -> int:
         self._select()
         try:
-            self._transfer([self.CMD_RREG | (register & 0x1F), 0x00])
-            return self._transfer([0x00])[0]
+            response = self._transfer([self.CMD_RREG | (register & 0x1F), 0x00, 0x00])
+            return response[2]
         finally:
             self._deselect()
 
@@ -221,6 +245,8 @@ class ADS1263:
         self._verify_register(self.REG_INPMUX, value)
 
     def wait_data_ready(self) -> None:
+        if not self.use_data_ready_gpio:
+            return
         deadline = time.monotonic() + self.drdy_timeout_seconds
         while time.monotonic() < deadline:
             if self._read_gpio(self.pins.data_ready) == 0:
@@ -239,24 +265,24 @@ class ADS1263:
 
     def read_raw(self) -> int:
         self.wait_data_ready()
-        self._select()
-        try:
-            status = 0
-            for _ in range(8):
-                self._transfer([self.CMD_RDATA1])
-                status = self._transfer([0x00])[0]
-                if status & 0x40:
-                    break
-                time.sleep(0.001)
-            if not status & 0x40:
-                raise ADS1263Timeout("ADS1263 conversion status not ready")
-            data = self._transfer([0x00] * 5)
-        finally:
-            self._deselect()
-        raw = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]
-        if not self.checksum_valid(raw, data[4]):
-            raise ADS1263ChecksumError("ADS1263 data checksum mismatch")
-        return raw
+        deadline = time.monotonic() + self.drdy_timeout_seconds
+        while time.monotonic() < deadline:
+            self._select()
+            try:
+                # One SPI message keeps kernel-managed CS asserted across the
+                # command, status byte, data bytes and checksum byte.
+                response = self._transfer([self.CMD_RDATA1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+            finally:
+                self._deselect()
+            status = response[1]
+            if status & 0x40:
+                data = response[2:7]
+                raw = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3]
+                if not self.checksum_valid(raw, data[4]):
+                    raise ADS1263ChecksumError("ADS1263 data checksum mismatch")
+                return raw
+            time.sleep(0.001)
+        raise ADS1263Timeout("ADS1263 conversion status not ready")
 
     @classmethod
     def raw_to_ratio(cls, raw: int) -> float:
@@ -288,7 +314,7 @@ class ADS1263:
                 pass
             self._spi = None
         if self._gpio_handle is not None and self._lgpio is not None:
-            for pin in (self.pins.reset, self.pins.chip_select, self.pins.data_ready):
+            for pin in tuple(self._claimed_pins):
                 try:
                     self._lgpio.gpio_free(self._gpio_handle, pin)
                 except Exception:
@@ -298,4 +324,5 @@ class ADS1263:
             except Exception:
                 pass
             self._gpio_handle = None
+        self._claimed_pins.clear()
         self._initialized = False

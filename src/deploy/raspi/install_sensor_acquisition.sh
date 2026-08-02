@@ -5,37 +5,57 @@ INSTALL_DIR=${ETR_INSTALL_DIR:-/home/oryx/EtR-core}
 CONFIG_DIR=/etc/etr-core
 CONFIG_FILE=${CONFIG_DIR}/sensors.json
 STATE_DIR=/var/lib/etr-core
-SPI_REBOOT_MARKER=${STATE_DIR}/spi-reboot-requested.boot-id
+SPI_REBOOT_MARKER=${STATE_DIR}/spi-cs2-reboot-requested.boot-id
 SERVICE=etr-sensor-acquisition.service
+OVERLAY_NAME=etr-ads1263-spi0-cs2
+OVERLAY_SOURCE=${INSTALL_DIR}/src/deploy/raspi/${OVERLAY_NAME}-overlay.dts
 
 if [ ! -f "${INSTALL_DIR}/src/sensor_acquisition.py" ] || [ ! -f "${INSTALL_DIR}/src/ads1263.py" ]; then
   echo "Sources d'acquisition ADS1263 absentes dans ${INSTALL_DIR}" >&2
   exit 2
 fi
+if [ ! -f "${OVERLAY_SOURCE}" ]; then
+  echo "Overlay ADS1263 absent : ${OVERLAY_SOURCE}" >&2
+  exit 2
+fi
 
 sudo apt-get update
-sudo apt-get install -y python3-lgpio python3-spidev
+sudo apt-get install -y device-tree-compiler python3-lgpio python3-spidev
 
-# Activer SPI par l'outil officiel et verrouiller aussi le paramètre persistant.
-# Raspberry Pi OS Bookworm utilise /boot/firmware/config.txt ; les versions plus
-# anciennes utilisent /boot/config.txt.
+# Raspberry Pi OS Bookworm utilise /boot/firmware ; les versions plus anciennes
+# utilisent /boot. L'overlay tft35a occupe SPI0.0 et SPI0.1. L'overlay EtR,
+# chargé après lui, ajoute SPI0.2 et utilise GPIO22 comme troisième chip-select.
+boot_config=""
+overlay_dir=""
+if [ -f /boot/firmware/config.txt ] && [ -d /boot/firmware/overlays ]; then
+  boot_config=/boot/firmware/config.txt
+  overlay_dir=/boot/firmware/overlays
+elif [ -f /boot/config.txt ] && [ -d /boot/overlays ]; then
+  boot_config=/boot/config.txt
+  overlay_dir=/boot/overlays
+else
+  echo "Partition de démarrage Raspberry Pi introuvable" >&2
+  exit 2
+fi
+
 if command -v raspi-config >/dev/null 2>&1; then
   sudo raspi-config nonint do_spi 0
 fi
-boot_config=""
-for candidate in /boot/firmware/config.txt /boot/config.txt; do
-  if [ -f "$candidate" ]; then
-    boot_config=$candidate
-    break
-  fi
-done
-if [ -n "$boot_config" ]; then
-  if sudo grep -Eq '^[[:space:]]*dtparam=spi=(off|0)[[:space:]]*$' "$boot_config"; then
-    sudo sed -i -E 's/^[[:space:]]*dtparam=spi=(off|0)[[:space:]]*$/dtparam=spi=on/' "$boot_config"
-  fi
-  if ! sudo grep -Eq '^[[:space:]]*dtparam=spi=on([[:space:]]|$)' "$boot_config"; then
-    printf '\n%s\n' 'dtparam=spi=on' | sudo tee -a "$boot_config" >/dev/null
-  fi
+if sudo grep -Eq '^[[:space:]]*dtparam=spi=(off|0)[[:space:]]*$' "$boot_config"; then
+  sudo sed -i -E 's/^[[:space:]]*dtparam=spi=(off|0)[[:space:]]*$/dtparam=spi=on/' "$boot_config"
+fi
+if ! sudo grep -Eq '^[[:space:]]*dtparam=spi=on([[:space:]]|$)' "$boot_config"; then
+  printf '\n%s\n' 'dtparam=spi=on' | sudo tee -a "$boot_config" >/dev/null
+fi
+
+compiled_overlay=$(mktemp)
+trap 'rm -f "$compiled_overlay"' EXIT
+dtc -@ -I dts -O dtb -o "$compiled_overlay" "$OVERLAY_SOURCE"
+sudo install -m 644 "$compiled_overlay" "${overlay_dir}/${OVERLAY_NAME}.dtbo"
+
+if ! sudo grep -Eq "^[[:space:]]*dtoverlay=${OVERLAY_NAME}([,:[:space:]]|$)" "$boot_config"; then
+  printf '\n# EtR : troisième chip-select SPI0 pour le HAT ADS1263\n%s\n' \
+    "dtoverlay=${OVERLAY_NAME}" | sudo tee -a "$boot_config" >/dev/null
 fi
 
 sudo modprobe spi_bcm2835 2>/dev/null || true
@@ -53,37 +73,27 @@ sudo install -m 644 "${INSTALL_DIR}/src/deploy/raspi/${SERVICE}" "/etc/systemd/s
 sudo systemctl daemon-reload
 sudo systemctl enable "${SERVICE}"
 
-# L'écran SPI peut occuper CS0 et ne laisser disponible que /dev/spidev0.1.
-# Le driver ADS1263 utilise son propre CS sur GPIO22 (no_cs), donc n'importe
-# quel nœud spidev du bus 0 convient pour MOSI/MISO/SCLK.
-spi_node=""
-for candidate in /dev/spidev0.0 /dev/spidev0.1; do
-  if [ -c "$candidate" ]; then
-    spi_node=$candidate
-    break
-  fi
-done
-
-if [ -z "$spi_node" ]; then
+# Le nœud SPI0.2 n'apparaît qu'après le redémarrage qui charge le nouvel overlay.
+spi_node=/dev/spidev0.2
+if [ ! -c "$spi_node" ]; then
   current_boot_id=$(cat /proc/sys/kernel/random/boot_id)
   previous_boot_id=""
   if sudo test -s "${SPI_REBOOT_MARKER}"; then
     previous_boot_id=$(sudo cat "${SPI_REBOOT_MARKER}")
   fi
   if [ -n "$previous_boot_id" ] && [ "$previous_boot_id" != "$current_boot_id" ]; then
-    echo "SPI_UNAVAILABLE_AFTER_REBOOT: aucun /dev/spidev0.* malgré dtparam=spi=on" >&2
+    echo "SPI_CS2_UNAVAILABLE_AFTER_REBOOT: ${spi_node} absent malgré l'overlay ${OVERLAY_NAME}" >&2
     exit 43
   fi
   printf '%s\n' "$current_boot_id" | sudo tee "${SPI_REBOOT_MARKER}" >/dev/null
   sudo chown oryx:oryx "${SPI_REBOOT_MARKER}"
   sudo chmod 600 "${SPI_REBOOT_MARKER}"
-  echo "SPI_REBOOT_REQUIRED: aucun /dev/spidev0.* après activation de SPI" >&2
+  echo "SPI_REBOOT_REQUIRED: ${spi_node} sera créé après chargement de l'overlay ${OVERLAY_NAME}" >&2
   exit 42
 fi
 
-sudo rm -f "${SPI_REBOOT_MARKER}"
-spi_device=${spi_node##*.}
-CONFIG_FILE="$CONFIG_FILE" SPI_DEVICE="$spi_device" sudo -E python3 - <<'PY'
+sudo rm -f "${SPI_REBOOT_MARKER}" "${STATE_DIR}/spi-reboot-requested.boot-id"
+CONFIG_FILE="$CONFIG_FILE" sudo -E python3 - <<'PY'
 import json
 import os
 from pathlib import Path
@@ -91,8 +101,15 @@ from pathlib import Path
 path = Path(os.environ["CONFIG_FILE"])
 data = json.loads(path.read_text(encoding="utf-8"))
 adc = data.setdefault("adc", {})
-adc["bus"] = 0
-adc["device"] = int(os.environ["SPI_DEVICE"])
+adc.update(
+    {
+        "bus": 0,
+        "device": 2,
+        "manual_chip_select": False,
+        "use_data_ready_gpio": False,
+        "use_hardware_reset_gpio": True,
+    }
+)
 temporary = path.with_suffix(".json.tmp")
 temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 temporary.replace(path)
