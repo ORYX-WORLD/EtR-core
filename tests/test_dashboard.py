@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from dashboard.app import create_app
+from dashboard.app import TOUCH_PORTAL_ORIGIN, create_app
 
 
 class DashboardTests(unittest.TestCase):
@@ -22,13 +22,18 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("résistance fixe de 10 kΩ".encode(), response.data)
         self.assertIn(b"data-enrollment", response.data)
         self.assertIn(b"Associer cet EtR", response.data)
-        self.assertIn("script-src 'self'", response.headers["Content-Security-Policy"])
+        csp = response.headers["Content-Security-Policy"]
+        self.assertIn("script-src 'self'", csp)
+        self.assertIn(f"frame-ancestors {TOUCH_PORTAL_ORIGIN}", csp)
+        self.assertNotIn("frame-ancestors 'none'", csp)
         self.assertEqual(response.headers["Cache-Control"], "no-store")
 
-    def test_dashboard_health_exposes_sensor_ui_version(self):
+    def test_dashboard_health_exposes_sensor_ui_and_embed_contract(self):
         response = self.client.get("/healthz")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["version"], "1.2.0")
+        payload = response.get_json()
+        self.assertEqual(payload["version"], "1.2.1")
+        self.assertEqual(payload["embedded_by"], "http://127.0.0.1:8090")
 
     @patch("dashboard.app.requests.get")
     def test_status_proxy_returns_local_api_payload(self, get):
