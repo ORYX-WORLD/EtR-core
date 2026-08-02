@@ -1,0 +1,219 @@
+name: Diagnostiquer l'écran distant EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-remote-screen-check.yml
+      - src/remote_screen_agent.py
+      - src/deploy/raspi/etr-vnc.service
+      - src/deploy/raspi/etr-remote-screen.service
+
+concurrency:
+  group: etr-remote-screen-physical
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    name: Vérifier Raspberry, VNC et présence Cloud
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 15
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Actualiser le dépôt installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          repo_url=https://github.com/ORYX-WORLD/EtR-core.git
+          if [ ! -d "$install_dir/.git" ]; then
+            sudo -u oryx -H git clone "$repo_url" "$install_dir"
+          else
+            sudo -u oryx -H git -C "$install_dir" remote set-url origin "$repo_url"
+            if [ -n "$(sudo -u oryx -H git -C "$install_dir" status --porcelain)" ]; then
+              sudo -u oryx -H git -C "$install_dir" stash push --include-untracked -m "Sauvegarde écran distant $(date -u +%Y%m%dT%H%M%SZ)"
+            fi
+            sudo -u oryx -H git -C "$install_dir" fetch origin main
+            sudo -u oryx -H git -C "$install_dir" checkout main
+            sudo -u oryx -H git -C "$install_dir" pull --ff-only origin main
+          fi
+          sudo -u oryx -H git -C "$install_dir" rev-parse HEAD
+
+      - name: Réinstaller et relancer les services d'écran
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          sudo install -m 644 "$install_dir/src/deploy/raspi/etr-vnc.service" /etc/systemd/system/etr-vnc.service
+          sudo install -m 644 "$install_dir/src/deploy/raspi/etr-remote-screen.service" /etc/systemd/system/etr-remote-screen.service
+          sudo systemctl daemon-reload
+          sudo systemctl enable etr-vnc.service etr-remote-screen.service
+          sudo systemctl restart etr-vnc.service
+          sudo systemctl restart etr-remote-screen.service
+
+          for service in etr-vnc.service etr-remote-screen.service; do
+            ready=false
+            for _ in $(seq 1 45); do
+              if sudo systemctl is-active --quiet "$service"; then
+                ready=true
+                break
+              fi
+              sleep 2
+            done
+            [ "$ready" = true ] || {
+              sudo systemctl status "$service" --no-pager -l || true
+              sudo journalctl -u "$service" -n 120 --no-pager || true
+              exit 1
+            }
+          done
+
+      - name: Vérifier la configuration et la liaison locale
+        id: local
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_file=/etc/etr-core/firebase-bridge.env
+          gateway_wss=$(sudo sed -n 's/^ETR_REMOTE_GATEWAY_WSS=//p' "$env_file" | tail -n 1)
+          [ -n "$gateway_wss" ] || { echo "::error::ETR_REMOTE_GATEWAY_WSS absent"; exit 1; }
+          [[ "$gateway_wss" == wss://*.run.app/device ]] || { echo "::error::Passerelle WSS inattendue"; exit 1; }
+          gateway_origin=${gateway_wss/wss:\/\//https:\/\/}
+          gateway_origin=${gateway_origin%/device}
+          echo "gateway_origin=$gateway_origin" >> "$GITHUB_OUTPUT"
+
+          sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901' || {
+            sudo ss -ltnp || true
+            echo "::error::VNC local absent sur 127.0.0.1:5901"
+            exit 1
+          }
+          ! sudo ss -H -ltnp | grep -qE '(0\.0\.0\.0|\[::\]):5901' || {
+            echo "::error::VNC local exposé sur toutes les interfaces"
+            exit 1
+          }
+          nc -z -w 3 127.0.0.1 5901
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path=Path('/var/lib/etr-core/remote-screen-auth.json')
+          data=json.loads(path.read_text(encoding='utf-8'))
+          assert isinstance(data.get('refreshToken'), str) and len(data['refreshToken']) > 20
+          assert isinstance(data.get('idToken'), str) and len(data['idToken']) > 20
+          print('État Firebase écran distant présent, contenu non affiché.')
+          PY
+
+      - name: Attendre la présence du Raspberry dans la passerelle
+        id: cloud
+        shell: bash
+        env:
+          GATEWAY_ORIGIN: ${{ steps.local.outputs.gateway_origin }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-remote-screen
+          connected=false
+          for _ in $(seq 1 60); do
+            if curl --retry 2 --retry-delay 1 --retry-all-errors -fsS \
+                "$GATEWAY_ORIGIN/healthz" > /tmp/etr-remote-screen/health.json; then
+              devices=$(python3 -c 'import json; print(int(json.load(open("/tmp/etr-remote-screen/health.json")).get("devices",0)))')
+              if [ "$devices" -ge 1 ]; then
+                connected=true
+                break
+              fi
+            fi
+            sleep 2
+          done
+          cat /tmp/etr-remote-screen/health.json | python3 -m json.tool || true
+          echo "connected=$connected" >> "$GITHUB_OUTPUT"
+          [ "$connected" = true ] || {
+            sudo journalctl -u etr-remote-screen.service -n 180 --no-pager || true
+            echo "::error::La passerelle Cloud ne voit aucun EtR connecté"
+            exit 1
+          }
+
+      - name: Conserver les diagnostics sûrs
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+          GATEWAY_ORIGIN: ${{ steps.local.outputs.gateway_origin }}
+        run: |
+          set +e
+          mkdir -p /tmp/etr-remote-screen
+          sudo journalctl -u etr-remote-screen.service -n 220 --no-pager \
+            | sed -E 's/(Bearer |idToken|refreshToken)[^ ]+/<secret-masque>/g' \
+            > /tmp/etr-remote-screen/agent-journal.txt
+          sudo systemctl status etr-remote-screen.service --no-pager -l \
+            > /tmp/etr-remote-screen/agent-status.txt 2>&1
+          sudo systemctl status etr-vnc.service --no-pager -l \
+            > /tmp/etr-remote-screen/vnc-status.txt 2>&1
+          curl -fsS "$GATEWAY_ORIGIN/healthz" > /tmp/etr-remote-screen/health.json 2>/dev/null || true
+
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p .github/deployment
+          python3 - <<'PY' > .github/deployment/etr-remote-screen-last.json
+          import json, os, platform, socket, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root=Path('/tmp/etr-remote-screen')
+          def load(name):
+              try:
+                  value=json.loads((root/name).read_text(encoding='utf-8'))
+                  return value if isinstance(value,dict) else {}
+              except Exception:
+                  return {}
+          def text(name, limit=12000):
+              try: return (root/name).read_text(encoding='utf-8',errors='replace')[-limit:]
+              except OSError: return ''
+          def command(args):
+              try: return subprocess.run(args,check=False,capture_output=True,text=True,timeout=8).stdout.strip()
+              except Exception: return ''
+          def active(name): return command(['systemctl','is-active',name]) == 'active'
+
+          auth_ok=False
+          try:
+              auth=json.loads(Path('/var/lib/etr-core/remote-screen-auth.json').read_text(encoding='utf-8'))
+              auth_ok=all(isinstance(auth.get(key),str) and len(auth[key])>20 for key in ('idToken','refreshToken'))
+          except Exception: pass
+
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'jobStatusBeforeFinalization':os.getenv('JOB_STATUS'),
+              'host':socket.gethostname(),
+              'machine':platform.machine(),
+              'kernel':platform.release(),
+              'installedCommit':command(['sudo','-u','oryx','-H','git','-C','/home/oryx/EtR-core','rev-parse','HEAD']) or None,
+              'gatewayOrigin':os.getenv('GATEWAY_ORIGIN') or None,
+              'gatewayHealth':load('health.json'),
+              'remoteScreenServiceActive':active('etr-remote-screen.service'),
+              'vncServiceActive':active('etr-vnc.service'),
+              'vncListeningLoopback':'127.0.0.1:5901' in command(['ss','-ltn']),
+              'firebaseAuthStatePresent':auth_ok,
+              'agentStatus':text('agent-status.txt',5000),
+              'vncStatus':text('vnc-status.txt',5000),
+              'agentJournal':text('agent-journal.txt',12000),
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          cat .github/deployment/etr-remote-screen-last.json
+
+          git fetch origin main
+          git checkout -B main origin/main
+          cp .github/deployment/etr-remote-screen-last.json /tmp/etr-remote-screen-last.json
+          mkdir -p .github/deployment
+          cp /tmp/etr-remote-screen-last.json .github/deployment/etr-remote-screen-last.json
+          git config user.name "EtR remote screen diagnostic agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-remote-screen-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR remote screen diagnostic [skip ci]'
+            git push origin main
+          fi
