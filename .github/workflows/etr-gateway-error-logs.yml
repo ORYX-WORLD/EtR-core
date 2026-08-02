@@ -41,44 +41,48 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/etr-gateway-errors
-          gcloud logging read \
-            'resource.type="cloud_run_revision" AND resource.labels.service_name="etr-remote-gateway" AND timestamp>="'"$(date -u -d '45 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"'"' \
+          gcloud run services logs read "$SERVICE_NAME" \
             --project="$PROJECT_ID" \
-            --limit=300 \
-            --order=desc \
+            --region="$REGION" \
+            --limit=400 \
             --format=json \
             > /tmp/etr-gateway-errors/raw.json
 
           python3 - <<'PY' > /tmp/etr-gateway-errors/safe.json
           import json, re
           from pathlib import Path
-          raw=json.loads(Path('/tmp/etr-gateway-errors/raw.json').read_text(encoding='utf-8'))
+          try:
+              raw=json.loads(Path('/tmp/etr-gateway-errors/raw.json').read_text(encoding='utf-8'))
+          except Exception:
+              raw=[]
           selected=[]
-          for entry in raw:
-              text=str(entry.get('textPayload') or '')
+          for entry in raw if isinstance(raw,list) else []:
+              text=str(entry.get('textPayload') or entry.get('message') or '')
               payload=entry.get('jsonPayload') if isinstance(entry.get('jsonPayload'),dict) else {}
               merged=(text+' '+json.dumps(payload,ensure_ascii=False)).lower()
-              if not any(token in merged for token in ('websocket','upgrade','healthz','exception','error','device')):
+              if not any(token in merged for token in ('websocket','upgrade','exception','error','device','firebase','permission','healthz')):
                   continue
               safe_text=re.sub(r'(?i)(bearer\s+|idtoken[=: ]+|refreshtoken[=: ]+)[A-Za-z0-9._~+\-/=]+',r'\1<secret-masque>',text)
               safe_payload={}
               for key,value in payload.items():
-                  if any(secret in key.lower() for secret in ('token','authorization','cookie')):
+                  if any(secret in key.lower() for secret in ('token','authorization','cookie','credential')):
                       safe_payload[key]='<secret-masque>'
                   else:
                       safe_payload[key]=value
+              resource=entry.get('resource') if isinstance(entry.get('resource'),dict) else {}
+              labels=resource.get('labels') if isinstance(resource.get('labels'),dict) else {}
               selected.append({
                   'timestamp':entry.get('timestamp'),
                   'severity':entry.get('severity'),
-                  'revision':(entry.get('resource') or {}).get('labels',{}).get('revision_name'),
-                  'textPayload':safe_text[:3000],
+                  'revision':labels.get('revision_name') or entry.get('revisionName'),
+                  'textPayload':safe_text[:5000],
                   'jsonPayload':safe_payload,
                   'httpRequest':{
                       key:value for key,value in (entry.get('httpRequest') or {}).items()
                       if key in {'requestMethod','requestUrl','status','latency','userAgent','protocol'}
                   },
               })
-          report={'entries':selected[:120],'count':len(selected)}
+          report={'entries':selected[:180],'count':len(selected),'rawCount':len(raw) if isinstance(raw,list) else 0}
           print(json.dumps(report,ensure_ascii=False,indent=2))
           PY
           cat /tmp/etr-gateway-errors/safe.json
@@ -94,7 +98,7 @@ jobs:
           if [ -s /tmp/etr-gateway-errors/safe.json ]; then
             cp /tmp/etr-gateway-errors/safe.json .github/deployment/gateway-errors-last.json
           else
-            printf '{"entries":[],"count":0}\n' > .github/deployment/gateway-errors-last.json
+            printf '{"entries":[],"count":0,"rawCount":0}\n' > .github/deployment/gateway-errors-last.json
           fi
           git config user.name "EtR gateway error log agent"
           git config user.email "actions@users.noreply.github.com"
