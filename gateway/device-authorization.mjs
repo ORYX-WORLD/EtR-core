@@ -7,7 +7,7 @@ function gatewayError(message, status, code, cause) {
 export function decodeFirebaseDeviceIdentity(
   token,
   {
-    projectId,
+    projectId = process.env.FIREBASE_PROJECT_ID || "oryx-froid-industriel",
     now = Math.floor(Date.now() / 1000)
   } = {}
 ) {
@@ -167,7 +167,7 @@ export async function readDeviceBinding({
 }
 
 export function createDeviceConnectionAuthorizer({
-  projectId,
+  projectId = process.env.FIREBASE_PROJECT_ID || "oryx-froid-industriel",
   databaseURL,
   fetchImpl = globalThis.fetch
 } = {}) {
