@@ -19,13 +19,14 @@ class RemoteScreenCloudRunRepairTests(unittest.TestCase):
         self.assertEqual(package["version"], "1.1.0")
         self.assertEqual(package["dependencies"]["firebase-admin"], "13.0.2")
 
-    def test_repair_uses_signed_device_session_and_canonical_identity(self):
+    def test_repair_uses_signed_or_canonical_device_identity(self):
         script = (ROOT / "src/deploy/raspi/repair_remote_screen.sh").read_text(encoding="utf-8")
         for marker in [
             'derived_installation_id="etr-${serial: -12}"',
-            "claimed_installation_id",
+            "signed_installation_id",
             "payload.get('installationId')",
             "payload.get('etrDevice') is not True",
+            'installation_id=${signed_installation_id:-$derived_installation_id}',
             'TOKEN_FILE=${STATE_DIR}/firebase-auth.json',
             'rm -f "$STATE_DIR/remote-screen-auth.json"',
             "etr-remote-screen.service",
