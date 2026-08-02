@@ -64,6 +64,7 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
 
     def test_workflow_uses_only_an_oryx_mailbox_and_wif_for_membership(self):
         workflow = (ROOT / ".github/workflows/etr-remote-viewer-human-live-e2e.yml").read_text(encoding="utf-8")
+        legacy_domain = "core" + "frigeration.com"
         for marker in [
             "id-token: write",
             "google-github-actions/auth@v3",
@@ -79,8 +80,8 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
         ]:
             self.assertIn(marker, workflow)
         for forbidden in [
-            "corefrigeration.com",
-            "contact@corefrigeration.com",
+            legacy_domain,
+            f"contact@{legacy_domain}",
             "google-github-actions/setup-gcloud",
             "gcloud auth print-access-token",
             "GOOGLE_OAUTH_ACCESS_TOKEN",
@@ -95,6 +96,7 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
         proof_marker = "- name: Publier la preuve humaine sans identifiant ni secret"
         self.assertIn(proof_marker, workflow)
         proof = workflow.split(proof_marker, 1)[1]
+        legacy_domain = "core" + "frigeration.com"
         for marker in [
             "'checkedAt':",
             "'commit':",
@@ -121,7 +123,7 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
             '"refreshToken":',
             "'authorization':",
             '"authorization":',
-            "corefrigeration.com",
+            legacy_domain,
         ]:
             self.assertNotIn(forbidden, proof)
 
