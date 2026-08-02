@@ -1,5 +1,6 @@
 name: Sonder la passerelle publique EtR
 
+# Relance de contrôle après le correctif d'accès Administrateur ORYX.
 on:
   workflow_dispatch:
   push:
