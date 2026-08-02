@@ -1,0 +1,178 @@
+name: Valider le viewer distant EtR de bout en bout
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - gateway/server.mjs
+      - gateway/remote-screen-diagnostic.mjs
+      - gateway/remote-screen-live-e2e.mjs
+      - gateway/Dockerfile
+      - .github/workflows/etr-remote-viewer-live-e2e.yml
+
+concurrency:
+  group: etr-remote-viewer-live-e2e
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  live_e2e:
+    name: Ticket OIDC, viewer, WebSocket client et bannière RFB réelle
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      GATEWAY_URL: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
+      ETR_INSTALLATION_ID: etr-core
+      ETR_VIEWER_ORIGIN: https://oryx-froid-industriel.web.app
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Configurer Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Installer les dépendances du test
+        working-directory: gateway
+        run: npm install --no-audit --no-fund
+
+      - name: Attendre la révision contenant le diagnostic viewer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-viewer-e2e
+          ready=false
+          for attempt in $(seq 1 180); do
+            status=$(curl -sS -o /tmp/etr-viewer-e2e/health-before.json -w '%{http_code}' \
+              "$GATEWAY_URL/api/health" || echo 000)
+            if [ "$status" = "200" ] && python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-viewer-e2e/health-before.json', encoding='utf-8'))
+          assert data.get('ok') is True
+          assert data.get('service') == 'etr-remote-gateway'
+          assert data.get('liveViewerDiagnostic') == 'github-oidc'
+          assert int(data.get('devices', 0)) >= 1
+          assert isinstance(data.get('revision'), str) and data['revision']
+          PY
+            then
+              ready=true
+              break
+            fi
+            sleep 5
+          done
+          cat /tmp/etr-viewer-e2e/health-before.json 2>/dev/null | python3 -m json.tool || true
+          [ "$ready" = true ] || {
+            echo "::error::La révision avec diagnostic viewer et un EtR connecté n'est pas disponible"
+            exit 1
+          }
+
+      - name: Obtenir un jeton GitHub OIDC limité au dépôt principal
+        shell: bash
+        run: |
+          set -euo pipefail
+          oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=etr-bootstrap"
+          curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$oidc_url" \
+            > /tmp/etr-viewer-e2e/oidc.json
+          oidc_token=$(python3 -c 'import json; print(json.load(open("/tmp/etr-viewer-e2e/oidc.json"))["value"])')
+          test -n "$oidc_token"
+          echo "::add-mask::$oidc_token"
+          printf '%s' "$oidc_token" > /tmp/etr-viewer-e2e/oidc.token
+          chmod 600 /tmp/etr-viewer-e2e/oidc.token
+          rm -f /tmp/etr-viewer-e2e/oidc.json
+
+      - name: Ouvrir le viewer réel et lire la bannière VNC du Raspberry
+        id: e2e
+        working-directory: gateway
+        shell: bash
+        run: |
+          set +e
+          export GITHUB_OIDC_TOKEN="$(cat /tmp/etr-viewer-e2e/oidc.token)"
+          export ETR_E2E_OUTPUT=/tmp/etr-viewer-e2e/result.json
+          node remote-screen-live-e2e.mjs \
+            > /tmp/etr-viewer-e2e/stdout.txt \
+            2> /tmp/etr-viewer-e2e/stderr.txt
+          code=$?
+          unset GITHUB_OIDC_TOKEN
+          rm -f /tmp/etr-viewer-e2e/oidc.token
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat /tmp/etr-viewer-e2e/stdout.txt || true
+          cat /tmp/etr-viewer-e2e/stderr.txt >&2 || true
+          [ "$code" = "0" ] || exit "$code"
+
+      - name: Vérifier la fermeture propre du viewer
+        if: steps.e2e.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          clean=false
+          for attempt in $(seq 1 20); do
+            curl -fsS "$GATEWAY_URL/api/health" > /tmp/etr-viewer-e2e/health-after.json
+            if python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-viewer-e2e/health-after.json', encoding='utf-8'))
+          assert int(data.get('devices', 0)) >= 1
+          assert int(data.get('viewers', 0)) == 0
+          PY
+            then
+              clean=true
+              break
+            fi
+            sleep 1
+          done
+          [ "$clean" = true ] || { cat /tmp/etr-viewer-e2e/health-after.json; exit 1; }
+
+      - name: Publier la preuve live
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+          E2E_EXIT_CODE: ${{ steps.e2e.outputs.exit_code }}
+        run: |
+          set +e
+          python3 - <<'PY' > /tmp/etr-remote-viewer-live-e2e-last.json
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          def load(name):
+              try:return json.loads(Path(name).read_text(encoding='utf-8'))
+              except Exception:return None
+          def safe(name,limit=4000):
+              try:return Path(name).read_text(encoding='utf-8',errors='replace')[-limit:]
+              except OSError:return ''
+          result=load('/tmp/etr-viewer-e2e/result.json')
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'commit':os.getenv('GITHUB_SHA'),
+              'jobStatus':os.getenv('JOB_STATUS'),
+              'exitCode':int(os.getenv('E2E_EXIT_CODE') or 999),
+              'gatewayUrl':os.getenv('GATEWAY_URL'),
+              'installationId':os.getenv('ETR_INSTALLATION_ID'),
+              'healthBefore':load('/tmp/etr-viewer-e2e/health-before.json'),
+              'result':result,
+              'healthAfter':load('/tmp/etr-viewer-e2e/health-after.json'),
+              'stderr':safe('/tmp/etr-viewer-e2e/stderr.txt'),
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-remote-viewer-live-e2e-last.json
+          git fetch origin main
+          git checkout -B remote-viewer-live-report origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-remote-viewer-live-e2e-last.json .github/deployment/etr-remote-viewer-live-e2e-last.json
+          git config user.name "EtR remote viewer live E2E"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-remote-viewer-live-e2e-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR live remote viewer E2E [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
