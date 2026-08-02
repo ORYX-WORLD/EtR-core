@@ -1,28 +1,31 @@
 [Unit]
 Description=EtR secure outbound remote screen
-After=network-online.target etr-vnc.service
-Wants=network-online.target etr-vnc.service
+After=network-online.target etr-vnc.service etr-firebase-bridge.service
+Wants=network-online.target etr-vnc.service etr-firebase-bridge.service
 
 [Service]
 Type=simple
 EnvironmentFile=-/etc/etr-core/firebase-bridge.env
 Environment=ETR_LOCAL_VNC_PORT=5901
-Environment=ETR_TOKEN_FILE=/var/lib/etr-core/remote-screen-auth.json
+# Le relais écran utilise la même identité technique que le bridge Firebase.
+# Un second fichier de jetons déclenchait à tort un nouvel enrôlement et laissait
+# la passerelle sans équipement connecté malgré un service systemd actif.
+Environment=ETR_TOKEN_FILE=/var/lib/etr-core/firebase-auth.json
 WorkingDirectory=/home/oryx/EtR-core/src
-# Le préfixe « + » exécute uniquement ces préparatifs avec les privilèges root,
-# même si l'agent principal reste isolé sous l'utilisateur oryx.
 ExecStartPre=+/usr/bin/install -d -o oryx -g oryx -m 700 /var/lib/etr-core
-ExecStartPre=+/bin/sh -c 'rm -f /var/lib/etr-core/remote-screen-auth.tmp; if [ -f /var/lib/etr-core/remote-screen-auth.json ]; then chown oryx:oryx /var/lib/etr-core/remote-screen-auth.json; chmod 600 /var/lib/etr-core/remote-screen-auth.json; fi'
+ExecStartPre=+/bin/sh -c 'rm -f /var/lib/etr-core/remote-screen-auth.json /var/lib/etr-core/remote-screen-auth.tmp; if [ -f /var/lib/etr-core/firebase-auth.json ]; then chown oryx:oryx /var/lib/etr-core/firebase-auth.json; chmod 600 /var/lib/etr-core/firebase-auth.json; fi'
 ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/remote_screen_agent.py
 Restart=always
 RestartSec=5
 User=oryx
+Group=oryx
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/var/lib/etr-core
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
 
 [Install]
 WantedBy=multi-user.target
