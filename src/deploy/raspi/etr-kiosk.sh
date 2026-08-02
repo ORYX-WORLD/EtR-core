@@ -5,6 +5,9 @@ set -Eeuo pipefail
 
 export DISPLAY=:1
 export XAUTHORITY=/home/oryx/.Xauthority
+export LANG=fr_FR.UTF-8
+export LANGUAGE=fr_FR:fr
+export LC_ALL=fr_FR.UTF-8
 
 for _ in $(seq 1 60); do
   [ -S /tmp/.X11-unix/X1 ] && break
@@ -40,7 +43,9 @@ exec /usr/bin/chromium \
   --noerrdialogs \
   --no-first-run \
   --incognito \
+  --lang=fr-FR \
   --disable-translate \
+  --disable-features=Translate,TranslateUI \
   --disable-background-networking \
   --disable-component-update \
   --disable-breakpad \
