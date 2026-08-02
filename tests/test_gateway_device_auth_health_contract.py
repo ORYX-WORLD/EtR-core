@@ -52,7 +52,7 @@ class GatewayDeviceAuthorizationAndHealthContractTests(unittest.TestCase):
             'url.searchParams.set("auth", token)',
             "verifyIdToken(token)",
             "linkedInstallationId === installationId",
-            "device-access/firebase-401",
+            "device-access/firebase-${response.status}",
             "device-access/network-error",
         ]:
             self.assertIn(marker, authorization)
