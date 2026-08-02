@@ -5,7 +5,12 @@ on:
   push:
     branches: [main]
     paths:
+      - gateway/**
       - .github/workflows/etr-gateway-public-probe.yml
+
+concurrency:
+  group: etr-gateway-public-probe
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -15,7 +20,7 @@ jobs:
   probe:
     name: Lire les réponses publiques exactes
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     env:
       GATEWAY_URL: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
 
@@ -25,12 +30,45 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Sonder les routes publiques
-        id: probe
+      - name: Attendre la route de santé publique versionnée
+        id: wait_health
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/etr-public-probe
+          ready=false
+          for attempt in $(seq 1 120); do
+            status=$(curl -sS -D /tmp/etr-public-probe/api_health.headers \
+              -o /tmp/etr-public-probe/api_health.body \
+              -w '%{http_code}' "$GATEWAY_URL/api/health" || echo 000)
+            printf '%s' "$status" > /tmp/etr-public-probe/api_health.status
+            if [ "$status" = "200" ] && python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-public-probe/api_health.body', encoding='utf-8'))
+          assert data.get('ok') is True
+          assert data.get('service') == 'etr-remote-gateway'
+          assert data.get('version') == '1.1.0'
+          assert data.get('enrollment') == 'v1'
+          assert data.get('admin') == 'v1'
+          PY
+            then
+              ready=true
+              break
+            fi
+            sleep 5
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          cat /tmp/etr-public-probe/api_health.body 2>/dev/null | python3 -m json.tool || true
+          [ "$ready" = true ] || {
+            echo "::error::La route /api/health versionnée n'est pas disponible après 10 minutes"
+            exit 1
+          }
+
+      - name: Sonder les autres routes publiques
+        id: probe
+        shell: bash
+        run: |
+          set -euo pipefail
           request() {
             local name=$1
             local method=$2
@@ -50,22 +88,20 @@ jobs:
             fi
           }
           request root GET /
-          request health GET /healthz
+          request compatibility_health GET /healthz
           request enrollment POST /api/enrollment/request '{}'
           request admin GET /api/admin/session
-          for name in root health enrollment admin; do
+          for name in root api_health compatibility_health enrollment admin; do
             echo "=== $name HTTP $(cat /tmp/etr-public-probe/${name}.status 2>/dev/null || echo 000) ==="
             cat "/tmp/etr-public-probe/${name}.body" 2>/dev/null || true
             echo
           done
-          health_status=$(cat /tmp/etr-public-probe/health.status 2>/dev/null || echo 000)
-          echo "health_status=$health_status" >> "$GITHUB_OUTPUT"
 
-      - name: Déclencher la réparation Edge si la passerelle est saine
-        if: steps.probe.outputs.health_status == '200'
+      - name: Déclencher la réparation Edge
+        if: steps.wait_health.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run etr-remote-screen-repair.yml --ref main
+        run: gh workflow run etr-remote-screen-repair-fast.yml --ref main
 
       - name: Publier le diagnostic public
         if: always()
@@ -96,7 +132,7 @@ jobs:
               'gatewayUrl':os.getenv('GATEWAY_URL'),
               'responses':{
                   name:{'status':status(name),'body':body(name),'headers':text(name,'headers')}
-                  for name in ('root','health','enrollment','admin')
+                  for name in ('root','api_health','compatibility_health','enrollment','admin')
               }
           }
           print(json.dumps(report,ensure_ascii=False,indent=2))
