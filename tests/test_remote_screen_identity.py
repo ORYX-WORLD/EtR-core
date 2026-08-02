@@ -101,6 +101,23 @@ class RemoteScreenIdentityTests(unittest.TestCase):
 
 
 class RemoteScreenRuntimeTests(unittest.TestCase):
+    def test_import_does_not_patch_the_base_agent_authenticator(self):
+        self.assertIsNot(
+            remote_screen_runtime.agent.authenticate_existing_device_session,
+            remote_screen_runtime.authenticate_linked_device_session,
+        )
+
+    def test_runtime_installs_linked_authenticator_only_when_started(self):
+        original = remote_screen_runtime.agent.authenticate_existing_device_session
+        try:
+            remote_screen_runtime.install_runtime_authenticator()
+            self.assertIs(
+                remote_screen_runtime.agent.authenticate_existing_device_session,
+                remote_screen_runtime.authenticate_linked_device_session,
+            )
+        finally:
+            remote_screen_runtime.agent.authenticate_existing_device_session = original
+
     def test_runtime_refreshes_shared_token_and_uses_linked_installation(self):
         writes = []
         with (
@@ -174,13 +191,14 @@ class RemoteScreenIdentityRepositoryContractTests(unittest.TestCase):
         for marker in [
             "resolve_remote_installation_id",
             "FIREBASE_DATABASE_URL",
+            "install_runtime_authenticator",
             "authenticate_existing_device_session = authenticate_linked_device_session",
         ]:
             self.assertIn(marker, runtime)
         for marker in [
             "deviceAccess/",
             "installation_id_from_device_access",
-            "signed claim",
+            "claim signé",
             "local_fallback",
         ]:
             self.assertIn(marker, identity)
