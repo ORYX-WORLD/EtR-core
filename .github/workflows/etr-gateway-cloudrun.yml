@@ -29,7 +29,7 @@ jobs:
   test_and_deploy:
     name: Tester la passerelle et déployer après fusion
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       PROJECT_ID: oryx-froid-industriel
       REGION: ${{ inputs.region || 'europe-west1' }}
@@ -48,6 +48,7 @@ jobs:
 
       - name: Installer, construire et tester
         working-directory: gateway
+        shell: bash
         run: |
           set -euo pipefail
           npm install --no-audit --no-fund
@@ -59,6 +60,7 @@ jobs:
           node --check device-bootstrap.mjs
           node --check firebase-device-session.mjs
           node --check admin.mjs
+          node --check cloud-run-state.mjs
           grep -Fq '/api/enrollment/session-health' enrollment-http.mjs
           grep -Fq 'createFirebaseDeviceSessionIssuer' enrollment-http.mjs
           grep -Fq '/api/admin/session' admin.mjs
@@ -85,6 +87,7 @@ jobs:
             docker stop etr-gateway-ci >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
+
           ready=false
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:18080/healthz > /tmp/etr-docker-health.json; then
@@ -95,12 +98,24 @@ jobs:
           done
           [ "$ready" = true ] || { echo "::error::L'image Docker ne démarre pas"; exit 1; }
           python3 -m json.tool /tmp/etr-docker-health.json
-          python3 -c 'import json; data=json.load(open("/tmp/etr-docker-health.json")); assert data.get("ok") is True; assert data.get("enrollment")=="v1"; assert data.get("admin")=="v1"'
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-docker-health.json', encoding='utf-8'))
+          assert data.get('ok') is True
+          assert data.get('enrollment') == 'v1'
+          assert data.get('admin') == 'v1'
+          PY
+
           for module in server.mjs firebase-token-verifier.mjs enrollment.mjs enrollment-http.mjs device-bootstrap.mjs firebase-device-session.mjs admin.mjs; do
             docker exec etr-gateway-ci test -s "/app/${module}"
           done
-          admin_status=$(curl -sS -o /tmp/etr-admin-anonymous.json -w '%{http_code}' http://127.0.0.1:18080/api/admin/session)
-          [ "$admin_status" = "401" ] || { cat /tmp/etr-admin-anonymous.json; echo "::error::La route Admin doit refuser un appel anonyme"; exit 1; }
+          admin_status=$(curl -sS -o /tmp/etr-admin-anonymous.json -w '%{http_code}' \
+            http://127.0.0.1:18080/api/admin/session)
+          [ "$admin_status" = "401" ] || {
+            cat /tmp/etr-admin-anonymous.json
+            echo "::error::La route Admin doit refuser un appel anonyme"
+            exit 1
+          }
 
       - name: Authentification Google Cloud
         id: google_auth
@@ -121,7 +136,8 @@ jobs:
         run: |
           set -euo pipefail
           config_url=https://oryx-froid-industriel.web.app/__/firebase/init.json
-          curl --retry 6 --retry-delay 3 --retry-all-errors -fsS "$config_url" > /tmp/etr-firebase-init.json
+          curl --retry 6 --retry-delay 3 --retry-all-errors -fsS "$config_url" \
+            > /tmp/etr-firebase-init.json
           firebase_api_key=$(python3 - <<'PY'
           import json
           data=json.load(open('/tmp/etr-firebase-init.json', encoding='utf-8'))
@@ -136,11 +152,6 @@ jobs:
           )
           echo "::add-mask::$firebase_api_key"
           echo "api_key=$firebase_api_key" >> "$GITHUB_OUTPUT"
-          python3 - <<'PY'
-          import json
-          data=json.load(open('/tmp/etr-firebase-init.json', encoding='utf-8'))
-          print('Configuration Firebase publique validée pour', data.get('projectId'))
-          PY
           rm -f /tmp/etr-firebase-init.json
 
       - name: Construire, déployer et router vers la dernière révision
@@ -156,11 +167,13 @@ jobs:
           test -n "${RUNTIME_SERVICE_ACCOUNT:-}"
           test ${#FIREBASE_API_KEY} -ge 20
           test -n "${ETR_ADMIN_EMAILS:-}"
+
           gcloud services enable \
             run.googleapis.com \
             cloudbuild.googleapis.com \
             artifactregistry.googleapis.com \
             --project="$PROJECT_ID"
+
           gcloud run deploy "$SERVICE_NAME" \
             --project="$PROJECT_ID" \
             --region="$REGION" \
@@ -174,32 +187,31 @@ jobs:
             --set-env-vars="ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app,FIREBASE_PROJECT_ID=oryx-froid-industriel,FIREBASE_DATABASE_URL=https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app,FIREBASE_API_KEY=${FIREBASE_API_KEY},ETR_GITHUB_REPOSITORY=ORYX-WORLD/EtR-core,ETR_ADMIN_EMAILS=${ETR_ADMIN_EMAILS}" \
             --quiet
 
-          # Un ancien partage de trafic peut laisser l'URL publique sur une
-          # révision obsolète malgré un déploiement réussi. Rétablir explicitement
-          # 100 % du trafic vers la dernière révision prête.
           gcloud run services update-traffic "$SERVICE_NAME" \
             --project="$PROJECT_ID" \
             --region="$REGION" \
             --to-latest \
             --quiet
 
-          url=$(gcloud run services describe "$SERVICE_NAME" \
+          gcloud run services describe "$SERVICE_NAME" \
             --project="$PROJECT_ID" \
             --region="$REGION" \
-            --format='value(status.url)')
-          revision=$(gcloud run services describe "$SERVICE_NAME" \
-            --project="$PROJECT_ID" \
-            --region="$REGION" \
-            --format='value(status.latestReadyRevisionName)')
-          traffic=$(gcloud run services describe "$SERVICE_NAME" \
-            --project="$PROJECT_ID" \
-            --region="$REGION" \
-            --format='json(status.traffic)')
+            --format=json \
+            > /tmp/etr-cloud-run-service.json
+          node gateway/cloud-run-state.mjs /tmp/etr-cloud-run-service.json \
+            > /tmp/etr-cloud-run-state.json
+          cat /tmp/etr-cloud-run-state.json | python3 -m json.tool
+
+          url=$(python3 -c 'import json; print(json.load(open("/tmp/etr-cloud-run-state.json"))["url"])')
+          revision=$(python3 -c 'import json; print(json.load(open("/tmp/etr-cloud-run-state.json"))["revision"])')
+          traffic_percent=$(python3 -c 'import json; print(json.load(open("/tmp/etr-cloud-run-state.json"))["trafficPercent"])')
           test -n "$url"
           test -n "$revision"
-          python3 -c 'import json,sys; data=json.loads(sys.argv[1]); assert any(int(item.get("percent",0))==100 and item.get("latestRevision") is True for item in data)' "$traffic"
+          [ "$traffic_percent" = "100" ]
+
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "traffic_percent=$traffic_percent" >> "$GITHUB_OUTPUT"
           echo "Passerelle déployée : $url" >> "$GITHUB_STEP_SUMMARY"
           echo "Révision active à 100 % : $revision" >> "$GITHUB_STEP_SUMMARY"
 
@@ -218,7 +230,8 @@ jobs:
 
           health_status=000
           for attempt in $(seq 1 36); do
-            health_status=$(curl -sS -o /tmp/etr-gateway-check/health.json -w '%{http_code}' "$GATEWAY_URL/healthz" || echo 000)
+            health_status=$(curl -sS -o /tmp/etr-gateway-check/health.json -w '%{http_code}' \
+              "$GATEWAY_URL/healthz" || echo 000)
             if [ "$health_status" = "200" ] && python3 - <<'PY'
           import json
           data=json.load(open('/tmp/etr-gateway-check/health.json', encoding='utf-8'))
@@ -238,9 +251,11 @@ jobs:
           }
 
           request_status=$(curl -sS -o /tmp/etr-gateway-check/request.json -w '%{http_code}' \
-            -X POST "$GATEWAY_URL/api/enrollment/request" -H 'Content-Type: application/json' -d '{}' || echo 000)
+            -X POST "$GATEWAY_URL/api/enrollment/request" \
+            -H 'Content-Type: application/json' -d '{}' || echo 000)
           bootstrap_status=$(curl -sS -o /tmp/etr-gateway-check/bootstrap.json -w '%{http_code}' \
-            -X POST "$GATEWAY_URL/api/enrollment/bootstrap" -H 'Content-Type: application/json' -d '{}' || echo 000)
+            -X POST "$GATEWAY_URL/api/enrollment/bootstrap" \
+            -H 'Content-Type: application/json' -d '{}' || echo 000)
           admin_status=$(curl -sS -o /tmp/etr-gateway-check/admin.json -w '%{http_code}' \
             "$GATEWAY_URL/api/admin/session" || echo 000)
 
@@ -250,7 +265,10 @@ jobs:
           echo "bootstrap_status=$bootstrap_status"
           echo "admin_status=$admin_status"
           for file in health request bootstrap admin; do
-            cat "/tmp/etr-gateway-check/${file}.json" 2>/dev/null | python3 -m json.tool || cat "/tmp/etr-gateway-check/${file}.json" 2>/dev/null || true
+            cat "/tmp/etr-gateway-check/${file}.json" 2>/dev/null \
+              | python3 -m json.tool \
+              || cat "/tmp/etr-gateway-check/${file}.json" 2>/dev/null \
+              || true
           done
 
           GATEWAY_URL="$GATEWAY_URL" \
@@ -281,16 +299,16 @@ jobs:
               'adminBody': body('admin'),
           }
           json.dump(diagnostic, open('/tmp/etr-gateway-verification.json','w',encoding='utf-8'), ensure_ascii=False, indent=2)
-          assert diagnostic['healthStatus']==200, diagnostic
+          assert diagnostic['healthStatus'] == 200, diagnostic
           assert (diagnostic['healthBody'] or {}).get('ok') is True, diagnostic
-          assert (diagnostic['healthBody'] or {}).get('enrollment')=='v1', diagnostic
-          assert (diagnostic['healthBody'] or {}).get('admin')=='v1', diagnostic
-          assert diagnostic['requestStatus']==400, diagnostic
-          assert (diagnostic['requestBody'] or {}).get('code')=='invalid_serial', diagnostic
-          assert diagnostic['bootstrapStatus']==401, diagnostic
-          assert (diagnostic['bootstrapBody'] or {}).get('code')=='github_oidc_missing', diagnostic
-          assert diagnostic['adminStatus']==401, diagnostic
-          assert (diagnostic['adminBody'] or {}).get('code')=='auth/id-token-missing', diagnostic
+          assert (diagnostic['healthBody'] or {}).get('enrollment') == 'v1', diagnostic
+          assert (diagnostic['healthBody'] or {}).get('admin') == 'v1', diagnostic
+          assert diagnostic['requestStatus'] == 400, diagnostic
+          assert (diagnostic['requestBody'] or {}).get('code') == 'invalid_serial', diagnostic
+          assert diagnostic['bootstrapStatus'] == 401, diagnostic
+          assert (diagnostic['bootstrapBody'] or {}).get('code') == 'github_oidc_missing', diagnostic
+          assert diagnostic['adminStatus'] == 401, diagnostic
+          assert (diagnostic['adminBody'] or {}).get('code') == 'auth/id-token-missing', diagnostic
           PY
           echo "url=$GATEWAY_URL" >> "$GITHUB_OUTPUT"
 
@@ -303,7 +321,8 @@ jobs:
         run: |
           set -euo pipefail
           oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=etr-bootstrap"
-          curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$oidc_url" > /tmp/etr-session-oidc.json
+          curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$oidc_url" \
+            > /tmp/etr-session-oidc.json
           oidc_token=$(python3 -c 'import json; print(json.load(open("/tmp/etr-session-oidc.json"))["value"])')
           rm -f /tmp/etr-session-oidc.json
           test -n "$oidc_token"
@@ -314,7 +333,10 @@ jobs:
             -d '{}')
           unset oidc_token
           cat /tmp/etr-session-health.json | python3 -m json.tool
-          [ "$status" = "200" ] || { echo "::error::Émission de session Firebase impossible : HTTP $status"; exit 1; }
+          [ "$status" = "200" ] || {
+            echo "::error::Émission de session Firebase impossible : HTTP $status"
+            exit 1
+          }
           python3 -c 'import json; data=json.load(open("/tmp/etr-session-health.json")); assert data=={"ok":True,"mode":"firebase-password-session","tokenExchange":True}'
 
       - name: Enregistrer la preuve du déploiement
@@ -328,18 +350,19 @@ jobs:
           SESSION_OUTCOME: ${{ steps.verify_session.outcome }}
           GATEWAY_URL: ${{ steps.deploy_gateway.outputs.url }}
           GATEWAY_REVISION: ${{ steps.deploy_gateway.outputs.revision }}
+          TRAFFIC_PERCENT: ${{ steps.deploy_gateway.outputs.traffic_percent }}
         run: |
           set -euo pipefail
-          mkdir -p .github/deployment
-          python3 - <<'PY'
+          mkdir -p /tmp/etr-gateway-proof
+          python3 - <<'PY' > /tmp/etr-gateway-proof/gateway-last-deploy.json
           import json, os
           from datetime import datetime, timezone
           outcomes = {
-              "authentication": os.getenv("AUTH_OUTCOME", "skipped"),
-              "firebaseConfig": os.getenv("FIREBASE_CONFIG_OUTCOME", "skipped"),
-              "deploy": os.getenv("DEPLOY_OUTCOME", "skipped"),
-              "verify": os.getenv("VERIFY_OUTCOME", "skipped"),
-              "firebaseSession": os.getenv("SESSION_OUTCOME", "skipped"),
+              'authentication': os.getenv('AUTH_OUTCOME', 'skipped'),
+              'firebaseConfig': os.getenv('FIREBASE_CONFIG_OUTCOME', 'skipped'),
+              'deploy': os.getenv('DEPLOY_OUTCOME', 'skipped'),
+              'verify': os.getenv('VERIFY_OUTCOME', 'skipped'),
+              'firebaseSession': os.getenv('SESSION_OUTCOME', 'skipped'),
           }
           diagnostic=None
           try:
@@ -347,34 +370,41 @@ jobs:
           except Exception:
               pass
           report = {
-              "checkedAt": datetime.now(timezone.utc).isoformat(),
-              "commit": os.getenv("GITHUB_SHA"),
-              "status": "success" if all(value == "success" for value in outcomes.values()) else "failure",
-              "project": os.getenv("PROJECT_ID"),
-              "region": os.getenv("REGION"),
-              "service": os.getenv("SERVICE_NAME"),
-              "url": os.getenv("GATEWAY_URL") or None,
-              "revision": os.getenv("GATEWAY_REVISION") or None,
-              "enrollment": "v1",
-              "admin": "v1",
-              "adminRouteVerified": bool(diagnostic and diagnostic.get("adminStatus") == 401),
-              "adminBootstrap": "verified-email-allowlist",
-              "deviceBootstrap": "github-oidc-ed25519",
-              "deviceSessionIssuance": outcomes["firebaseSession"] == "success",
-              "authMode": "password_session",
-              "customTokenSigning": False,
-              "firebaseConfigSource": "firebase-hosting-reserved-url",
-              "outcomes": outcomes,
-              "verification": diagnostic,
+              'checkedAt': datetime.now(timezone.utc).isoformat(),
+              'commit': os.getenv('GITHUB_SHA'),
+              'status': 'success' if all(value == 'success' for value in outcomes.values()) else 'failure',
+              'project': os.getenv('PROJECT_ID'),
+              'region': os.getenv('REGION'),
+              'service': os.getenv('SERVICE_NAME'),
+              'url': os.getenv('GATEWAY_URL') or None,
+              'revision': os.getenv('GATEWAY_REVISION') or None,
+              'trafficPercent': int(os.getenv('TRAFFIC_PERCENT') or 0),
+              'enrollment': 'v1',
+              'admin': 'v1',
+              'adminRouteVerified': bool(diagnostic and diagnostic.get('adminStatus') == 401),
+              'adminBootstrap': 'verified-email-allowlist',
+              'deviceBootstrap': 'github-oidc-ed25519',
+              'deviceSessionIssuance': outcomes['firebaseSession'] == 'success',
+              'authMode': 'password_session',
+              'customTokenSigning': False,
+              'firebaseConfigSource': 'firebase-hosting-reserved-url',
+              'outcomes': outcomes,
+              'verification': diagnostic,
           }
-          with open(".github/deployment/gateway-last-deploy.json", "w", encoding="utf-8") as file:
-              json.dump(report, file, ensure_ascii=False, indent=2)
-              file.write("\n")
-          print(json.dumps(report, ensure_ascii=False))
+          print(json.dumps(report, ensure_ascii=False, indent=2))
           PY
+          cat /tmp/etr-gateway-proof/gateway-last-deploy.json
+
+          git fetch origin main
+          git checkout -B proof-gateway origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-gateway-proof/gateway-last-deploy.json \
+            .github/deployment/gateway-last-deploy.json
           git config user.name "EtR gateway deployment agent"
           git config user.email "actions@users.noreply.github.com"
           git add .github/deployment/gateway-last-deploy.json
-          git commit -m "chore: record EtR gateway deployment [skip ci]" || exit 0
-          git pull --rebase origin main
-          git push origin HEAD:main
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: record EtR gateway deployment [skip ci]"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
