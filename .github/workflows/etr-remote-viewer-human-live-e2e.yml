@@ -27,7 +27,7 @@ jobs:
       GATEWAY_URL: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
       ETR_INSTALLATION_ID: etr-core
       ETR_VIEWER_ORIGIN: https://oryx-froid-industriel.web.app
-      ETR_HUMAN_E2E_EMAIL_BASE: amotard.oryx@gmail.com
+      ETR_HUMAN_E2E_EMAIL_BASE: contact@corefrigeration.com
 
     steps:
       - name: Récupérer les sources
