@@ -42,10 +42,13 @@ export async function readDeviceBinding({
   }
 
   if (response.status === 401 || response.status === 403) {
+    const code = response.status === 401
+      ? "device-access/firebase-401"
+      : "device-access/firebase-403";
     throw gatewayError(
       "Session appareil refusée par Firebase",
       401,
-      `device-access/firebase-${response.status}`
+      code
     );
   }
   if (!response.ok) {
