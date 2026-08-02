@@ -8,13 +8,13 @@ Type=simple
 EnvironmentFile=-/etc/etr-core/firebase-bridge.env
 Environment=ETR_LOCAL_VNC_PORT=5901
 # Le relais écran utilise la même identité technique que le bridge Firebase.
-# Un second fichier de jetons déclenchait à tort un nouvel enrôlement et laissait
-# la passerelle sans équipement connecté malgré un service systemd actif.
+# Le point d'entrée runtime résout ensuite l'installation liée dans
+# deviceAccess/<uid>, indispensable aux premiers équipements nommés etr-core.
 Environment=ETR_TOKEN_FILE=/var/lib/etr-core/firebase-auth.json
 WorkingDirectory=/home/oryx/EtR-core/src
 ExecStartPre=+/usr/bin/install -d -o oryx -g oryx -m 700 /var/lib/etr-core
 ExecStartPre=+/bin/sh -c 'rm -f /var/lib/etr-core/remote-screen-auth.json /var/lib/etr-core/remote-screen-auth.tmp; if [ -f /var/lib/etr-core/firebase-auth.json ]; then chown oryx:oryx /var/lib/etr-core/firebase-auth.json; chmod 600 /var/lib/etr-core/firebase-auth.json; fi'
-ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/remote_screen_agent.py
+ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/remote_screen_runtime.py
 Restart=always
 RestartSec=5
 User=oryx
