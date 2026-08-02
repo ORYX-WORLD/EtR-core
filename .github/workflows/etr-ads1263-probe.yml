@@ -1,0 +1,202 @@
+name: Diagnostiquer la liaison brute ADS1263
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-ads1263-probe.yml
+      - src/ads1263_probe.py
+      - tests/test_ads1263_probe.py
+
+concurrency:
+  group: etr-ads1263-probe-physical
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    name: Lire les registres ID, POWER et INTERFACE
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 15
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Actualiser le dépôt installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          repo_url=https://github.com/ORYX-WORLD/EtR-core.git
+          if [ ! -d "$install_dir/.git" ]; then
+            sudo -u oryx -H git clone "$repo_url" "$install_dir"
+          else
+            sudo -u oryx -H git -C "$install_dir" remote set-url origin "$repo_url"
+            if [ -n "$(sudo -u oryx -H git -C "$install_dir" status --porcelain)" ]; then
+              sudo -u oryx -H git -C "$install_dir" stash push --include-untracked -m "Sauvegarde avant sonde brute ADS1263 $(date -u +%Y%m%dT%H%M%SZ)"
+            fi
+            sudo -u oryx -H git -C "$install_dir" fetch origin main
+            sudo -u oryx -H git -C "$install_dir" checkout main
+            sudo -u oryx -H git -C "$install_dir" pull --ff-only origin main
+          fi
+          sudo -u oryx -H git -C "$install_dir" rev-parse HEAD
+
+      - name: Vérifier le diagnostic sans matériel
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /home/oryx/EtR-core
+          python3 -m py_compile src/ads1263_probe.py
+          PYTHONPATH=. python3 -m unittest -v tests.test_ads1263_probe
+
+      - name: Capturer l'état avant la sonde
+        shell: bash
+        run: |
+          set +e
+          mkdir -p /tmp/etr-ads1263-probe
+          sudo cp /var/lib/etr-core/telemetry.json /tmp/etr-ads1263-probe/telemetry-before.json 2>/dev/null
+          sudo chown "$(id -u):$(id -g)" /tmp/etr-ads1263-probe/telemetry-before.json 2>/dev/null
+          sudo journalctl -u etr-sensor-acquisition.service -n 120 --no-pager \
+            > /tmp/etr-ads1263-probe/service-journal.txt 2>&1
+          {
+            echo '=== devices ==='
+            ls -l /dev/spidev* /dev/gpiochip* 2>&1
+            echo '=== pinctrl ==='
+            command -v pinctrl >/dev/null && pinctrl get 9 10 11 17 18 22 || true
+            echo '=== gpioinfo ==='
+            command -v gpioinfo >/dev/null && gpioinfo gpiochip0 2>&1 || true
+            echo '=== kernel gpio ==='
+            sudo cat /sys/kernel/debug/gpio 2>&1 || true
+            echo '=== spi uevent ==='
+            cat /sys/bus/spi/devices/spi0.2/uevent 2>&1 || true
+            echo '=== spi modalias ==='
+            cat /sys/bus/spi/devices/spi0.2/modalias 2>&1 || true
+            echo '=== overlay status ==='
+            for value in num-cs cs-gpios status; do
+              path="/sys/firmware/devicetree/base/soc/spi@7e204000/$value"
+              [ -e "$path" ] && { echo "-- $value"; od -An -tx1 "$path"; }
+            done
+          } > /tmp/etr-ads1263-probe/system.txt
+
+      - name: Sonder directement le composant
+        id: raw_probe
+        shell: bash
+        run: |
+          set +e
+          sudo systemctl stop etr-sensor-acquisition.service
+          sleep 1
+          cd /home/oryx/EtR-core
+          sudo python3 src/ads1263_probe.py \
+            --bus 0 \
+            --device 2 \
+            --gpio-chip 0 \
+            --reset-pin 18 \
+            --output /tmp/etr-ads1263-probe/raw-probe.json \
+            > /tmp/etr-ads1263-probe/raw-probe.stdout 2> /tmp/etr-ads1263-probe/raw-probe.stderr
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          sudo chown -R "$(id -u):$(id -g)" /tmp/etr-ads1263-probe
+          sudo systemctl restart etr-sensor-acquisition.service
+          exit 0
+
+      - name: Vérifier la reprise du service
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          for _ in $(seq 1 30); do
+            sudo systemctl is-active --quiet etr-sensor-acquisition.service && break
+            sleep 2
+          done
+          sudo systemctl status etr-sensor-acquisition.service --no-pager -l \
+            > /tmp/etr-ads1263-probe/service-after.txt 2>&1
+          sleep 6
+          sudo cp /var/lib/etr-core/telemetry.json /tmp/etr-ads1263-probe/telemetry-after.json 2>/dev/null
+          sudo chown "$(id -u):$(id -g)" /tmp/etr-ads1263-probe/telemetry-after.json 2>/dev/null
+
+      - name: Publier le diagnostic consolidé
+        if: always()
+        shell: bash
+        env:
+          PROBE_EXIT_CODE: ${{ steps.raw_probe.outputs.exit_code }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -u
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p .github/deployment
+          python3 - <<'PY' > .github/deployment/etr-ads1263-probe-last.json
+          import json, os, platform, socket, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          root=Path('/tmp/etr-ads1263-probe')
+          def text(name, limit=12000):
+              try: return (root/name).read_text(encoding='utf-8', errors='replace')[-limit:]
+              except OSError: return ''
+          def load(name):
+              try:
+                  data=json.loads((root/name).read_text(encoding='utf-8'))
+                  return data if isinstance(data, dict) else {}
+              except Exception: return {}
+          def command(args):
+              try: return subprocess.run(args, check=False, capture_output=True, text=True, timeout=8).stdout.strip()
+              except Exception: return ''
+
+          before=load('telemetry-before.json')
+          after=load('telemetry-after.json')
+          raw=load('raw-probe.json')
+          report={
+              'checkedAt': datetime.now(timezone.utc).isoformat(),
+              'jobStatusBeforeFinalAssertion': os.getenv('JOB_STATUS'),
+              'probeExitCode': os.getenv('PROBE_EXIT_CODE'),
+              'host': socket.gethostname(),
+              'machine': platform.machine(),
+              'kernel': platform.release(),
+              'installedCommit': command(['sudo','-u','oryx','-H','git','-C','/home/oryx/EtR-core','rev-parse','HEAD']) or None,
+              'serviceActiveAfterProbe': command(['systemctl','is-active','etr-sensor-acquisition.service']) == 'active',
+              'telemetryBefore': {
+                  'hardware': before.get('hardware', {}),
+                  'alerts': before.get('alerts', []),
+              },
+              'rawProbe': raw,
+              'telemetryAfter': {
+                  'hardware': after.get('hardware', {}),
+                  'alerts': after.get('alerts', []),
+              },
+              'system': text('system.txt'),
+              'serviceJournal': text('service-journal.txt', 8000),
+              'serviceAfter': text('service-after.txt', 4000),
+              'probeStderr': text('raw-probe.stderr', 4000),
+          }
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+          cat .github/deployment/etr-ads1263-probe-last.json
+          git fetch origin main
+          git checkout -B main origin/main
+          cp .github/deployment/etr-ads1263-probe-last.json /tmp/etr-ads1263-probe-last.json
+          mkdir -p .github/deployment
+          cp /tmp/etr-ads1263-probe-last.json .github/deployment/etr-ads1263-probe-last.json
+          git config user.name "EtR ADS1263 diagnostic agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-ads1263-probe-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record raw ADS1263 probe [skip ci]'
+            git push origin main
+          fi
+
+      - name: Exiger une réponse ADS1263
+        shell: bash
+        env:
+          PROBE_EXIT_CODE: ${{ steps.raw_probe.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          [ "${PROBE_EXIT_CODE:-3}" = "0" ] || {
+            echo "::error::Le HAT ADS1263 ne répond à aucun essai SPI ; lire etr-ads1263-probe-last.json."
+            exit 1
+          }
