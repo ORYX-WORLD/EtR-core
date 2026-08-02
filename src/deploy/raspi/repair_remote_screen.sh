@@ -43,9 +43,10 @@ sudo test -s "$TOKEN_FILE" || {
 sudo chown oryx:oryx "$TOKEN_FILE"
 sudo chmod 600 "$TOKEN_FILE"
 
-# Certaines sessions appareil historiques possèdent etrDevice=true sans le
-# claim installationId. Le relais sait déjà utiliser dans ce cas l'identité
-# canonique dérivée du numéro de série ; la réparation applique la même règle.
+# Les premières sessions techniques ont été créées avant les claims
+# installationId/etrDevice. La réparation ne s'en sert pas comme autorité :
+# elle vérifie seulement la structure du JWT, récupère le claim lorsqu'il
+# existe, puis laisse Cloud Run vérifier signature, expiration et deviceAccess.
 signed_installation_id=$(sudo -u oryx -H python3 - "$TOKEN_FILE" <<'PY'
 import base64, json, re, sys
 from pathlib import Path
@@ -58,9 +59,10 @@ for key in ('idToken','refreshToken'):
 parts=data['idToken'].split('.')
 if len(parts) != 3:
     raise SystemExit('ID token Firebase invalide')
-payload=json.loads(base64.urlsafe_b64decode(parts[1] + '=' * (-len(parts[1]) % 4)).decode('utf-8'))
-if payload.get('etrDevice') is not True:
-    raise SystemExit('Claim etrDevice absent')
+try:
+    payload=json.loads(base64.urlsafe_b64decode(parts[1] + '=' * (-len(parts[1]) % 4)).decode('utf-8'))
+except Exception as error:
+    raise SystemExit(f'Payload ID token illisible: {type(error).__name__}')
 installation_id=str(payload.get('installationId') or '').strip()
 if installation_id and not re.fullmatch(r'[A-Za-z0-9._-]{2,80}', installation_id):
     raise SystemExit('Claim installationId invalide')
