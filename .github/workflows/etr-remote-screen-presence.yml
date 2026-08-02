@@ -1,0 +1,106 @@
+name: Prouver la présence permanente de l'écran EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-remote-screen-presence.yml
+
+concurrency:
+  group: etr-remote-screen-presence
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  presence:
+    name: Relancer le Raspberry puis attendre devices >= 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GATEWAY_URL: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
+      EXPECTED_REVISION: etr-remote-gateway-00018-kxq
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Déclencher la réparation physique
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run etr-remote-screen-repair-fast.yml --ref main
+
+      - name: Attendre la présence de l'EtR dans la passerelle
+        id: wait
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-presence
+          connected=false
+          for attempt in $(seq 1 120); do
+            status=$(curl -sS -o /tmp/etr-presence/health.json -w '%{http_code}' \
+              "$GATEWAY_URL/api/health" || echo 000)
+            if [ "$status" = "200" ] && EXPECTED_REVISION="$EXPECTED_REVISION" python3 - <<'PY'
+          import json, os
+          data=json.load(open('/tmp/etr-presence/health.json', encoding='utf-8'))
+          assert data.get('ok') is True
+          assert data.get('revision') == os.environ['EXPECTED_REVISION']
+          assert int(data.get('devices', 0)) >= 1
+          PY
+            then
+              connected=true
+              break
+            fi
+            sleep 3
+          done
+          echo "connected=$connected" >> "$GITHUB_OUTPUT"
+          cat /tmp/etr-presence/health.json | python3 -m json.tool || true
+          [ "$connected" = true ] || {
+            echo "::error::Aucun EtR permanent n'est visible dans la passerelle après 6 minutes"
+            exit 1
+          }
+
+      - name: Publier la preuve de présence
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+          CONNECTED: ${{ steps.wait.outputs.connected }}
+        run: |
+          set +e
+          python3 - <<'PY' > /tmp/etr-remote-screen-presence-last.json
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          try:
+              health=json.loads(Path('/tmp/etr-presence/health.json').read_text(encoding='utf-8'))
+          except Exception:
+              health={}
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'jobStatus':os.getenv('JOB_STATUS'),
+              'connected':os.getenv('CONNECTED') == 'true',
+              'gatewayUrl':os.getenv('GATEWAY_URL'),
+              'expectedRevision':os.getenv('EXPECTED_REVISION'),
+              'health':health,
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-remote-screen-presence-last.json
+          git fetch origin main
+          git checkout -B remote-presence-report origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-remote-screen-presence-last.json .github/deployment/etr-remote-screen-presence-last.json
+          git config user.name "EtR remote screen presence agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-remote-screen-presence-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR remote screen presence [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
