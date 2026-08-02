@@ -9,7 +9,7 @@ on:
 
 concurrency:
   group: etr-gateway-recovery
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -102,7 +102,7 @@ jobs:
           echo "api_key=$firebase_api_key" >> "$GITHUB_OUTPUT"
           rm -f /tmp/etr-recovery-firebase.json
 
-      - name: Déployer sans trafic puis router la révision exacte
+      - name: Déployer sans trafic et attendre la révision nommée
         id: deploy
         shell: bash
         env:
@@ -113,6 +113,7 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/etr-gateway-recovery
           suffix="recovery-${GITHUB_RUN_NUMBER}"
+          revision="${SERVICE_NAME}-${suffix}"
           gcloud services enable \
             run.googleapis.com \
             cloudbuild.googleapis.com \
@@ -134,14 +135,29 @@ jobs:
             --set-env-vars="ALLOWED_ORIGINS=https://oryx-froid-industriel.web.app,FIREBASE_PROJECT_ID=oryx-froid-industriel,FIREBASE_DATABASE_URL=https://oryx-froid-industriel-default-rtdb.europe-west1.firebasedatabase.app,FIREBASE_API_KEY=${FIREBASE_API_KEY},ETR_GITHUB_REPOSITORY=ORYX-WORLD/EtR-core,ETR_ADMIN_EMAILS=${ETR_ADMIN_EMAILS}" \
             --quiet
 
+          revision_ready=false
+          for attempt in $(seq 1 60); do
+            ready=$(gcloud run revisions describe "$revision" \
+              --project="$PROJECT_ID" --region="$REGION" \
+              --format='value(status.conditions[0].status)' 2>/dev/null || true)
+            if [ "$ready" = "True" ]; then
+              revision_ready=true
+              break
+            fi
+            sleep 5
+          done
+          [ "$revision_ready" = true ] || {
+            gcloud run revisions describe "$revision" \
+              --project="$PROJECT_ID" --region="$REGION" \
+              --format=json || true
+            echo "::error::La révision nommée $revision n'est pas prête"
+            exit 1
+          }
+
           url=$(gcloud run services describe "$SERVICE_NAME" \
             --project="$PROJECT_ID" --region="$REGION" \
             --format='value(status.url)')
-          revision=$(gcloud run services describe "$SERVICE_NAME" \
-            --project="$PROJECT_ID" --region="$REGION" \
-            --format='value(status.latestReadyRevisionName)')
           test -n "$url"
-          test -n "$revision"
           printf '%s' "$url" > /tmp/etr-gateway-recovery/url
           printf '%s' "$revision" > /tmp/etr-gateway-recovery/revision
           echo "url=$url" >> "$GITHUB_OUTPUT"
@@ -165,12 +181,7 @@ jobs:
           else:
               data=payload
           revision=os.environ['REVISION']
-          assert any(
-              int(item.get('percent', 0)) == 100 and (
-                  item.get('revisionName') == revision or item.get('latestRevision') is True
-              )
-              for item in data
-          ), payload
+          assert any(int(item.get('percent', 0)) == 100 and item.get('revisionName') == revision for item in data), payload
           PY
 
       - name: Vérifier la révision publique et la session appareil
@@ -182,7 +193,7 @@ jobs:
         run: |
           set -euo pipefail
           health_status=000
-          for attempt in $(seq 1 48); do
+          for attempt in $(seq 1 60); do
             health_status=$(curl -sS -o /tmp/etr-gateway-recovery/health.json -w '%{http_code}' \
               "$GATEWAY_URL/healthz" || echo 000)
             if [ "$health_status" = "200" ] && python3 - <<'PY'
@@ -218,11 +229,11 @@ jobs:
           PY
           echo "Révision publique vérifiée : $GATEWAY_REVISION" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Déclencher la réparation du Raspberry
+      - name: Déclencher la réparation rapide du Raspberry
         if: steps.verify.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run etr-remote-screen-repair.yml --ref main
+        run: gh workflow run etr-remote-screen-repair-fast.yml --ref main
 
       - name: Enregistrer la preuve de récupération
         if: always()
