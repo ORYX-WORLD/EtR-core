@@ -4,7 +4,9 @@ WORKDIR /app
 
 COPY package.json novnc-entry.mjs ./
 RUN npm install --no-audit --no-fund
-RUN mkdir -p public && npm run build:novnc && npm prune --omit=dev
+# Diagnostic: conserver temporairement les dépendances de développement pour
+# vérifier si `npm prune --omit=dev` retire un pair requis par firebase-admin.
+RUN mkdir -p public && npm run build:novnc
 
 # Runtime modules are listed explicitly so a new security-critical component
 # cannot be assumed present merely because it exists in the repository.
