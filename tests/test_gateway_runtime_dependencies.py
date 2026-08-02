@@ -9,7 +9,7 @@ class GatewayRuntimeDependencyTests(unittest.TestCase):
     def test_firebase_realtime_database_runtime_peers_are_pinned(self):
         package = json.loads((ROOT / "gateway/package.json").read_text(encoding="utf-8"))
         dependencies = package.get("dependencies", {})
-        self.assertEqual(package.get("version"), "1.1.0")
+        self.assertEqual(package.get("version"), "1.1.1")
         self.assertEqual(dependencies.get("firebase-admin"), "13.0.2")
         self.assertEqual(dependencies.get("@firebase/database-compat"), "2.0.11")
         self.assertEqual(dependencies.get("@firebase/app"), "0.13.2")
