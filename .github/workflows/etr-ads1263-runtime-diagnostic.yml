@@ -1,0 +1,81 @@
+name: Diagnostiquer le runtime ADS1263 sur EtR
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/etr-ads1263-runtime-diagnostic.yml
+
+concurrency:
+  group: etr-ads1263-runtime-diagnostic
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Lire le service, le journal et le périphérique SPI0.2
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 8
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v5
+
+      - name: Publier le diagnostic sans modifier le matériel
+        shell: bash
+        run: |
+          set -u
+          echo '=== IDENTITE ET DEMARRAGE ==='
+          hostname
+          cat /proc/sys/kernel/random/boot_id
+          uptime
+          tr -d '\0' </proc/device-tree/model 2>/dev/null || true
+          echo
+
+          echo '=== PERIPHERIQUES SPI ==='
+          ls -l /dev/spidev* 2>/dev/null || true
+          find /sys/bus/spi/devices -maxdepth 1 -mindepth 1 -type l -printf '%f -> %l\n' 2>/dev/null || true
+          for dev in /sys/bus/spi/devices/spi0.2 /sys/class/spidev/spidev0.2; do
+            [ -e "$dev" ] || continue
+            echo "--- $dev ---"
+            find -L "$dev" -maxdepth 1 -type f -print -exec sh -c 'printf "  "; cat "$1" 2>/dev/null || true' sh {} \; 2>/dev/null || true
+          done
+
+          echo '=== CONFIGURATION CAPTEURS ==='
+          sudo cat /etc/etr-core/sensors.json 2>/dev/null || true
+
+          echo '=== TELEMETRIE ACTUELLE ==='
+          sudo cat /var/lib/etr-core/telemetry.json 2>/dev/null || true
+
+          echo '=== ETAT SYSTEMD ==='
+          sudo systemctl status etr-sensor-acquisition.service --no-pager -l || true
+          sudo systemctl show etr-sensor-acquisition.service \
+            -p ActiveState -p SubState -p MainPID -p ExecMainCode -p ExecMainStatus \
+            -p User -p Group -p SupplementaryGroups -p ReadWritePaths -p ReadOnlyPaths || true
+
+          echo '=== JOURNAL ACQUISITION ==='
+          sudo journalctl -u etr-sensor-acquisition.service -b -n 240 --no-pager -o short-precise || true
+
+          echo '=== DROITS SPI ET GPIO ==='
+          id oryx || true
+          getent group spi || true
+          getent group gpio || true
+          stat -c '%A %a %U:%G %n' /dev/spidev0.2 /dev/gpiochip0 2>/dev/null || true
+
+          echo '=== ARBRE ACTIF SPI0.2 ==='
+          if command -v dtc >/dev/null 2>&1; then
+            sudo dtc -I fs -O dts /proc/device-tree 2>/dev/null \
+              | sed -n '/spidev@2 {/,/^\s*};/p' \
+              | head -n 120 || true
+          fi
+
+          echo '=== TEST PYTHON SPI SANS ECRIRE DANS LA TELEMETRIE ==='
+          cd /home/oryx/EtR-core 2>/dev/null || exit 0
+          sudo systemctl stop etr-sensor-acquisition.service || true
+          sudo -u oryx -H python3 src/sensor_acquisition.py \
+            --config /etc/etr-core/sensors.json \
+            --state /tmp/etr-ads1263-diagnostic.json \
+            --once --strict || true
+          sudo systemctl start etr-sensor-acquisition.service || true
+          cat /tmp/etr-ads1263-diagnostic.json 2>/dev/null || true
