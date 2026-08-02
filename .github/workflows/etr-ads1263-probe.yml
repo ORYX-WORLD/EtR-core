@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/etr-ads1263-probe.yml
       - src/ads1263_probe.py
+      - src/deploy/raspi/etr-sensor-acquisition.service
       - tests/test_ads1263_probe.py
 
 concurrency:
@@ -55,6 +56,22 @@ jobs:
           python3 -m py_compile src/ads1263_probe.py
           PYTHONPATH=. python3 -m unittest -v tests.test_ads1263_probe
 
+      - name: Installer l'unité d'acquisition corrigée
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo install -m 644 \
+            /home/oryx/EtR-core/src/deploy/raspi/etr-sensor-acquisition.service \
+            /etc/systemd/system/etr-sensor-acquisition.service
+          sudo systemctl daemon-reload
+          sudo systemctl restart etr-sensor-acquisition.service
+          for _ in $(seq 1 30); do
+            sudo systemctl is-active --quiet etr-sensor-acquisition.service && break
+            sleep 2
+          done
+          sudo systemctl is-active --quiet etr-sensor-acquisition.service
+          [ "$(sudo systemctl show etr-sensor-acquisition.service -p WorkingDirectory --value)" = "/var/lib/etr-core" ]
+
       - name: Capturer l'état avant la sonde
         shell: bash
         run: |
@@ -68,9 +85,11 @@ jobs:
             echo '=== devices ==='
             ls -l /dev/spidev* /dev/gpiochip* 2>&1
             echo '=== pinctrl ==='
-            command -v pinctrl >/dev/null && pinctrl get 9 10 11 17 18 22 || true
+            if command -v pinctrl >/dev/null; then
+              for pin in 9 10 11 17 18 22; do pinctrl get "$pin" || true; done
+            fi
             echo '=== gpioinfo ==='
-            command -v gpioinfo >/dev/null && gpioinfo gpiochip0 2>&1 || true
+            command -v gpioinfo >/dev/null && gpioinfo -c gpiochip0 2>&1 || true
             echo '=== kernel gpio ==='
             sudo cat /sys/kernel/debug/gpio 2>&1 || true
             echo '=== spi uevent ==='
@@ -91,8 +110,8 @@ jobs:
           set +e
           sudo systemctl stop etr-sensor-acquisition.service
           sleep 1
-          cd /home/oryx/EtR-core
-          sudo python3 src/ads1263_probe.py \
+          cd /tmp/etr-ads1263-probe
+          sudo python3 /home/oryx/EtR-core/src/ads1263_probe.py \
             --bus 0 \
             --device 2 \
             --gpio-chip 0 \
@@ -159,6 +178,7 @@ jobs:
               'machine': platform.machine(),
               'kernel': platform.release(),
               'installedCommit': command(['sudo','-u','oryx','-H','git','-C','/home/oryx/EtR-core','rev-parse','HEAD']) or None,
+              'serviceWorkingDirectory': command(['systemctl','show','etr-sensor-acquisition.service','-p','WorkingDirectory','--value']) or None,
               'serviceActiveAfterProbe': command(['systemctl','is-active','etr-sensor-acquisition.service']) == 'active',
               'telemetryBefore': {
                   'hardware': before.get('hardware', {}),
