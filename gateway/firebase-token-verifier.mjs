@@ -3,6 +3,7 @@ import { createRemoteJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify } from 
 const FIREBASE_JWKS_URL = new URL(
   "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
 );
+const IDENTITY_TOOLKIT_ORIGIN = "https://identitytoolkit.googleapis.com";
 
 function unauthorized(message, code, cause) {
   return Object.assign(new Error(message, { cause }), { status: 401, code });
@@ -57,6 +58,88 @@ function isJwksTransportFailure(error) {
     String(error?.message || "").includes("Expected 200 OK");
 }
 
+function accountLookupErrorCode(body, status) {
+  const raw = String(body?.error?.message || "").trim();
+  if (raw === "USER_NOT_FOUND") return "auth/user-not-found";
+  if (raw === "USER_DISABLED") return "auth/user-disabled";
+  if (raw === "TOKEN_EXPIRED") return "auth/id-token-expired";
+  if (raw === "INVALID_ID_TOKEN" || raw === "CREDENTIAL_TOO_OLD_LOGIN_AGAIN") {
+    return "auth/invalid-id-token";
+  }
+  return `auth/account-lookup-${status}`;
+}
+
+function validSinceSeconds(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed > 10_000_000_000 ? parsed / 1000 : parsed;
+}
+
+export async function lookupFirebaseAccount({
+  token,
+  apiKey,
+  fetchImpl = globalThis.fetch
+} = {}) {
+  if (!apiKey || typeof fetchImpl !== "function") {
+    throw unavailable(
+      "Vérification du compte Firebase non configurée",
+      "auth/account-lookup-unavailable"
+    );
+  }
+
+  const url = new URL("/v1/accounts:lookup", IDENTITY_TOOLKIT_ORIGIN);
+  url.searchParams.set("key", apiKey);
+  let response;
+  try {
+    response = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "user-agent": "EtR-Gateway/2.0"
+      },
+      body: JSON.stringify({ idToken: token }),
+      signal: AbortSignal.timeout(10_000)
+    });
+  } catch (error) {
+    throw unavailable(
+      "Identity Toolkit indisponible pour vérifier le compte",
+      "auth/account-lookup-unavailable",
+      error
+    );
+  }
+
+  let body = {};
+  try {
+    body = await response.json();
+  } catch (error) {
+    if (response.ok) {
+      throw unavailable(
+        "Réponse Identity Toolkit invalide",
+        "auth/account-lookup-invalid-payload",
+        error
+      );
+    }
+  }
+
+  if (!response.ok) {
+    const code = accountLookupErrorCode(body, response.status);
+    if (response.status >= 500) {
+      throw unavailable(
+        "Identity Toolkit indisponible pour vérifier le compte",
+        code
+      );
+    }
+    throw unauthorized("Compte Firebase refusé", code);
+  }
+
+  const users = Array.isArray(body?.users) ? body.users : [];
+  if (users.length !== 1 || !users[0] || typeof users[0] !== "object") {
+    throw unauthorized("Compte Firebase introuvable", "auth/user-not-found");
+  }
+  return users[0];
+}
+
 async function verifyThroughRealtimeDatabase({
   token,
   payload,
@@ -97,8 +180,20 @@ async function verifyThroughRealtimeDatabase({
   }
 }
 
-async function enforceVerifiedHumanOrBoundDevice({ token, payload, databaseURL, fetchImpl }) {
-  if (principalHasVerifiedAccess(payload)) return;
+async function enforceVerifiedHumanOrBoundDevice({
+  token,
+  payload,
+  account,
+  databaseURL,
+  fetchImpl
+}) {
+  const privilegedOrDevice = payload?.oryxStaff === true ||
+    payload?.oryxDeveloper === true ||
+    payload?.etrDevice === true;
+  if (privilegedOrDevice) return;
+
+  if (payload?.email_verified === true && account?.emailVerified === true) return;
+
   try {
     // Compatibility path for a legacy technical account already bound in
     // deviceAccess but created before the etrDevice custom claim existed.
@@ -115,15 +210,30 @@ async function enforceVerifiedHumanOrBoundDevice({ token, payload, databaseURL, 
   }
 }
 
+function enforceAccountState({ account, payload }) {
+  const localId = String(account?.localId || "").trim();
+  if (!localId || localId !== payload.sub) {
+    throw unauthorized("Compte Firebase incohérent", "auth/user-mismatch");
+  }
+  if (account?.disabled === true) {
+    throw unauthorized("Compte Firebase désactivé", "auth/user-disabled");
+  }
+
+  const validSince = validSinceSeconds(account?.validSince);
+  if (validSince !== null && payload.auth_time < validSince) {
+    throw unauthorized("Jeton Firebase révoqué", "auth/id-token-revoked");
+  }
+}
+
 export function createFirebaseIdTokenVerifier({
   projectId,
-  auth,
+  apiKey = process.env.FIREBASE_API_KEY,
   jwks,
   databaseURL,
   fetchImpl = globalThis.fetch,
   onFallback = () => {}
 } = {}) {
-  if (!projectId || !auth?.getUser) {
+  if (!projectId || !apiKey || typeof fetchImpl !== "function") {
     throw new Error("Firebase token verifier is not configured");
   }
 
@@ -138,11 +248,8 @@ export function createFirebaseIdTokenVerifier({
     if (!token) throw unauthorized("Jeton manquant", "auth/id-token-missing");
 
     let payload;
-    let usedFallback = false;
     if (Date.now() < fallbackUntil) {
       payload = validateFallbackClaims(token, projectId);
-      await verifyThroughRealtimeDatabase({ token, payload, databaseURL, fetchImpl });
-      usedFallback = true;
     } else {
       try {
         ({ payload } = await jwtVerify(token, keySet, {
@@ -163,8 +270,6 @@ export function createFirebaseIdTokenVerifier({
         fallbackUntil = Date.now() + 5 * 60_000;
         onFallback(error);
         payload = validateFallbackClaims(token, projectId);
-        await verifyThroughRealtimeDatabase({ token, payload, databaseURL, fetchImpl });
-        usedFallback = true;
       }
     }
 
@@ -179,27 +284,19 @@ export function createFirebaseIdTokenVerifier({
       throw unauthorized("Date d'authentification Firebase invalide", "auth/invalid-id-token");
     }
 
-    if (!usedFallback) {
-      let user;
-      try {
-        user = await auth.getUser(payload.sub);
-      } catch (error) {
-        if (error?.code === "auth/user-not-found") {
-          throw unauthorized("Compte Firebase introuvable", error.code, error);
-        }
-        throw error;
-      }
-      if (user.disabled) {
-        throw unauthorized("Compte Firebase désactivé", "auth/user-disabled");
-      }
-
-      const tokensValidAfter = Date.parse(user.tokensValidAfterTime || "") / 1000;
-      if (Number.isFinite(tokensValidAfter) && payload.auth_time < tokensValidAfter) {
-        throw unauthorized("Jeton Firebase révoqué", "auth/id-token-revoked");
-      }
-
-      await enforceVerifiedHumanOrBoundDevice({ token, payload, databaseURL, fetchImpl });
-    }
+    // Identity Toolkit validates the end-user ID token and returns the account
+    // state without requiring the Cloud Run identity to hold Firebase Auth
+    // administrator permissions. This replaces auth.getUser(), which caused
+    // `auth/insufficient-permission` for otherwise valid verified clients.
+    const account = await lookupFirebaseAccount({ token, apiKey, fetchImpl });
+    enforceAccountState({ account, payload });
+    await enforceVerifiedHumanOrBoundDevice({
+      token,
+      payload,
+      account,
+      databaseURL,
+      fetchImpl
+    });
 
     return { ...payload, uid: payload.sub };
   };
