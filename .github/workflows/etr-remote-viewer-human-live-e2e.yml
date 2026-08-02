@@ -29,7 +29,7 @@ jobs:
       ETR_INSTALLATION_ID: etr-core
       ETR_VIEWER_ORIGIN: https://oryx-froid-industriel.web.app
       # Une variable de dépôt peut remplacer cette boîte, mais uniquement par
-      # une adresse officielle ORYX. L'ancienne identité C&O est interdite.
+      # une adresse officielle ORYX. Toute identité historique est interdite.
       ETR_HUMAN_E2E_EMAIL_BASE: ${{ vars.ETR_HUMAN_E2E_EMAIL_BASE || 'amotard.oryx@gmail.com' }}
 
     steps:
