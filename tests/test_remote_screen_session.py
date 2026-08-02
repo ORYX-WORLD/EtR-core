@@ -24,6 +24,14 @@ def fake_id_token(*, installation_id="etr-abcd1234ef56", etr_device=True):
     return f"{header}.{payload}.signature"
 
 
+def legacy_id_token():
+    header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode()).decode().rstrip("=")
+    payload = base64.urlsafe_b64encode(
+        json.dumps({"sub": "etrdev_legacy_device"}).encode()
+    ).decode().rstrip("=")
+    return f"{header}.{payload}.signature"
+
+
 class RemoteScreenSessionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -63,10 +71,26 @@ class RemoteScreenSessionTests(unittest.TestCase):
             "etr-0000dd7429c2",
         )
 
-    def test_token_without_device_claim_is_rejected(self):
-        token = fake_id_token(etr_device=False)
-        with self.assertRaisesRegex(RuntimeError, "device_session_claim_missing"):
-            self.agent.installation_id_from_id_token(token)
+    def test_signed_installation_is_usable_without_local_device_claim_check(self):
+        token = fake_id_token(
+            installation_id="etr-0000dd7429c2",
+            etr_device=False,
+        )
+        self.assertEqual(
+            self.agent.installation_id_from_id_token(token),
+            "etr-0000dd7429c2",
+        )
+
+    def test_legacy_token_without_custom_claims_uses_local_identity(self):
+        token = legacy_id_token()
+        with patch.object(
+            self.agent,
+            "installation_id_from_local_device",
+            return_value="etr-0000dd7429c2",
+        ) as local_identity:
+            installation_id = self.agent.installation_id_from_id_token(token)
+        self.assertEqual(installation_id, "etr-0000dd7429c2")
+        local_identity.assert_called_once_with(configured=None)
 
     def test_invalid_installation_claim_is_rejected(self):
         token = fake_id_token(installation_id="../../invalid")
@@ -146,10 +170,11 @@ class RemoteScreenRepositoryContractTests(unittest.TestCase):
             "refresh_tokens",
             "atomic_json_write",
             'payload.get("installationId")',
-            'payload.get("etrDevice") is not True',
+            '``deviceAccess/<uid>``',
             'f"etr-{serial[-12:].lower()}"',
         ]:
             self.assertIn(marker, source)
+        self.assertNotIn('payload.get("etrDevice") is not True', source)
         self.assertNotIn("from firebase_bridge import INSTALLATION_ID", source)
         self.assertNotIn("load_tokens", source)
         self.assertNotIn("save_tokens", source)
