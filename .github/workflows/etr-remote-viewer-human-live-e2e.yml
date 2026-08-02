@@ -1,5 +1,6 @@
 name: Valider l'écran distant avec un compte humain vérifié
 
+# Relance explicite après déploiement du vérificateur Identity Toolkit sur la révision 00025.
 on:
   workflow_dispatch:
   push:
