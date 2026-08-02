@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "profile": "emmanuel-home-lab",
-  "diagnostic_revision": 4,
+  "diagnostic_revision": 5,
   "sample_interval_seconds": 5,
   "adc": {
     "bus": 0,
