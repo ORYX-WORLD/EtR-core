@@ -15,9 +15,11 @@ COPY enrollment-http.mjs ./
 COPY device-bootstrap.mjs ./
 COPY firebase-device-session.mjs ./
 COPY admin.mjs ./
+COPY container-entrypoint.sh ./
+RUN chmod 755 /app/container-entrypoint.sh
 
 USER node
 ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
-CMD ["node", "server.mjs"]
+CMD ["/app/container-entrypoint.sh"]
