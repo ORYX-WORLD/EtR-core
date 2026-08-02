@@ -1,5 +1,6 @@
 name: Valider le viewer distant EtR de bout en bout
 
+# Relance explicite après présence confirmée de etr-core sur la révision 00019.
 on:
   workflow_dispatch:
   push:
