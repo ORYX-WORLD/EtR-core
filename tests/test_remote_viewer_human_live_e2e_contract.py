@@ -62,14 +62,16 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
         ]:
             self.assertNotIn(forbidden, report_section)
 
-    def test_workflow_uses_connected_mailbox_and_wif_only_for_membership(self):
+    def test_workflow_uses_only_an_oryx_mailbox_and_wif_for_membership(self):
         workflow = (ROOT / ".github/workflows/etr-remote-viewer-human-live-e2e.yml").read_text(encoding="utf-8")
+        legacy_domain = "core" + "frigeration.com"
         for marker in [
             "id-token: write",
             "google-github-actions/auth@v3",
             "GCP_WORKLOAD_IDENTITY_PROVIDER",
             "GCP_SERVICE_ACCOUNT",
-            "ETR_HUMAN_E2E_EMAIL_BASE: contact@corefrigeration.com",
+            "vars.ETR_HUMAN_E2E_EMAIL_BASE",
+            "amotard.oryx@gmail.com",
             "firebase/init.json",
             "remote-screen-human-live-e2e.mjs",
             "etr-remote-viewer-human-live-e2e-last.json",
@@ -78,6 +80,8 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
         ]:
             self.assertIn(marker, workflow)
         for forbidden in [
+            legacy_domain,
+            f"contact@{legacy_domain}",
             "google-github-actions/setup-gcloud",
             "gcloud auth print-access-token",
             "GOOGLE_OAUTH_ACCESS_TOKEN",
@@ -85,13 +89,14 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
             "roles/firebaseauth.admin",
             "roles/identitytoolkit.admin",
         ]:
-            self.assertNotIn(forbidden, workflow.lower())
+            self.assertNotIn(forbidden.lower(), workflow.lower())
 
     def test_workflow_publishes_only_a_redacted_safe_proof(self):
         workflow = (ROOT / ".github/workflows/etr-remote-viewer-human-live-e2e.yml").read_text(encoding="utf-8")
         proof_marker = "- name: Publier la preuve humaine sans identifiant ni secret"
         self.assertIn(proof_marker, workflow)
         proof = workflow.split(proof_marker, 1)[1]
+        legacy_domain = "core" + "frigeration.com"
         for marker in [
             "'checkedAt':",
             "'commit':",
@@ -118,7 +123,7 @@ class RemoteViewerHumanLiveE2EContractTests(unittest.TestCase):
             '"refreshToken":',
             "'authorization':",
             '"authorization":',
-            "contact@corefrigeration.com",
+            legacy_domain,
         ]:
             self.assertNotIn(forbidden, proof)
 
