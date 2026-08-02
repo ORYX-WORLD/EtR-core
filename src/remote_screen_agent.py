@@ -22,15 +22,77 @@ LOCAL_VNC_PORT = int(os.getenv("ETR_LOCAL_VNC_PORT", "5901"))
 GATEWAY = os.getenv("ETR_REMOTE_GATEWAY_WSS", "").strip()
 PRIMARY_TOKEN_FILE = Path("/var/lib/etr-core/firebase-auth.json")
 INSTALLATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{2,80}$")
+SERIAL_PATHS = (
+    Path("/sys/firmware/devicetree/base/serial-number"),
+    Path("/proc/device-tree/serial-number"),
+)
+CPUINFO_PATH = Path("/proc/cpuinfo")
 
 
-def installation_id_from_id_token(id_token: str) -> str:
-    """Read the authoritative installation claim from a Firebase ID token.
+def _normalize_serial(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", str(value or "")).upper()
 
-    This helper doesn't replace signature verification: Cloud Run verifies the
-    complete JWT during the WebSocket upgrade. It only selects the installation
-    key sent in the query string, which must be identical to the signed custom
-    claim generated during device enrollment.
+
+def installation_id_from_local_device(
+    *,
+    configured: str | None = None,
+    serial_paths: tuple[Path, ...] = SERIAL_PATHS,
+    cpuinfo_path: Path = CPUINFO_PATH,
+) -> str:
+    """Derive the same stable installation ID used during secure enrollment.
+
+    The Raspberry serial is preferred over configuration so an obsolete local
+    hostname such as ``etr-core`` cannot shadow the canonical enrolled identity.
+    The environment value remains a controlled fallback for tests and hardware
+    where the firmware serial files are unavailable.
+    """
+
+    serial = ""
+    for path in serial_paths:
+        try:
+            serial = _normalize_serial(
+                path.read_bytes().replace(b"\x00", b"").decode("ascii").strip()
+            )
+        except (OSError, UnicodeDecodeError):
+            continue
+        if serial:
+            break
+
+    if not serial:
+        try:
+            for line in cpuinfo_path.read_text(encoding="utf-8").splitlines():
+                if line.lower().startswith("serial") and ":" in line:
+                    serial = _normalize_serial(line.split(":", 1)[1])
+                    if serial:
+                        break
+        except OSError:
+            pass
+
+    if len(serial) >= 8:
+        installation_id = f"etr-{serial[-12:].lower()}"
+        if INSTALLATION_ID_PATTERN.fullmatch(installation_id):
+            return installation_id
+
+    fallback = str(
+        configured if configured is not None else os.getenv("ETR_INSTALLATION_ID", "")
+    ).strip()
+    if INSTALLATION_ID_PATTERN.fullmatch(fallback):
+        return fallback
+    raise RuntimeError("device_local_installation_missing")
+
+
+def installation_id_from_id_token(
+    id_token: str,
+    *,
+    fallback_installation_id: str | None = None,
+) -> str:
+    """Select the signed installation claim or the canonical local identity.
+
+    Cloud Run validates the complete JWT and separately checks
+    ``deviceAccess/<uid>`` against the installation ID sent in the query string.
+    A deterministic local fallback is therefore safe for sessions issued by an
+    older gateway that contain ``etrDevice=true`` but no ``installationId``
+    custom claim.
     """
 
     parts = str(id_token or "").split(".")
@@ -41,12 +103,17 @@ def installation_id_from_id_token(id_token: str) -> str:
         payload = json.loads(base64.urlsafe_b64decode(payload_part).decode("utf-8"))
     except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError("device_session_token_invalid") from exc
-    installation_id = str(payload.get("installationId") or "").strip()
-    if not INSTALLATION_ID_PATTERN.fullmatch(installation_id):
-        raise RuntimeError("device_session_installation_missing")
+
     if payload.get("etrDevice") is not True:
         raise RuntimeError("device_session_claim_missing")
-    return installation_id
+
+    signed_installation_id = str(payload.get("installationId") or "").strip()
+    if signed_installation_id:
+        if not INSTALLATION_ID_PATTERN.fullmatch(signed_installation_id):
+            raise RuntimeError("device_session_installation_invalid")
+        return signed_installation_id
+
+    return installation_id_from_local_device(configured=fallback_installation_id)
 
 
 def authenticate_existing_device_session() -> tuple[str, str]:
