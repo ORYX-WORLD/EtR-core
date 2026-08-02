@@ -1,0 +1,17 @@
+{
+  "checkedAt": "2026-08-02T13:01:31.734911+00:00",
+  "installationId": "etr-0000dd7429c2",
+  "uidPresent": true,
+  "deviceAccess": {
+    "status": 200,
+    "value": "etr-core",
+    "matches": false
+  },
+  "websocket": {
+    "connected": false,
+    "status": 500,
+    "error": "InvalidStatusCode",
+    "message": "server rejected WebSocket connection: HTTP 500"
+  },
+  "probeExitCode": 4
+}
