@@ -1,0 +1,49 @@
+name: Reprise contrôlée EtR pour charger l’overlay ADS1263
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/etr-force-reboot-on-pr.yml
+
+concurrency:
+  group: etr-controlled-reboot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  schedule-reboot:
+    name: Vérifier l’overlay puis programmer le redémarrage
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 5
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v5
+
+      - name: Vérifier que le redémarrage est justifié
+        shell: bash
+        run: |
+          set -euo pipefail
+          config=/boot/firmware/config.txt
+          overlay=/boot/firmware/overlays/etr-ads1263-spi0-cs2.dtbo
+          test -f "$config"
+          test -s "$overlay"
+          sudo grep -Eq '^[[:space:]]*dtoverlay=etr-ads1263-spi0-cs2([,:[:space:]]|$)' "$config"
+          echo "boot_id=$(cat /proc/sys/kernel/random/boot_id)"
+          echo "Overlay installé : $(stat -c '%s octets' "$overlay")"
+          echo 'Timers de redémarrage existants :'
+          sudo systemctl list-timers --all --no-pager | grep -E 'etr-spi-reboot|NEXT|n/a' || true
+          sudo systemctl list-units --all --no-pager 'etr-spi-reboot-*' || true
+
+      - name: Programmer une reprise fiable dans une minute
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo shutdown -c 2>/dev/null || true
+          printf '%s\n' "$(cat /proc/sys/kernel/random/boot_id)" | sudo tee /var/lib/etr-core/forced-spi-overlay-reboot.boot-id >/dev/null
+          sudo chown oryx:oryx /var/lib/etr-core/forced-spi-overlay-reboot.boot-id
+          sudo chmod 600 /var/lib/etr-core/forced-spi-overlay-reboot.boot-id
+          sudo shutdown -r +1 'EtR: chargement de l overlay SPI0.2 ADS1263'
+          echo 'Redémarrage programmé dans une minute. Le runner reviendra automatiquement après le démarrage.'
