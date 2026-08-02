@@ -1,0 +1,13 @@
+{
+  "checkedAt": "2026-08-02T13:50:51.097409+00:00",
+  "exitCode": 1,
+  "host": "etr-core",
+  "installedCommit": "b05370af9e6e3ad76b36672322ca01f60e4cace2",
+  "stdout": "",
+  "stderr": "+ set -euo pipefail\n+ INSTALL_DIR=/home/oryx/EtR-core\n+ ENV_FILE=/etc/etr-core/firebase-bridge.env\n+ STATE_DIR=/var/lib/etr-core\n+ TOKEN_FILE=/var/lib/etr-core/firebase-auth.json\n+ sudo install -d -m 700 -o oryx -g oryx /var/lib/etr-core\n+ sudo test -s /var/lib/etr-core/firebase-auth.json\n+ sudo chown oryx:oryx /var/lib/etr-core/firebase-auth.json\n+ sudo chmod 600 /var/lib/etr-core/firebase-auth.json\n+ sudo test -r /etc/etr-core/firebase-bridge.env\n++ sudo -u oryx -H env ETR_ENV_FILE=/etc/etr-core/firebase-bridge.env ETR_INSTALL_DIR=/home/oryx/EtR-core ETR_TOKEN_FILE=/var/lib/etr-core/firebase-auth.json bash -c '\n    set -euo pipefail\n    set -a\n    source \"$ETR_ENV_FILE\"\n    set +a\n    cd \"$ETR_INSTALL_DIR\"\n    PYTHONPATH=\"$ETR_INSTALL_DIR\" ./.venv/bin/python - <<\"PY\"\nfrom pathlib import Path\nimport os\n\nfrom src.firebase_bridge import atomic_json_write, load_json, refresh_tokens\nfrom src.remote_screen_agent import installation_id_from_local_device\nfrom src.remote_screen_identity import resolve_remote_installation_id\n\ntoken_file = Path(os.environ[\"ETR_TOKEN_FILE\"])\ncached = load_json(token_file)\nrefresh_token = str(cached.get(\"refreshToken\") or \"\").strip()\nif not refresh_token:\n    raise SystemExit(\"Session Firebase appareil sans refresh token\")\nrefreshed = refresh_tokens(refresh_token)\nid_token = str(refreshed.get(\"idToken\") or \"\").strip()\nnext_refresh = str(refreshed.get(\"refreshToken\") or refresh_token).strip()\nif not id_token or not next_refresh:\n    raise SystemExit(\"Rafraîchissement Firebase incomplet\")\ninstallation_id = resolve_remote_installation_id(\n    id_token,\n    database_url=os.environ.get(\"FIREBASE_DATABASE_URL\", \"\"),\n    local_fallback=installation_id_from_local_device(),\n)\natomic_json_write(token_file, {\"idToken\": id_token, \"refreshToken\": next_refresh})\nprint(installation_id)\nPY\n  '\nTraceback (most recent call last):\n  File \"<stdin>\", line 5, in <module>\n  File \"/home/oryx/EtR-core/src/remote_screen_agent.py\", line 17, in <module>\n    from firebase_bridge import atomic_json_write, load_json, refresh_tokens\nModuleNotFoundError: No module named 'firebase_bridge'\n+ installation_id=\n",
+  "services": {
+    "etr-firebase-bridge.service": "activating",
+    "etr-vnc.service": "active",
+    "etr-remote-screen.service": "active"
+  }
+}
