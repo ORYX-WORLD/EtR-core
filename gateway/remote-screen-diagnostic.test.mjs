@@ -4,10 +4,12 @@ import { WebSocket } from "ws";
 
 import { installRemoteScreenDiagnosticRoute } from "./remote-screen-diagnostic.mjs";
 
-function createHarness({ device, verifyError } = {}) {
+function createHarness({ device, verifyError, gatewayOrigin = "https://gateway.example" } = {}) {
   const routes = new Map();
   const issued = [];
+  const settings = new Map();
   const app = {
+    set(name, value) { settings.set(name, value); },
     post(path, handler) { routes.set(path, handler); }
   };
   const deviceBootstrap = {
@@ -25,10 +27,14 @@ function createHarness({ device, verifyError } = {}) {
       issued.push(value);
       return "ticket-value";
     },
-    gatewayOrigin: "https://gateway.example",
+    gatewayOrigin,
     ticketTtlMs: 45_000
   });
-  return { handler: routes.get("/api/diagnostics/remote-screen-ticket"), issued };
+  return {
+    handler: routes.get("/api/diagnostics/remote-screen-ticket"),
+    issued,
+    settings
+  };
 }
 
 function responseHarness() {
@@ -43,6 +49,11 @@ function responseHarness() {
     }
   };
 }
+
+test("configures Express to trust the first Cloud Run proxy", () => {
+  const { settings } = createHarness({ device: { readyState: WebSocket.OPEN } });
+  assert.equal(settings.get("trust proxy"), 1);
+});
 
 test("issues a short-lived viewer ticket only after GitHub OIDC verification", async () => {
   const { handler, issued } = createHarness({
@@ -68,6 +79,24 @@ test("issues a short-lived viewer ticket only after GitHub OIDC verification", a
     uid: "github-actions:12345",
     ttlMs: 45_000
   }]);
+});
+
+test("uses the trusted public protocol when no explicit gateway origin is configured", async () => {
+  const { handler } = createHarness({
+    device: { readyState: WebSocket.OPEN },
+    gatewayOrigin: ""
+  });
+  const { response, result } = responseHarness();
+  await handler({
+    headers: { authorization: "Bearer github-oidc-token" },
+    body: { installationId: "etr-core" },
+    protocol: "https",
+    get: () => "etr-remote-gateway.example.run.app"
+  }, response);
+  assert.match(
+    result.body.viewerUrl,
+    /^https:\/\/etr-remote-gateway\.example\.run\.app\/viewer\?ticket=/
+  );
 });
 
 test("refuses a diagnostic ticket while the EtR is offline", async () => {
