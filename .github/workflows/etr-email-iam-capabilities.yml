@@ -1,0 +1,184 @@
+name: Tester les permissions IAM nécessaires aux e-mails EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-email-iam-capabilities.yml
+      - docs/EMAIL_DELIVERABILITY_AUDIT.md
+
+concurrency:
+  group: etr-email-iam-capabilities
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  probe:
+    name: Tester les permissions sans modifier IAM
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PROJECT_ID: oryx-froid-industriel
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Authentification Google Cloud
+        id: google_auth
+        continue-on-error: true
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Installer Google Cloud CLI
+        id: setup_gcloud
+        if: steps.google_auth.outcome == 'success'
+        continue-on-error: true
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Tester les permissions du principal WIF
+        id: permissions
+        if: always()
+        shell: bash
+        env:
+          GOOGLE_AUTH_OUTCOME: ${{ steps.google_auth.outcome }}
+          GCLOUD_SETUP_OUTCOME: ${{ steps.setup_gcloud.outcome }}
+        run: |
+          set -u
+          mkdir -p /tmp/etr-email-iam
+          status=0
+          error_code=
+
+          if [ "$GOOGLE_AUTH_OUTCOME" != "success" ]; then
+            error_code=google_auth_failed
+          elif [ "$GCLOUD_SETUP_OUTCOME" != "success" ]; then
+            error_code=gcloud_setup_failed
+          else
+            account=$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -n 1)
+            printf '%s' "$account" | sha256sum | awk '{print substr($1,1,16)}' \
+              > /tmp/etr-email-iam/principal-fingerprint.txt
+            access_token=$(gcloud auth print-access-token 2>/tmp/etr-email-iam/token-error.txt || true)
+            if [ ${#access_token} -lt 40 ]; then
+              error_code=access_token_unavailable
+            else
+              echo "::add-mask::$access_token"
+              cat > /tmp/etr-email-iam/request.json <<'JSON'
+          {
+            "permissions": [
+              "firebaseauth.configs.get",
+              "firebaseauth.configs.update",
+              "firebaseauth.users.get",
+              "resourcemanager.projects.getIamPolicy",
+              "resourcemanager.projects.setIamPolicy",
+              "iam.roles.get",
+              "iam.roles.create",
+              "iam.roles.update",
+              "serviceusage.services.enable"
+            ]
+          }
+          JSON
+              status=$(curl --retry 3 --retry-delay 2 --retry-all-errors -sS \
+                -o /tmp/etr-email-iam/response.json \
+                -w '%{http_code}' \
+                -X POST \
+                -H "Authorization: Bearer ${access_token}" \
+                -H 'Content-Type: application/json; charset=utf-8' \
+                --data-binary @/tmp/etr-email-iam/request.json \
+                "https://cloudresourcemanager.googleapis.com/v1/projects/${PROJECT_ID}:testIamPermissions" || true)
+              unset access_token
+              status=${status:-0}
+              if [ "$status" != "200" ]; then
+                error_code=test_iam_permissions_http_${status}
+              fi
+            fi
+          fi
+
+          if [ ! -s /tmp/etr-email-iam/response.json ]; then
+            printf '{"permissions":[]}\n' > /tmp/etr-email-iam/response.json
+          fi
+
+          HTTP_STATUS="$status" ERROR_CODE="$error_code" python3 - <<'PY' \
+            > /tmp/etr-email-iam-capabilities-last.json
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          requested=[
+              'firebaseauth.configs.get',
+              'firebaseauth.configs.update',
+              'firebaseauth.users.get',
+              'resourcemanager.projects.getIamPolicy',
+              'resourcemanager.projects.setIamPolicy',
+              'iam.roles.get',
+              'iam.roles.create',
+              'iam.roles.update',
+              'serviceusage.services.enable',
+          ]
+          try:
+              response=json.loads(Path('/tmp/etr-email-iam/response.json').read_text(encoding='utf-8'))
+          except Exception:
+              response={}
+          granted=set(response.get('permissions') or [])
+          try:
+              fingerprint=Path('/tmp/etr-email-iam/principal-fingerprint.txt').read_text(encoding='utf-8').strip()
+          except OSError:
+              fingerprint=''
+          try:
+              status=int(os.getenv('HTTP_STATUS') or 0)
+          except ValueError:
+              status=0
+
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'projectId':os.getenv('PROJECT_ID'),
+              'principalFingerprint':fingerprint or None,
+              'httpStatus':status,
+              'errorCode':None if status == 200 else (os.getenv('ERROR_CODE') or 'unknown'),
+              'permissions':{permission: permission in granted for permission in requested},
+              'safeAutomaticPaths':{
+                  'readConfig': 'firebaseauth.configs.get' in granted,
+                  'updateConfig': 'firebaseauth.configs.update' in granted,
+                  'bindPredefinedViewerRole': 'resourcemanager.projects.setIamPolicy' in granted,
+                  'createMinimalCustomRole': (
+                      'iam.roles.create' in granted and
+                      'resourcemanager.projects.setIamPolicy' in granted
+                  ),
+              },
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+
+          cat /tmp/etr-email-iam-capabilities-last.json
+          exit 0
+
+      - name: Publier la preuve assainie
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          git fetch origin main
+          git checkout -B email-iam-capabilities-report origin/main
+          mkdir -p .github/deployment
+          if [ -s /tmp/etr-email-iam-capabilities-last.json ]; then
+            cp /tmp/etr-email-iam-capabilities-last.json \
+              .github/deployment/etr-email-iam-capabilities-last.json
+          else
+            printf '{"httpStatus":0,"errorCode":"probe-report-missing","permissions":{}}\n' \
+              > .github/deployment/etr-email-iam-capabilities-last.json
+          fi
+          git config user.name "EtR email IAM capability probe"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-email-iam-capabilities-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR email IAM capabilities [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
