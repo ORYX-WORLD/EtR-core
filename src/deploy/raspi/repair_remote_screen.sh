@@ -19,8 +19,9 @@ sudo test -r "$ENV_FILE" || {
 }
 
 # Rafraîchir la session principale et résoudre l'installation réellement liée
-# à son UID dans deviceAccess. Cette liaison est l'autorité déjà utilisée par
-# Firebase et Cloud Run ; sur le premier équipement, elle vaut encore etr-core.
+# à son UID dans deviceAccess. Le répertoire src est placé explicitement dans
+# PYTHONPATH, car remote_screen_agent importe firebase_bridge comme module
+# top-level lorsqu'il est exécuté par systemd.
 installation_id=$(sudo -u oryx -H env \
   ETR_ENV_FILE="$ENV_FILE" \
   ETR_INSTALL_DIR="$INSTALL_DIR" \
@@ -31,13 +32,13 @@ installation_id=$(sudo -u oryx -H env \
     source "$ETR_ENV_FILE"
     set +a
     cd "$ETR_INSTALL_DIR"
-    PYTHONPATH="$ETR_INSTALL_DIR" ./.venv/bin/python - <<"PY"
+    PYTHONPATH="$ETR_INSTALL_DIR/src:$ETR_INSTALL_DIR" ./.venv/bin/python - <<"PY"
 from pathlib import Path
 import os
 
-from src.firebase_bridge import atomic_json_write, load_json, refresh_tokens
-from src.remote_screen_agent import installation_id_from_local_device
-from src.remote_screen_identity import resolve_remote_installation_id
+from firebase_bridge import atomic_json_write, load_json, refresh_tokens
+from remote_screen_agent import installation_id_from_local_device
+from remote_screen_identity import resolve_remote_installation_id
 
 token_file = Path(os.environ["ETR_TOKEN_FILE"])
 cached = load_json(token_file)
@@ -78,10 +79,9 @@ sudo rm -f "$STATE_DIR/remote-screen-auth.json" "$STATE_DIR/remote-screen-auth.t
 sudo install -m 644 "$INSTALL_DIR/src/deploy/raspi/etr-vnc.service" /etc/systemd/system/etr-vnc.service
 sudo install -m 644 "$INSTALL_DIR/src/deploy/raspi/etr-remote-screen.service" /etc/systemd/system/etr-remote-screen.service
 sudo systemctl daemon-reload
-sudo systemctl enable etr-firebase-bridge.service etr-vnc.service etr-remote-screen.service
-sudo systemctl restart etr-firebase-bridge.service
+sudo systemctl enable etr-vnc.service etr-remote-screen.service
 sudo systemctl restart etr-vnc.service
 sudo systemctl restart etr-remote-screen.service
 
 echo "ETR_INSTALLATION_ID=${installation_id}"
-echo "Réparation de l'écran distant appliquée : liaison deviceAccess, session partagée et services réalignés."
+echo "Réparation de l'écran distant appliquée : liaison deviceAccess, session partagée et services écran réalignés."

@@ -11,6 +11,9 @@ class RemoteScreenEdgeRepairTests(unittest.TestCase):
             "resolve_remote_installation_id",
             "FIREBASE_DATABASE_URL",
             "installation_id_from_local_device",
+            'PYTHONPATH="$ETR_INSTALL_DIR/src:$ETR_INSTALL_DIR"',
+            "from firebase_bridge import atomic_json_write",
+            "from remote_screen_agent import installation_id_from_local_device",
             'TOKEN_FILE=${STATE_DIR}/firebase-auth.json',
             'rm -f "$STATE_DIR/remote-screen-auth.json"',
             "ETR_INSTALLATION_ID=${installation_id}",
@@ -18,6 +21,8 @@ class RemoteScreenEdgeRepairTests(unittest.TestCase):
             "etr-vnc.service",
         ]:
             self.assertIn(marker, script)
+        self.assertNotIn("from src.remote_screen_agent", script)
+        self.assertNotIn("systemctl restart etr-firebase-bridge.service", script)
         self.assertNotIn("cp \"$STATE_DIR/firebase-auth.json\"", script)
 
     def test_reference_physical_workflow_waits_for_the_wss_confirmation(self):
@@ -27,11 +32,19 @@ class RemoteScreenEdgeRepairTests(unittest.TestCase):
             "runs-on: [self-hosted, Linux, ARM64]",
             "$GATEWAY_URL/api/admin/session",
             "repair_remote_screen.sh",
+            "repair.stdout",
+            "repair.stderr",
+            "repairExitCode",
             "connected=true",
             "Installation $INSTALLATION_ID connected to the remote gateway",
+            "$GATEWAY_URL/api/health",
             "etr-remote-screen-fast-last.json",
         ]:
             self.assertIn(marker, fast)
+        self.assertNotIn(
+            "for service in etr-firebase-bridge.service etr-vnc.service etr-remote-screen.service",
+            fast,
+        )
         for marker in [
             "actions: write",
             "gh workflow run etr-remote-screen-repair-fast.yml --ref main",
