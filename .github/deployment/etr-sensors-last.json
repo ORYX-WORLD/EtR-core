@@ -1,12 +1,12 @@
 {
-  "checkedAt": "2026-08-02T10:06:02.558002+00:00",
+  "checkedAt": "2026-08-02T10:19:07.219990+00:00",
   "jobStatus": "failure",
   "host": "etr-core",
   "machine": "aarch64",
   "kernel": "6.12.47+rpt-rpi-v8",
   "model": "Raspberry Pi 4 Model B Rev 1.5",
-  "bootId": "e7c472bf-b715-49b2-8953-de644bf55221",
-  "installedCommit": "d1f2637528c625394a6dda72290b49ecbb3cf85f",
+  "bootId": "44f8b6a0-67ab-4dda-9abf-129b803c24a6",
+  "installedCommit": "9d308bf2146ef79f66a0c3eb18385969d7cc457f",
   "installExitCode": "42",
   "rebootScheduled": true,
   "spiDevice": false,
@@ -19,7 +19,9 @@
     "#dtoverlay=vc4-kms-v3d",
     "dtoverlay=dwc2,dr_mode=host",
     "dtparam=spi=on",
-    "dtoverlay=tft35a:rotate=90"
+    "dtoverlay=tft35a:rotate=90",
+    "# EtR : troisième chip-select SPI0 pour le HAT ADS1263",
+    "dtoverlay=etr-ads1263-spi0-cs2"
   ],
   "spiModules": "Module                  Size  Used by\nspidev                 24576  0\nspi_bcm2835            20480  0",
   "spiMasters": [
