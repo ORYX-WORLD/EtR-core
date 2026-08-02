@@ -1,5 +1,5 @@
 {
-  "checkedAt": "2026-08-02T13:38:43.525439+00:00",
+  "checkedAt": "2026-08-02T13:47:51.808461+00:00",
   "installationId": "etr-core",
   "uidPresent": true,
   "deviceAccess": {
@@ -8,10 +8,20 @@
     "matches": true
   },
   "websocket": {
-    "connected": false,
-    "status": 500,
-    "error": "InvalidStatusCode",
-    "message": "server rejected WebSocket connection: HTTP 500"
+    "connected": true,
+    "status": 101,
+    "error": null
   },
-  "probeExitCode": 4
+  "probeExitCode": 0,
+  "gatewayHealth": {
+    "ok": true,
+    "service": "etr-remote-gateway",
+    "version": "1.1.1",
+    "revision": "etr-remote-gateway-00018-kxq",
+    "devices": 0,
+    "viewers": 0,
+    "readyViewers": 0,
+    "enrollment": "v1",
+    "admin": "v1"
+  }
 }
