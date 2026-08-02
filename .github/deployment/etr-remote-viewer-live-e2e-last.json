@@ -1,6 +1,6 @@
 {
-  "checkedAt": "2026-08-02T14:16:23.764495+00:00",
-  "commit": "1e6e5ce0d80bd90baaa8a3dae910c1b41e5d1e6d",
+  "checkedAt": "2026-08-02T14:22:39.410746+00:00",
+  "commit": "039cd0d5d0bd3f331c3caa9c2a50e8522c16afb2",
   "jobStatus": "failure",
   "exitCode": 1,
   "gatewayUrl": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
@@ -19,5 +19,5 @@
   },
   "result": null,
   "healthAfter": null,
-  "stderr": "{\n  \"ok\": false,\n  \"checkedAt\": \"2026-08-02T14:16:23.708Z\",\n  \"error\": \"Error\",\n  \"message\": \"viewer_url_invalid\"\n}\n"
+  "stderr": "{\n  \"ok\": false,\n  \"checkedAt\": \"2026-08-02T14:22:39.366Z\",\n  \"error\": \"Error\",\n  \"message\": \"viewer_url_invalid\"\n}\n"
 }
