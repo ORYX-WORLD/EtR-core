@@ -6,13 +6,15 @@ on:
     branches: [main]
     paths:
       - .github/workflows/etr-remote-screen-repair-fast.yml
+      - src/remote_screen_agent.py
+      - src/remote_screen_identity.py
+      - src/remote_screen_runtime.py
       - src/deploy/raspi/repair_remote_screen.sh
       - src/deploy/raspi/etr-remote-screen.service
-      - src/remote_screen_agent.py
 
 concurrency:
   group: etr-remote-screen-repair-fast
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -76,7 +78,10 @@ jobs:
           output=$(bash /home/oryx/EtR-core/src/deploy/raspi/repair_remote_screen.sh)
           printf '%s\n' "$output"
           installation_id=$(sed -n 's/^ETR_INSTALLATION_ID=//p' <<<"$output" | tail -n 1)
-          [[ "$installation_id" =~ ^etr-[a-z0-9]{12}$ ]]
+          [[ "$installation_id" =~ ^[A-Za-z0-9._-]{2,80}$ ]] || {
+            echo "::error::Identité EtR invalide : $installation_id"
+            exit 1
+          }
           echo "installation_id=$installation_id" >> "$GITHUB_OUTPUT"
 
       - name: Vérifier VNC et attendre la connexion WSS
