@@ -1,0 +1,11 @@
+date_utc=2026-08-02T10:49:13Z
+job_status=success
+host=etr-core
+installed_commit=ae68eb74b402c9ca2f099daff9c9ed6776fe1e4e
+portal_button=true
+desktop_shortcut=true
+spi_desktop=active
+wifi_portal=active
+kiosk=active
+chromium=true
+portal_http=200
