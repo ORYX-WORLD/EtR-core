@@ -1,0 +1,23 @@
+{
+  "checkedAt": "2026-08-02T14:16:23.764495+00:00",
+  "commit": "1e6e5ce0d80bd90baaa8a3dae910c1b41e5d1e6d",
+  "jobStatus": "failure",
+  "exitCode": 1,
+  "gatewayUrl": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
+  "installationId": "etr-core",
+  "healthBefore": {
+    "ok": true,
+    "service": "etr-remote-gateway",
+    "version": "1.1.1",
+    "revision": "etr-remote-gateway-00019-2sd",
+    "devices": 1,
+    "viewers": 0,
+    "readyViewers": 0,
+    "enrollment": "v1",
+    "admin": "v1",
+    "liveViewerDiagnostic": "github-oidc"
+  },
+  "result": null,
+  "healthAfter": null,
+  "stderr": "{\n  \"ok\": false,\n  \"checkedAt\": \"2026-08-02T14:16:23.708Z\",\n  \"error\": \"Error\",\n  \"message\": \"viewer_url_invalid\"\n}\n"
+}
