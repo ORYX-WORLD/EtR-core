@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Revenir à EtR
+Name[fr]=Revenir à EtR
+Comment=Rouvrir le tableau de bord tactile EtR
+Comment[fr]=Rouvrir le tableau de bord tactile EtR
+Exec=/bin/bash /home/oryx/EtR-core/src/deploy/raspi/etr-show-dashboard.sh
+Path=/home/oryx/EtR-core
+Icon=web-browser
+Terminal=false
+StartupNotify=false
+Categories=System;Utility;
