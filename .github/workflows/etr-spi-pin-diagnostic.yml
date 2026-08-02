@@ -1,0 +1,110 @@
+name: Diagnostiquer les broches SPI du Raspberry EtR
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/etr-spi-pin-diagnostic.yml
+      - src/deploy/raspi/etr-ads1263-spi0-cs2-overlay.dts
+      - src/deploy/raspi/install_sensor_acquisition.sh
+      - src/ads1263.py
+  workflow_dispatch:
+
+concurrency:
+  group: etr-spi-pin-diagnostic
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Lire les consommateurs GPIO et SPI actuels
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 8
+
+    steps:
+      - name: Récupérer les sources de diagnostic
+        uses: actions/checkout@v5
+
+      - name: Inspecter sans modifier le Raspberry
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== IDENTITE ==='
+          hostname
+          uname -a
+          tr -d '\0' </proc/device-tree/model || true
+          echo
+
+          echo '=== OVERLAYS CHARGES ==='
+          sudo dtoverlay -l || true
+
+          echo '=== NOEUDS SPI ==='
+          find /dev -maxdepth 1 -name 'spidev*' -ls || true
+          find /sys/class/spi_master -maxdepth 2 -type l -ls || true
+          for dev in /sys/bus/spi/devices/spi*; do
+            [ -e "$dev" ] || continue
+            echo "--- $dev ---"
+            printf 'modalias='; cat "$dev/modalias" 2>/dev/null || true
+            printf 'driver='; readlink -f "$dev/driver" 2>/dev/null || true
+            printf 'of_node='; readlink -f "$dev/of_node" 2>/dev/null || true
+          done
+
+          echo '=== CONSOMMATEURS GPIO ==='
+          sudo cat /sys/kernel/debug/gpio 2>/dev/null || true
+          if command -v gpioinfo >/dev/null 2>&1; then
+            gpioinfo 2>/dev/null || true
+          fi
+
+          echo '=== ETAT DES BROCHES CRITIQUES ==='
+          if command -v pinctrl >/dev/null 2>&1; then
+            pinctrl get 7 8 9 10 11 17 18 22 24 25 || true
+          elif command -v raspi-gpio >/dev/null 2>&1; then
+            raspi-gpio get 7 8 9 10 11 17 18 22 24 25 || true
+          fi
+
+          echo '=== ARBRE SPI0 ACTIF ==='
+          if command -v dtc >/dev/null 2>&1; then
+            sudo dtc -I fs -O dts /proc/device-tree 2>/dev/null \
+              | sed -n '/spi@7e204000 {/,/^\s*};/p' \
+              | head -n 260 || true
+          fi
+
+          echo '=== CONFIGURATION DEMARRAGE SPI ==='
+          for config in /boot/firmware/config.txt /boot/config.txt; do
+            if [ -f "$config" ]; then
+              echo "--- $config ---"
+              sudo grep -nEi 'spi|tft35|dtoverlay' "$config" || true
+            fi
+          done
+
+          echo '=== RESULTAT SYNTHETIQUE ==='
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          gpio = Path('/sys/kernel/debug/gpio')
+          text = ''
+          try:
+              text = gpio.read_text(encoding='utf-8', errors='replace')
+          except Exception:
+              pass
+          spi_devices = []
+          for path in sorted(Path('/sys/bus/spi/devices').glob('spi*')):
+              try:
+                  driver = path.joinpath('driver').resolve().name
+              except Exception:
+                  driver = None
+              try:
+                  modalias = path.joinpath('modalias').read_text().strip()
+              except Exception:
+                  modalias = None
+              spi_devices.append({'name': path.name, 'driver': driver, 'modalias': modalias})
+          print(json.dumps({
+              'gpio17Mentioned': 'gpio-17' in text or 'GPIO17' in text,
+              'gpio18Mentioned': 'gpio-18' in text or 'GPIO18' in text,
+              'gpio22Mentioned': 'gpio-22' in text or 'GPIO22' in text,
+              'spiDevices': spi_devices,
+              'spidevNodes': sorted(str(p) for p in Path('/dev').glob('spidev*')),
+          }, indent=2))
+          PY
