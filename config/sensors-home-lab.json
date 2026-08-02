@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "profile": "emmanuel-home-lab",
-  "diagnostic_revision": 5,
+  "diagnostic_revision": 6,
   "sample_interval_seconds": 5,
   "adc": {
     "bus": 0,
@@ -14,7 +14,7 @@
     "reference_voltage_v": 5.0,
     "manual_chip_select": false,
     "use_data_ready_gpio": false,
-    "use_hardware_reset_gpio": true
+    "use_hardware_reset_gpio": false
   },
   "channels": [
     {
