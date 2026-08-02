@@ -1,6 +1,6 @@
 import { WebSocket } from "ws";
 
-export const GATEWAY_VERSION = "1.1.1";
+export const GATEWAY_VERSION = "1.2.0";
 
 export function buildGatewayHealth(
   devices,
@@ -25,6 +25,7 @@ export function buildGatewayHealth(
     readyViewers,
     enrollment: "v1",
     admin: "v1",
+    liveViewerDiagnostic: "github-oidc"
   };
 }
 
