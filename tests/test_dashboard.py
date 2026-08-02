@@ -15,16 +15,20 @@ class DashboardTests(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"data-etr-dashboard-version", response.data)
-        self.assertIn(b"Tableau de bord local", response.data)
+        self.assertIn("Banc d’essai capteurs".encode(), response.data)
+        self.assertIn(b"data-sensor-grid", response.data)
+        self.assertIn(b"AIN0", response.data)
+        self.assertIn(b"AIN3", response.data)
+        self.assertIn("résistance fixe de 10 kΩ".encode(), response.data)
         self.assertIn(b"data-enrollment", response.data)
         self.assertIn(b"Associer cet EtR", response.data)
         self.assertIn("script-src 'self'", response.headers["Content-Security-Policy"])
         self.assertEqual(response.headers["Cache-Control"], "no-store")
 
-    def test_dashboard_health_exposes_the_enrollment_ui_version(self):
+    def test_dashboard_health_exposes_sensor_ui_version(self):
         response = self.client.get("/healthz")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["version"], "1.1.0")
+        self.assertEqual(response.get_json()["version"], "1.2.0")
 
     @patch("dashboard.app.requests.get")
     def test_status_proxy_returns_local_api_payload(self, get):
@@ -33,6 +37,10 @@ class DashboardTests(unittest.TestCase):
         upstream.json.return_value = {
             "schema_version": "1.0",
             "health": "ok",
+            "telemetry": {
+                "hardware": {"status": "online", "chip_id": 1},
+                "sensors": [{"id": "pressure_1", "ain": 0, "status": "ok", "value": 0.0, "unit": "bar"}],
+            },
             "enrollment": {
                 "required": True,
                 "status": "pending",
@@ -44,6 +52,7 @@ class DashboardTests(unittest.TestCase):
         payload = response.get_json()
         self.assertTrue(payload["api_online"])
         self.assertEqual(payload["data"]["schema_version"], "1.0")
+        self.assertEqual(payload["data"]["telemetry"]["hardware"]["chip_id"], 1)
         self.assertEqual(payload["data"]["enrollment"]["status"], "pending")
 
     @patch("dashboard.app.requests.get", side_effect=requests.ConnectionError("network"))
