@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Relance opérationnelle après rétablissement explicite du trafic Cloud Run.
 
 INSTALL_DIR=${ETR_INSTALL_DIR:-/home/oryx/EtR-core}
 ENV_FILE=${ETR_ENV_FILE:-/etc/etr-core/firebase-bridge.env}
