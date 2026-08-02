@@ -1,0 +1,106 @@
+name: Lire les erreurs Cloud Run de l'écran distant
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-gateway-error-logs.yml
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  logs:
+    name: Capturer les erreurs WebSocket sans secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PROJECT_ID: oryx-froid-industriel
+      REGION: europe-west1
+      SERVICE_NAME: etr-remote-gateway
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Authentification Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Installer Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Lire les journaux récents de la passerelle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-gateway-errors
+          gcloud logging read \
+            'resource.type="cloud_run_revision" AND resource.labels.service_name="etr-remote-gateway" AND timestamp>="'"$(date -u -d '45 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"'"' \
+            --project="$PROJECT_ID" \
+            --limit=300 \
+            --order=desc \
+            --format=json \
+            > /tmp/etr-gateway-errors/raw.json
+
+          python3 - <<'PY' > /tmp/etr-gateway-errors/safe.json
+          import json, re
+          from pathlib import Path
+          raw=json.loads(Path('/tmp/etr-gateway-errors/raw.json').read_text(encoding='utf-8'))
+          selected=[]
+          for entry in raw:
+              text=str(entry.get('textPayload') or '')
+              payload=entry.get('jsonPayload') if isinstance(entry.get('jsonPayload'),dict) else {}
+              merged=(text+' '+json.dumps(payload,ensure_ascii=False)).lower()
+              if not any(token in merged for token in ('websocket','upgrade','healthz','exception','error','device')):
+                  continue
+              safe_text=re.sub(r'(?i)(bearer\s+|idtoken[=: ]+|refreshtoken[=: ]+)[A-Za-z0-9._~+\-/=]+',r'\1<secret-masque>',text)
+              safe_payload={}
+              for key,value in payload.items():
+                  if any(secret in key.lower() for secret in ('token','authorization','cookie')):
+                      safe_payload[key]='<secret-masque>'
+                  else:
+                      safe_payload[key]=value
+              selected.append({
+                  'timestamp':entry.get('timestamp'),
+                  'severity':entry.get('severity'),
+                  'revision':(entry.get('resource') or {}).get('labels',{}).get('revision_name'),
+                  'textPayload':safe_text[:3000],
+                  'jsonPayload':safe_payload,
+                  'httpRequest':{
+                      key:value for key,value in (entry.get('httpRequest') or {}).items()
+                      if key in {'requestMethod','requestUrl','status','latency','userAgent','protocol'}
+                  },
+              })
+          report={'entries':selected[:120],'count':len(selected)}
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-gateway-errors/safe.json
+
+      - name: Publier le diagnostic sûr
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          git fetch origin main
+          git checkout -B gateway-errors-report origin/main
+          mkdir -p .github/deployment
+          if [ -s /tmp/etr-gateway-errors/safe.json ]; then
+            cp /tmp/etr-gateway-errors/safe.json .github/deployment/gateway-errors-last.json
+          else
+            printf '{"entries":[],"count":0}\n' > .github/deployment/gateway-errors-last.json
+          fi
+          git config user.name "EtR gateway error log agent"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/gateway-errors-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR gateway error logs [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
