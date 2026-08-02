@@ -85,7 +85,10 @@ class TouchDesktopRepositoryContractTests(unittest.TestCase):
             "src/deploy/raspi/etr-show-dashboard.sh",
             "src/deploy/raspi/etr-dashboard.desktop",
             "src/deploy/raspi/etr-wifi-portal.service",
+            "src/deploy/raspi/etr-kiosk.sh",
             "src/deploy/raspi/start_spi_desktop.sh",
+            "dashboard/app.py",
+            "docs/SCREEN_WHITE_PAGE_ROOT_CAUSE.md",
             "docs/PROJECT_TRACKER.md",
         ]
         missing = [path for path in required if not (ROOT / path).is_file()]
@@ -96,6 +99,8 @@ class TouchDesktopRepositoryContractTests(unittest.TestCase):
         launcher = (ROOT / "src/deploy/raspi/etr-dashboard.desktop").read_text(encoding="utf-8")
         reopen = (ROOT / "src/deploy/raspi/etr-show-dashboard.sh").read_text(encoding="utf-8")
         shell = (ROOT / "src/touch_shell.py").read_text(encoding="utf-8")
+        kiosk = (ROOT / "src/deploy/raspi/etr-kiosk.sh").read_text(encoding="utf-8")
+        dashboard = (ROOT / "dashboard/app.py").read_text(encoding="utf-8")
 
         self.assertIn("src/touch_shell.py", service)
         self.assertIn("User=root", service)
@@ -110,6 +115,16 @@ class TouchDesktopRepositoryContractTests(unittest.TestCase):
             'id="etrLinuxDesktop"',
         ]:
             self.assertIn(marker, shell)
+        for marker in [
+            "--lang=fr-FR",
+            "--disable-translate",
+            "--disable-features=Translate,TranslateUI",
+            'ETR_URL="http://127.0.0.1:8090"',
+        ]:
+            self.assertIn(marker, kiosk)
+        self.assertIn('TOUCH_PORTAL_ORIGIN = "http://127.0.0.1:8090"', dashboard)
+        self.assertIn("frame-ancestors {TOUCH_PORTAL_ORIGIN}", dashboard)
+        self.assertNotIn("frame-ancestors 'none'", dashboard)
         self.assertNotIn("shell=True", shell)
 
 
