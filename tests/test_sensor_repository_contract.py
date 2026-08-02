@@ -37,7 +37,10 @@ class SensorRepositoryContractTests(unittest.TestCase):
             "python3-lgpio",
             "python3-spidev",
             "raspi-config nonint do_spi 0",
+            "dtparam=spi=on",
+            "/dev/spidev0.0 /dev/spidev0.1",
             "SPI_REBOOT_REQUIRED",
+            "SPI_UNAVAILABLE_AFTER_REBOOT",
             "sensors-home-lab.json",
             "etr-sensor-acquisition.service",
         ]:
@@ -48,11 +51,13 @@ class SensorRepositoryContractTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/etr-sensor-lab.yml").read_text(encoding="utf-8")
         for marker in [
             "runs-on: [self-hosted, Linux, ARM64]",
-            "/dev/spidev0.0",
+            "spidev0.*",
             "/dev/gpiochip0",
             "hardware.get('chip_id') == 1",
             "'pressure_1','pressure_2','temperature_1','temperature_2'",
             "sample.get('status') == 'ok'",
+            "bootConfigSpiLines",
+            "spiKernelDevices",
             "etr-sensors-last.json",
         ]:
             self.assertIn(marker, workflow)
