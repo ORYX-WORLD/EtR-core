@@ -10,7 +10,10 @@ Type=simple
 User=oryx
 Group=oryx
 SupplementaryGroups=spi gpio
-WorkingDirectory=/home/oryx/EtR-core
+# lgpio crée son tube .lgd-nfy* dans le répertoire courant. Le dépôt est rendu
+# volontairement en lecture seule par ProtectHome ; utiliser le répertoire
+# d'état évite les échecs xCreatePipe tout en conservant la sandbox systemd.
+WorkingDirectory=/var/lib/etr-core
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/usr/bin/python3 /home/oryx/EtR-core/src/sensor_acquisition.py --config /etc/etr-core/sensors.json --state /var/lib/etr-core/telemetry.json
