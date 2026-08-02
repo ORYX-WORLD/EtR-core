@@ -1,6 +1,6 @@
 import { WebSocket } from "ws";
 
-export const GATEWAY_VERSION = "1.2.0";
+export const GATEWAY_VERSION = "1.1.1";
 
 export function buildGatewayHealth(
   devices,
@@ -35,9 +35,6 @@ export function installGatewayHealthRoutes({ app, devices }) {
     res.json(buildGatewayHealth(devices));
   };
 
-  // Keep /healthz for the local Docker smoke test. Public Cloud Run checks use
-  // the namespaced route because the Google frontend has returned its own 404
-  // for /healthz while other Express routes on the same revision remained live.
   app.get("/healthz", handler);
   app.get("/api/health", handler);
 }
