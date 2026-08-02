@@ -37,7 +37,31 @@ Le rapport est assaini et enregistré dans :
 .github/deployment/etr-identity-email-config-last.json
 ```
 
-Le workflow ne met à jour aucune configuration.
+Le premier audit WIF a confirmé que l'authentification Google Cloud fonctionne, mais que l'identité de déploiement ne possède pas `firebaseauth.configs.get`.
+
+## Test des possibilités d'automatisation IAM
+
+Le workflow `.github/workflows/etr-email-iam-capabilities.yml` appelle `projects.testIamPermissions`, opération en lecture seule, pour déterminer si l'identité WIF possède déjà :
+
+```text
+firebaseauth.configs.get
+firebaseauth.configs.update
+firebaseauth.users.get
+resourcemanager.projects.getIamPolicy
+resourcemanager.projects.setIamPolicy
+iam.roles.get
+iam.roles.create
+iam.roles.update
+serviceusage.services.enable
+```
+
+La preuve est enregistrée dans :
+
+```text
+.github/deployment/etr-email-iam-capabilities-last.json
+```
+
+Le workflow ne crée aucun rôle, ne modifie aucune politique IAM et ne publie pas l'adresse du compte de service ; seule une empreinte courte du principal est conservée.
 
 ## Décision après lecture
 
@@ -53,17 +77,22 @@ Préparer un patch séparé avec `updateMask` limité aux seuls champs approuvé
 
 La méthode d'envoi, le domaine personnalisé et le SMTP restent inchangés lors de ce premier patch.
 
-### Configuration non lisible
+### Configuration non lisible, sans droit de gérer IAM
 
-Ne pas attribuer automatiquement un rôle administrateur global. Documenter la permission manquante `firebaseauth.configs.get`, puis utiliser soit :
+Ne pas attribuer automatiquement un rôle administrateur global. Utiliser l'une de ces voies :
 
-- une permission de lecture minimale accordée à l'identité de déploiement ;
-- soit la console Firebase / Identity Platform pour relever les champs nécessaires.
+- attribuer manuellement le rôle de lecture `roles/identityplatform.viewer` ;
+- créer manuellement un rôle personnalisé contenant uniquement `firebaseauth.configs.get` ;
+- relever les champs nécessaires dans la console Firebase / Identity Platform.
+
+### Configuration non lisible, mais gestion IAM techniquement possible
+
+Ne pas modifier immédiatement la politique. Produire d'abord la preuve des permissions, puis préparer une opération distincte, réversible et limitée à la lecture. Aucun rôle d'administration Identity Platform ne doit être attribué pour un simple audit.
 
 ## Garde-fous
 
 - aucun secret dans GitHub ;
-- aucune mutation IAM automatique ;
+- aucune mutation IAM dans les workflows d'audit ;
 - aucune modification SMTP ou DNS dans l'audit ;
 - preuve sans corps complet des modèles ;
 - patch de modèle séparé d'une future migration de domaine d'envoi ;
