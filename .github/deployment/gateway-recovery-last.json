@@ -1,0 +1,21 @@
+{
+  "checkedAt": "2026-08-02T12:36:30.872145+00:00",
+  "commit": "992840484fab261e47370f3c7d147693c69492f5",
+  "status": "failure",
+  "deployOutcome": "failure",
+  "verifyOutcome": "skipped",
+  "url": null,
+  "revision": null,
+  "traffic": {
+    "status": {
+      "traffic": [
+        {
+          "percent": 100,
+          "revisionName": "etr-remote-gateway-00010-xmg"
+        }
+      ]
+    }
+  },
+  "health": null,
+  "sessionHealth": null
+}
