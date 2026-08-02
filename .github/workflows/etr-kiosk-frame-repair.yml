@@ -1,0 +1,149 @@
+name: Réparer le rendu tactile du dashboard EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-kiosk-frame-repair.yml
+      - dashboard/**
+      - src/deploy/raspi/etr-kiosk.sh
+      - src/deploy/raspi/etr-kiosk.service
+      - docs/SCREEN_WHITE_PAGE_ROOT_CAUSE.md
+
+concurrency:
+  group: etr-physical-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    name: CSP iframe, langue Chromium et services locaux
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 20
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Actualiser le dépôt installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          sudo -u oryx -H git -C "$install_dir" fetch origin main
+          sudo -u oryx -H git -C "$install_dir" checkout main
+          sudo -u oryx -H git -C "$install_dir" reset --hard origin/main
+          sudo install -m 755 "$install_dir/src/deploy/raspi/etr-kiosk.sh" /usr/local/bin/etr-kiosk.sh
+          sudo install -m 644 "$install_dir/src/deploy/raspi/etr-kiosk.service" /etc/systemd/system/etr-kiosk.service
+          sudo systemctl daemon-reload
+
+      - name: Redémarrer uniquement l'affichage concerné
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl restart etr-dashboard.service
+          for attempt in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8000/healthz > /tmp/etr-dashboard-health.json && break
+            sleep 1
+          done
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-dashboard-health.json',encoding='utf-8'))
+          assert data.get('ok') is True
+          assert data.get('version') == '1.2.1'
+          assert data.get('embedded_by') == 'http://127.0.0.1:8090'
+          PY
+          sudo systemctl restart etr-kiosk.service
+          sleep 6
+
+      - name: Vérifier le contrat d'intégration physique
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -D /tmp/etr-dashboard.headers -o /tmp/etr-dashboard.html http://127.0.0.1:8000/
+          curl -fsS http://127.0.0.1:8090/ > /tmp/etr-portal.html
+          python3 - <<'PY'
+          from pathlib import Path
+          headers=Path('/tmp/etr-dashboard.headers').read_text(encoding='utf-8',errors='replace').lower()
+          html=Path('/tmp/etr-dashboard.html').read_text(encoding='utf-8',errors='replace')
+          portal=Path('/tmp/etr-portal.html').read_text(encoding='utf-8',errors='replace')
+          assert 'content-security-policy:' in headers
+          assert 'frame-ancestors http://127.0.0.1:8090' in headers
+          assert "frame-ancestors 'none'" not in headers
+          assert 'data-etr-dashboard-version="1.2.1"' in html
+          assert 'id="dashboardFrame"' in portal
+          assert "dashboardFrame.src='http://127.0.0.1:8000'" in portal
+          assert 'id="etrLinuxDesktop"' in portal
+          PY
+          systemctl --quiet is-active etr-dashboard.service
+          systemctl --quiet is-active etr-wifi-portal.service
+          systemctl --quiet is-active etr-kiosk.service
+          pgrep -a chromium > /tmp/etr-chromium-process.txt
+          grep -F -- '--lang=fr-FR' /tmp/etr-chromium-process.txt
+          grep -F -- '--disable-features=Translate,TranslateUI' /tmp/etr-chromium-process.txt
+
+      - name: Publier la preuve de réparation
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set +e
+          installed_commit=$(sudo -u oryx -H git -C /home/oryx/EtR-core rev-parse HEAD 2>/dev/null || true)
+          dashboard_state=$(systemctl is-active etr-dashboard.service 2>/dev/null || true)
+          portal_state=$(systemctl is-active etr-wifi-portal.service 2>/dev/null || true)
+          kiosk_state=$(systemctl is-active etr-kiosk.service 2>/dev/null || true)
+          INSTALLED_COMMIT="$installed_commit" DASHBOARD_STATE="$dashboard_state" PORTAL_STATE="$portal_state" KIOSK_STATE="$kiosk_state" python3 - <<'PY' > /tmp/etr-kiosk-frame-repair-last.json
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          try:
+              health=json.loads(Path('/tmp/etr-dashboard-health.json').read_text(encoding='utf-8'))
+          except Exception:
+              health=None
+          try:
+              headers=Path('/tmp/etr-dashboard.headers').read_text(encoding='utf-8',errors='replace').lower()
+          except OSError:
+              headers=''
+          try:
+              process=Path('/tmp/etr-chromium-process.txt').read_text(encoding='utf-8',errors='replace')
+          except OSError:
+              process=''
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'workflowCommit':os.getenv('GITHUB_SHA'),
+              'installedCommit':os.getenv('INSTALLED_COMMIT') or None,
+              'status':'success' if os.getenv('JOB_STATUS') == 'success' else 'failure',
+              'services':{
+                  'dashboard':os.getenv('DASHBOARD_STATE'),
+                  'portal':os.getenv('PORTAL_STATE'),
+                  'kiosk':os.getenv('KIOSK_STATE'),
+              },
+              'dashboardHealth':health,
+              'dashboardHttp200':Path('/tmp/etr-dashboard.html').is_file(),
+              'portalHttp200':Path('/tmp/etr-portal.html').is_file(),
+              'frameAncestorLocalPortal': 'frame-ancestors http://127.0.0.1:8090' in headers,
+              'frameAncestorNoneAbsent': "frame-ancestors 'none'" not in headers,
+              'chromiumFrench': '--lang=fr-FR' in process,
+              'chromiumTranslateUiDisabled': '--disable-features=Translate,TranslateUI' in process,
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-kiosk-frame-repair-last.json
+          git fetch origin main
+          git checkout -B etr-kiosk-frame-report origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-kiosk-frame-repair-last.json .github/deployment/etr-kiosk-frame-repair-last.json
+          git config user.name "EtR kiosk frame repair"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-kiosk-frame-repair-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR kiosk frame repair [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
