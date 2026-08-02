@@ -1,0 +1,23 @@
+{
+  "checkedAt": "2026-08-02T20:19:55.738171+00:00",
+  "workflowCommit": "1497ea0f312d35a39665a42ef3a3da9bd2a40739",
+  "installedCommit": "cd89408860a9f030c691460090d3f141912a0a97",
+  "status": "success",
+  "services": {
+    "dashboard": "active",
+    "portal": "active",
+    "kiosk": "active"
+  },
+  "dashboardHealth": {
+    "embedded_by": "http://127.0.0.1:8090",
+    "ok": true,
+    "service": "etr-dashboard",
+    "version": "1.2.1"
+  },
+  "dashboardHttp200": true,
+  "portalHttp200": true,
+  "frameAncestorLocalPortal": true,
+  "frameAncestorNoneAbsent": true,
+  "chromiumFrench": true,
+  "chromiumTranslateUiDisabled": true
+}
