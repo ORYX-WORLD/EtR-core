@@ -16,7 +16,12 @@ class RepositoryContractTests(unittest.TestCase):
 
     def test_installer_wires_dashboard_from_repository(self):
         script = (ROOT / "src/deploy/raspi/setup_etr.sh").read_text(encoding="utf-8")
-        for marker in ["dashboard/requirements.txt", "src/deploy/raspi/etr-dashboard.service", "etr-dashboard.service", "http://127.0.0.1:8000/healthz"]:
+        for marker in [
+            "dashboard/requirements.txt",
+            "src/deploy/raspi/etr-dashboard.service",
+            "etr-dashboard.service",
+            "http://127.0.0.1:8000/healthz",
+        ]:
             self.assertIn(marker, script)
         self.assertNotIn("/opt/etr/dashboard/.venv/bin/gunicorn", script)
 
@@ -25,7 +30,8 @@ class RepositoryContractTests(unittest.TestCase):
             "gateway/enrollment.mjs", "gateway/enrollment-http.mjs", "gateway/enrollment.test.mjs",
             "gateway/enrollment-policy.test.mjs", "gateway/device-bootstrap.mjs", "gateway/device-bootstrap.test.mjs",
             "gateway/firebase-device-session.mjs", "gateway/firebase-device-session.test.mjs",
-            "gateway/signing-health.test.mjs", "gateway/Dockerfile", "src/device_identity.py", "src/firebase_bridge.py",
+            "gateway/signing-health.test.mjs", "gateway/health.mjs", "gateway/health.test.mjs",
+            "gateway/Dockerfile", "src/device_identity.py", "src/firebase_bridge.py",
             "src/deploy/raspi/etr-firebase-bridge.service", "tests/test_app.py", "tests/test_device_identity.py",
             "tests/test_firebase_bridge_enrollment.py", "tests/test_firebase_bridge_direct_session.py",
             "docs/SECURE_ENROLLMENT.md", ".github/workflows/etr-gateway-cloudrun.yml", ".github/workflows/etr-deploy.yml",
@@ -34,21 +40,25 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertEqual(missing, [], f"Enrollment contract incomplete: {missing}")
 
         server = (ROOT / "gateway/server.mjs").read_text(encoding="utf-8")
+        health = (ROOT / "gateway/health.mjs").read_text(encoding="utf-8")
         enrollment_http = (ROOT / "gateway/enrollment-http.mjs").read_text(encoding="utf-8")
         session_issuer = (ROOT / "gateway/firebase-device-session.mjs").read_text(encoding="utf-8")
         bootstrap = (ROOT / "gateway/device-bootstrap.mjs").read_text(encoding="utf-8")
         local_api = (ROOT / "src/app.py").read_text(encoding="utf-8")
         dashboard = (ROOT / "dashboard/templates/index.html").read_text(encoding="utf-8")
-        for marker in ["installEnrollmentRoutes", 'enrollment: "v1"']:
+
+        for marker in ["installEnrollmentRoutes", "installGatewayHealthRoutes"]:
             self.assertIn(marker, server)
+        for marker in ['enrollment: "v1"', 'app.get("/api/health", handler)']:
+            self.assertIn(marker, health)
         for marker in [
             "installDeviceBootstrapRoute", 'verifyDeviceRequest(req, "request")', 'verifyDeviceRequest(req, "exchange")',
-            'app.post("/api/enrollment/session-health"', "createFirebaseDeviceSessionIssuer", "publicExchangeResult"
+            'app.post("/api/enrollment/session-health"', "createFirebaseDeviceSessionIssuer", "publicExchangeResult",
         ]:
             self.assertIn(marker, enrollment_http)
         for marker in [
             "signInWithPassword", "setCustomUserClaims", "revokeRefreshTokens", "devices.oryx.invalid",
-            'authMode: "password_session"', "passwordEntropyBits: 384"
+            'authMode: "password_session"', "passwordEntropyBits: 384",
         ]:
             self.assertIn(marker, session_issuer)
         self.assertNotIn("auth.createCustomToken", enrollment_http + session_issuer)
@@ -63,6 +73,7 @@ class RepositoryContractTests(unittest.TestCase):
         required = [
             "gateway/admin.mjs",
             "gateway/admin.test.mjs",
+            "gateway/health.mjs",
             "firebase/database.rules.json",
             ".github/workflows/etr-gateway-cloudrun.yml",
             "docs/PROJECT_TRACKER.md",
@@ -70,15 +81,17 @@ class RepositoryContractTests(unittest.TestCase):
         missing = [path for path in required if not (ROOT / path).is_file()]
         self.assertEqual(missing, [], f"Admin contract incomplete: {missing}")
         server = (ROOT / "gateway/server.mjs").read_text(encoding="utf-8")
+        health = (ROOT / "gateway/health.mjs").read_text(encoding="utf-8")
         admin = (ROOT / "gateway/admin.mjs").read_text(encoding="utf-8")
         rules = (ROOT / "firebase/database.rules.json").read_text(encoding="utf-8")
-        for marker in ["installAdminRoutes", 'admin: "v1"', "decoded.oryxAdmin === true"]:
+        for marker in ["installAdminRoutes", "decoded.oryxAdmin === true"]:
             self.assertIn(marker, server)
+        self.assertIn('admin: "v1"', health)
         for marker in [
             "/api/admin/session", "/api/admin/overview", "/api/admin/installations", "/api/admin/users",
             "/api/admin/enrollments", "/api/admin/audit", "/api/admin/membership",
             "/api/admin/transfer-owner", "/api/admin/user-status", "/api/admin/revoke-sessions",
-            "ETR_ADMIN_EMAILS", "oryxAdmin: true", "RECENT_AUTH_SECONDS", "adminAudit"
+            "ETR_ADMIN_EMAILS", "oryxAdmin: true", "RECENT_AUTH_SECONDS", "adminAudit",
         ]:
             self.assertIn(marker, admin)
         for marker in ['"adminProfiles"', '"adminAudit"']:
@@ -87,9 +100,10 @@ class RepositoryContractTests(unittest.TestCase):
     def test_gateway_docker_image_contains_every_runtime_module(self):
         dockerfile = (ROOT / "gateway/Dockerfile").read_text(encoding="utf-8")
         for marker in [
-            "COPY server.mjs ./", "COPY firebase-token-verifier.mjs ./", "COPY enrollment.mjs ./",
-            "COPY enrollment-http.mjs ./", "COPY device-bootstrap.mjs ./", "COPY firebase-device-session.mjs ./",
-            "COPY admin.mjs ./", "USER node", "ENV NODE_ENV=production", 'CMD ["node", "server.mjs"]',
+            "COPY server.mjs ./", "COPY health.mjs ./", "COPY firebase-token-verifier.mjs ./",
+            "COPY device-authorization.mjs ./", "COPY enrollment.mjs ./", "COPY enrollment-http.mjs ./",
+            "COPY device-bootstrap.mjs ./", "COPY firebase-device-session.mjs ./", "COPY admin.mjs ./",
+            "USER node", "ENV NODE_ENV=production", 'CMD ["node", "server.mjs"]',
         ]:
             self.assertIn(marker, dockerfile)
         self.assertNotIn("COPY server.mjs firebase-token-verifier.mjs ./", dockerfile)
@@ -107,6 +121,33 @@ class RepositoryContractTests(unittest.TestCase):
             "accepts a legacy technical account", "accepts an ORYX privileged token",
         ]:
             self.assertIn(marker, verifier_tests)
+
+    def test_device_websocket_authorization_uses_the_device_firebase_session(self):
+        required = [
+            "gateway/device-authorization.mjs",
+            "gateway/device-authorization.test.mjs",
+            "gateway/server.mjs",
+        ]
+        missing = [path for path in required if not (ROOT / path).is_file()]
+        self.assertEqual(missing, [], f"Device authorization contract incomplete: {missing}")
+        server = (ROOT / "gateway/server.mjs").read_text(encoding="utf-8")
+        authorizer = (ROOT / "gateway/device-authorization.mjs").read_text(encoding="utf-8")
+        for marker in [
+            "createDeviceConnectionAuthorizer",
+            "authorizeDeviceConnection",
+            "device-access/mismatch",
+            "Remote device connected",
+        ]:
+            self.assertIn(marker, server)
+        for marker in [
+            "deviceAccess/",
+            'url.searchParams.set("auth", token)',
+            "linkedInstallationId === installationId",
+            "device-access/firebase-401",
+            "device-access/network-error",
+        ]:
+            self.assertIn(marker, authorizer)
+        self.assertNotIn("async function deviceCanConnect", server)
 
     def test_firebase_bridge_is_non_privileged_and_versioned(self):
         unit = (ROOT / "src/deploy/raspi/etr-firebase-bridge.service").read_text(encoding="utf-8")
@@ -138,12 +179,15 @@ class RepositoryContractTests(unittest.TestCase):
     def test_gateway_deploy_tests_exact_image_and_proves_device_session(self):
         workflow = (ROOT / ".github/workflows/etr-gateway-cloudrun.yml").read_text(encoding="utf-8")
         for marker in [
-            "pull_request:", "gateway/**", "npm test", "node --check device-bootstrap.mjs",
+            "pull_request:", "gateway/**", "npm test", "node --check health.mjs",
+            "node --check device-authorization.mjs", "node --check device-bootstrap.mjs",
             "node --check firebase-device-session.mjs", "node --check admin.mjs", "docker build --pull", "docker run --rm -d",
-            "FIREBASE_API_KEY", "ETR_ADMIN_EMAILS", "127.0.0.1:18080/healthz", "docker exec etr-gateway-ci test -s",
-            "/api/enrollment/request", "/api/enrollment/bootstrap", "/api/enrollment/session-health",
-            "/api/admin/session", "assert data.get('admin') == 'v1'", "audience=etr-bootstrap", "firebaseSession", "deviceSessionIssuance",
+            "FIREBASE_API_KEY", "ETR_ADMIN_EMAILS", "127.0.0.1:18080/healthz", "127.0.0.1:18080/api/health",
+            "docker exec etr-gateway-ci test -s", "/api/enrollment/request", "/api/enrollment/bootstrap",
+            "/api/enrollment/session-health", "/api/admin/session", "$GATEWAY_URL/api/health",
+            "assert data.get('admin') == 'v1'", "audience=etr-bootstrap", "firebaseSession", "deviceSessionIssuance",
             "'password_session'", "gateway-last-deploy.json", "cloud-run-state.mjs", "trafficPercent",
+            "deviceAuthorization", "etr-remote-screen-repair-fast.yml",
         ]:
             self.assertIn(marker, workflow)
         self.assertNotIn("add-iam-policy-binding", workflow)
