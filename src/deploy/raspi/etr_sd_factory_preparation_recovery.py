@@ -43,6 +43,7 @@ _USB_LOSS_PATTERNS = re.compile(
     r"access beyond end of device|reset (?:high|super)-speed usb device",
     re.IGNORECASE,
 )
+_USB_DEVICE_NODE_RE = re.compile(r"^\d+-\d+(?:\.\d+)*$")
 
 
 def _run(command: list[str], *, timeout: int = 10) -> subprocess.CompletedProcess[str]:
@@ -68,15 +69,77 @@ def _disk_size(path: str) -> int:
     return int(value) if value.isdigit() else 0
 
 
+def _is_usb_device_node(path: Path) -> bool:
+    return (
+        _USB_DEVICE_NODE_RE.fullmatch(path.name) is not None
+        and (path / "idVendor").is_file()
+        and (path / "idProduct").is_file()
+    )
+
+
+def _usb_node_name_from_devpath(devpath: str) -> str:
+    """Extrait le dernier nœud USB physique d'un chemin udev de bloc."""
+    for component in reversed(Path(str(devpath or "")).parts):
+        if _USB_DEVICE_NODE_RE.fullmatch(component):
+            return component
+    return ""
+
+
+def _node_from_ancestors(path: Path) -> Path | None:
+    for candidate in (path, *path.parents):
+        if _is_usb_device_node(candidate):
+            return candidate
+    return None
+
+
 def _usb_device_node(disk_path: str) -> Path | None:
+    """Retrouve le nœud USB même lorsque le lien SCSI masque ses ancêtres."""
     name = os.path.basename(os.path.realpath(disk_path))
     start = Path("/sys/class/block") / name / "device"
     try:
         resolved = start.resolve(strict=True)
     except OSError:
-        return None
-    for candidate in (resolved, *resolved.parents):
-        if (candidate / "idVendor").is_file() and (candidate / "idProduct").is_file():
+        resolved = None
+    if resolved is not None:
+        direct = _node_from_ancestors(resolved)
+        if direct is not None:
+            return direct
+
+    # Sur certains lecteurs usb-storage, /sys/class/block/.../device se résout
+    # seulement jusqu'au périphérique SCSI. Le DEVPATH udev conserve alors le
+    # chemin complet, par exemple .../usb1/1-1/1-1.1/1-1.1:1.0/.../block/sda.
+    devpath = _output(
+        ["/usr/bin/udevadm", "info", "--query=path", "--name", disk_path],
+        timeout=8,
+    )
+    if devpath:
+        sys_path = Path("/sys") / devpath.lstrip("/")
+        try:
+            resolved_udev = sys_path.resolve(strict=True)
+        except OSError:
+            resolved_udev = sys_path
+        from_udev = _node_from_ancestors(resolved_udev)
+        if from_udev is not None:
+            return from_udev
+
+        node_name = _usb_node_name_from_devpath(devpath)
+        if node_name:
+            candidate = Path("/sys/bus/usb/devices") / node_name
+            if _is_usb_device_node(candidate):
+                return candidate
+
+    # Dernier repli : compare le chemin canonique de chaque nœud USB avec le
+    # DEVPATH du disque. Cela reste borné aux périphériques déjà présents.
+    for candidate in Path("/sys/bus/usb/devices").glob("*"):
+        if not _is_usb_device_node(candidate):
+            continue
+        try:
+            candidate_real = str(candidate.resolve(strict=True))
+        except OSError:
+            continue
+        if resolved is not None and str(resolved).startswith(candidate_real + os.sep):
+            return candidate
+        if devpath and str((Path("/sys") / devpath.lstrip("/"))).startswith(candidate_real + os.sep):
             return candidate
     return None
 
@@ -94,7 +157,14 @@ def inspect_physical_target(disk_path: str) -> PhysicalTargetIdentity:
     size = _disk_size(real)
     node = _usb_device_node(real)
     if not real.startswith("/dev/") or size <= 0 or node is None:
-        raise PreparationRecoveryError("Le lecteur USB cible n'est pas identifiable")
+        devpath = _output(
+            ["/usr/bin/udevadm", "info", "--query=path", "--name", real],
+            timeout=8,
+        )
+        raise PreparationRecoveryError(
+            "Le lecteur USB cible n'est pas identifiable "
+            f"(disque={real or 'absent'}, capacité={size}, devpath={devpath or 'absent'})"
+        )
     model = _output(["/usr/bin/lsblk", "-ndo", "MODEL", real]).strip()
     identity = PhysicalTargetIdentity(
         disk_path=real,
