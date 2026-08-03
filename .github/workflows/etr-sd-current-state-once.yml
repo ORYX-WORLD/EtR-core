@@ -1,0 +1,109 @@
+name: Vérifier immédiatement l'état réel de la fabrique microSD
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-sd-current-state-once.yml
+
+concurrency:
+  group: etr-sd-current-state-once
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 8
+    steps:
+      - name: Lire l'état sans modifier la carte
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-sd-current-state
+          sudo cat /var/lib/etr-core/sd-factory-state.json > /tmp/etr-sd-current-state/state.json 2>/dev/null || printf '{}\n' > /tmp/etr-sd-current-state/state.json
+          sudo cat /var/lib/etr-core/sd-factory-request.json > /tmp/etr-sd-current-state/request.json 2>/dev/null || printf '{}\n' > /tmp/etr-sd-current-state/request.json
+          sudo cat /var/lib/etr-core/sd-factory-rsync.log > /tmp/etr-sd-current-state/rsync.log 2>/dev/null || : > /tmp/etr-sd-current-state/rsync.log
+          sudo systemctl show etr-sd-factory-worker.service \
+            -p MainPID -p ActiveState -p SubState -p Result -p ExecMainStatus \
+            > /tmp/etr-sd-current-state/worker-show.txt 2>&1 || true
+          sudo systemctl status etr-sd-factory-worker.service --no-pager -l \
+            > /tmp/etr-sd-current-state/worker-status.txt 2>&1 || true
+          sudo systemctl show etr-sd-factory.service \
+            -p MainPID -p ActiveState -p SubState -p Result -p ExecMainStatus \
+            > /tmp/etr-sd-current-state/gui-show.txt 2>&1 || true
+          pgrep -af 'etr_sd_factory_worker|[r]sync.*?/run/etr-sd-factory/' \
+            > /tmp/etr-sd-current-state/processes.txt || true
+          findmnt -rn -S /dev/sda1 -o SOURCE,TARGET,FSTYPE,OPTIONS \
+            > /tmp/etr-sd-current-state/mounts.txt 2>&1 || true
+          findmnt -rn -S /dev/sda2 -o SOURCE,TARGET,FSTYPE,OPTIONS \
+            >> /tmp/etr-sd-current-state/mounts.txt 2>&1 || true
+          lsblk -b -o NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS,TRAN,RM,MODEL \
+            > /tmp/etr-sd-current-state/lsblk.txt
+          sudo dmesg --ctime | tail -n 250 > /tmp/etr-sd-current-state/dmesg.txt 2>&1 || true
+          sudo journalctl -u etr-sd-factory-worker.service -n 180 --no-pager \
+            > /tmp/etr-sd-current-state/journal.txt 2>&1 || true
+
+      - name: Construire et publier le rapport
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/etr-sd-current-state.json
+          import json, re
+          from datetime import datetime, timezone
+          from pathlib import Path
+          base=Path('/tmp/etr-sd-current-state')
+          def text(name, limit=30000):
+              try:return (base/name).read_text(encoding='utf-8',errors='replace')[-limit:]
+              except OSError:return ''
+          def data(name):
+              try:return json.loads(text(name))
+              except Exception:return {}
+          state=data('state.json')
+          worker=text('worker-show.txt')
+          processes=text('processes.txt')
+          dmesg=text('dmesg.txt')
+          status=str(state.get('status') or '')
+          active_state=''
+          match=re.search(r'^ActiveState=(.*)$',worker,re.M)
+          if match: active_state=match.group(1).strip()
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'state':state,
+              'request':data('request.json'),
+              'workerActiveState':active_state,
+              'workerBusy':active_state in {'active','activating','reloading','deactivating'},
+              'copyProcessPresent':bool(re.search(r'rsync.*?/run/etr-sd-factory/',processes)),
+              'terminal':status in {'ready','failed','cancelled','interrupted'},
+              'ready':status == 'ready' and state.get('ready_to_remove') is True and state.get('verification') == 'passed',
+              'mediumErrorDetected':bool(re.search(r'critical medium error|Input/output error|I/O error',dmesg,re.I)),
+              'workerShow':worker,
+              'workerStatus':text('worker-status.txt'),
+              'guiShow':text('gui-show.txt'),
+              'processes':processes,
+              'mounts':text('mounts.txt'),
+              'lsblk':text('lsblk.txt'),
+              'rsyncLogTail':text('rsync.log'),
+              'journal':text('journal.txt'),
+              'dmesgTail':dmesg,
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-sd-current-state.json
+          rm -rf /tmp/etr-sd-current-state-repo
+          git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/etr-sd-current-state-repo
+          cd /tmp/etr-sd-current-state-repo
+          mkdir -p .github/deployment
+          cp /tmp/etr-sd-current-state.json .github/deployment/etr-sd-current-state.json
+          rm -f .github/workflows/etr-sd-current-state-once.yml
+          git config user.name 'EtR SD current state'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/deployment/etr-sd-current-state.json .github/workflows/etr-sd-current-state-once.yml
+          git commit -m 'chore: record current SD state and remove one-shot workflow [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
