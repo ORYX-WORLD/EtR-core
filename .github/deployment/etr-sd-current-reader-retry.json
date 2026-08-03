@@ -1,0 +1,18 @@
+{
+  "checkedAt": "2026-08-03T14:58:05.953554+00:00",
+  "jobStatus": "failure",
+  "jobId": null,
+  "eraseStatus": null,
+  "formattingSeen": false,
+  "writingSeen": false,
+  "terminal": false,
+  "finalStatus": null,
+  "state": {},
+  "capacityResetDetected": false,
+  "ioErrorDetected": false,
+  "worker": "○ etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR\n     Loaded: loaded (/etc/systemd/system/etr-sd-factory-worker.service; disabled; preset: enabled)\n     Active: inactive (dead)\n\nAug 03 16:00:09 etr-core runuser[92544]: pam_unix(runuser:session): session closed for user oryx\nAug 03 16:00:10 etr-core systemd[1]: etr-sd-factory-worker.service: Main process exited, code=exited, status=1/FAILURE\nAug 03 16:00:10 etr-core systemd[1]: etr-sd-factory-worker.service: Failed with result 'exit-code'.\nAug 03 16:00:10 etr-core systemd[1]: Failed to start etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR.\nAug 03 16:00:10 etr-core systemd[1]: etr-sd-factory-worker.service: Consumed 1.202s CPU time.\nAug 03 16:16:17 etr-core systemd[1]: Starting etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR...\nAug 03 16:41:26 etr-core systemd[1]: etr-sd-factory-worker.service: Main process exited, code=exited, status=1/FAILURE\nAug 03 16:41:26 etr-core systemd[1]: etr-sd-factory-worker.service: Failed with result 'exit-code'.\nAug 03 16:41:26 etr-core systemd[1]: Failed to start etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR.\nAug 03 16:41:26 etr-core systemd[1]: etr-sd-factory-worker.service: Consumed 3min 20.816s CPU time.\n",
+  "journal": "-- No entries --\n",
+  "kernel": "-- No entries --\n",
+  "rsyncLogTail": "",
+  "lsblk": "NAME        PATH                  SIZE TYPE FSTYPE LABEL  MOUNTPOINTS    TRAN RM MODEL\nloop0       /dev/loop0      2147483648 loop swap                               0 \nmmcblk0     /dev/mmcblk0   31268536320 disk                              mmc   0 \n├─mmcblk0p1 /dev/mmcblk0p1   536870912 part vfat   bootfs /boot/firmware mmc   0 \n└─mmcblk0p2 /dev/mmcblk0p2 30723276800 part ext4   rootfs /              mmc   0 \nzram0       /dev/zram0      2147483648 disk swap   zram0  [SWAP]               0 \n"
+}
