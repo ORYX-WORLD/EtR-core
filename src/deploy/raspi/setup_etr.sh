@@ -7,9 +7,9 @@ ENV_FILE="/etc/etr-core/firebase-bridge.env"
 
 sudo apt update
 sudo apt install -y \
-  git curl python3-venv python3-pip network-manager psmisc \
+  git curl python3-venv python3-pip python3-tk network-manager psmisc \
   xserver-xorg xserver-xorg-video-fbdev xinit lxde-core dbus-x11 \
-  chromium netcat-openbsd x11vnc
+  chromium netcat-openbsd x11vnc rsync dosfstools parted fdisk e2fsprogs
 
 # Cloner ou actualiser le dépôt officiel.
 if [ ! -d "$INSTALL_DIR/.git" ]; then
@@ -92,6 +92,14 @@ sudo install -d -m 755 /etc/systemd/system/spi-desktop.service.d
 sudo install -m 644 src/deploy/raspi/spi-desktop.service.d/blanking.conf /etc/systemd/system/spi-desktop.service.d/blanking.conf
 sudo install -m 644 src/deploy/raspi/etr-kiosk.service /etc/systemd/system/etr-kiosk.service
 
+# Fabrique de cartes microSD, accessible uniquement depuis le bureau Linux.
+sudo install -m 755 src/deploy/raspi/etr-sd-factory-launch.sh /usr/local/bin/etr-sd-factory-launch.sh
+sudo install -m 644 src/deploy/raspi/etr-sd-factory.service /etc/systemd/system/etr-sd-factory.service
+sudo install -m 644 src/deploy/raspi/etr-factory-firstboot.service /etc/systemd/system/etr-factory-firstboot.service
+sudo install -m 644 src/deploy/raspi/etr-sd-factory.desktop /usr/share/applications/etr-sd-factory.desktop
+sudo install -m 440 src/deploy/raspi/etr-sd-factory.sudoers /etc/sudoers.d/etr-sd-factory
+sudo /usr/sbin/visudo -cf /etc/sudoers.d/etr-sd-factory >/dev/null
+
 # Écran distant : VNC reste local au Raspberry et le relais est uniquement sortant.
 sudo install -m 644 src/deploy/raspi/etr-vnc.service /etc/systemd/system/etr-vnc.service
 sudo install -m 644 src/deploy/raspi/etr-remote-screen.service /etc/systemd/system/etr-remote-screen.service
@@ -141,7 +149,7 @@ fi
 
 # Le bridge démarre dès que la configuration Firebase minimale existe. Il reste
 # actif en attente d'association et n'accepte un code qu'après enregistrement de
-# sa clé publique par le workflow GitHub authentifié.
+# sa clé publique par le workflow GitHub authentifié ou par un ticket usine.
 if sudo grep -q '^FIREBASE_API_KEY=.' "$ENV_FILE" && \
    sudo grep -q '^FIREBASE_DATABASE_URL=.' "$ENV_FILE"; then
   sudo systemctl enable etr-firebase-bridge.service
@@ -201,5 +209,5 @@ fi
 sudo systemctl reset-failed etr-kiosk.service 2>/dev/null || true
 sudo systemctl start etr-kiosk.service
 
-echo "OK. API EtR, identité Ed25519, bridge Firebase, enrôlement sécurisé, dashboard versionné, portail Wi-Fi tactile, écran SPI, kiosque et configuration d'écran distant sont installés."
+echo "OK. API EtR, identité Ed25519, bridge Firebase, enrôlement sécurisé, dashboard versionné, portail Wi-Fi tactile, écran SPI, kiosque, fabrique microSD et configuration d'écran distant sont installés."
 echo "Un redémarrage est recommandé pour valider le parcours hors connexion."
