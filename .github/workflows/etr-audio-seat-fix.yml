@@ -1,0 +1,128 @@
+name: Activer définitivement la JBL EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-audio-seat-fix.yml
+      - src/deploy/raspi/51-etr-bluez.conf
+
+concurrency:
+  group: etr-audio-seat-fix
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Actualiser les sources installées
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u oryx -H git -C /home/oryx/EtR-core fetch origin main
+          sudo -u oryx -H git -C /home/oryx/EtR-core checkout main
+          sudo -u oryx -H git -C /home/oryx/EtR-core pull --ff-only origin main
+
+      - name: Désactiver uniquement la surveillance logind BlueZ
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo install -d -m 755 -o oryx -g oryx /home/oryx/.config/wireplumber/wireplumber.conf.d
+          sudo install -m 644 -o oryx -g oryx \
+            /home/oryx/EtR-core/src/deploy/raspi/51-etr-bluez.conf \
+            /home/oryx/.config/wireplumber/wireplumber.conf.d/51-etr-bluez.conf
+          sudo systemctl start user@1000.service
+          audio_env=(env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus)
+          sudo -u oryx "${audio_env[@]}" systemctl --user restart pipewire.service pipewire-pulse.service wireplumber.service
+          sleep 8
+
+      - name: Vérifier l'enregistrement A2DP puis connecter la JBL
+        id: connect
+        shell: bash
+        run: |
+          set +e
+          mkdir -p /tmp/etr-audio-seat-fix
+          start_epoch=$(date +%s)
+          bluetoothctl power on
+          bluetoothctl trust 40:C1:F6:70:C0:1A
+          for attempt in $(seq 1 8); do
+            bluetoothctl --timeout 20 connect 40:C1:F6:70:C0:1A > "/tmp/etr-audio-seat-fix/connect-${attempt}.txt" 2>&1
+            if bluetoothctl info 40:C1:F6:70:C0:1A | grep -q 'Connected: yes'; then
+              break
+            fi
+            sleep 3
+          done
+          audio_env=(env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus)
+          sink=""
+          for attempt in $(seq 1 40); do
+            sudo -u oryx "${audio_env[@]}" pactl list short sinks > /tmp/etr-audio-seat-fix/sinks.txt 2>&1
+            sink=$(awk '$2 ~ /^bluez_output\./ {print $2; exit}' /tmp/etr-audio-seat-fix/sinks.txt)
+            [ -n "$sink" ] && break
+            sleep 2
+          done
+          connected=false
+          if bluetoothctl info 40:C1:F6:70:C0:1A | grep -q 'Connected: yes' && [ -n "$sink" ]; then
+            connected=true
+            sudo -u oryx "${audio_env[@]}" pactl set-default-sink "$sink"
+            sudo -u oryx "${audio_env[@]}" pactl set-sink-volume "$sink" 35%
+          fi
+          echo "connected=$connected" >> "$GITHUB_OUTPUT"
+          echo "sink=$sink" >> "$GITHUB_OUTPUT"
+          bluetoothctl info 40:C1:F6:70:C0:1A > /tmp/etr-audio-seat-fix/jbl.txt 2>&1
+          sudo -u oryx "${audio_env[@]}" wpctl status -n > /tmp/etr-audio-seat-fix/wpctl.txt 2>&1
+          journalctl -u bluetooth.service --since "@${start_epoch}" --no-pager > /tmp/etr-audio-seat-fix/bluetooth.txt 2>&1
+          sudo systemctl restart etr-jbl-connect.service 2>/dev/null
+          set -e
+
+      - name: Publier le résultat
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+          CONNECTED: ${{ steps.connect.outputs.connected }}
+          SINK: ${{ steps.connect.outputs.sink }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/etr-audio-seat-fix-last.json
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          root=Path('/tmp/etr-audio-seat-fix')
+          def text(name):
+              try:return (root/name).read_text(encoding='utf-8',errors='replace')[-16000:]
+              except OSError:return ''
+          connects='\n\n'.join(text(f'connect-{i}.txt') for i in range(1,9))
+          print(json.dumps({
+            'checkedAt':datetime.now(timezone.utc).isoformat(),
+            'jobStatus':os.getenv('JOB_STATUS'),
+            'connected':os.getenv('CONNECTED') == 'true',
+            'sink':os.getenv('SINK') or None,
+            'jbl':text('jbl.txt'),
+            'sinks':text('sinks.txt'),
+            'wpctl':text('wpctl.txt'),
+            'connectAttempts':connects,
+            'bluetoothJournal':text('bluetooth.txt'),
+          },ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-audio-seat-fix-last.json
+          git fetch origin main
+          git checkout -B etr-audio-seat-fix-report origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-audio-seat-fix-last.json .github/deployment/etr-audio-seat-fix-last.json
+          git config user.name 'EtR audio seat fix'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/deployment/etr-audio-seat-fix-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR JBL seat fix [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
