@@ -1,0 +1,39 @@
+{
+  "checkedAt": "2026-08-03T12:40:04.280762+00:00",
+  "jobStatus": "success",
+  "jblExitCode": 2,
+  "microphoneOnline": false,
+  "jbl": {},
+  "microphone": {},
+  "bluetoothInfo": "Device 40:C1:F6:70:C0:1A (public)\n\tName: JBL Go 3\n\tAlias: JBL Go 3\n\tClass: 0x00240414 (2360340)\n\tIcon: audio-card\n\tPaired: yes\n\tBonded: yes\n\tTrusted: yes\n\tBlocked: no\n\tConnected: no\n\tLegacyPairing: no\n\tUUID: Headset                   (00001108-0000-1000-8000-00805f9b34fb)\n\tUUID: Audio Sink                (0000110b-0000-1000-8000-00805f9b34fb)\n\tUUID: A/V Remote Control Target (0000110c-0000-1000-8000-00805f9b34fb)\n\tUUID: Advanced Audio Distribu.. (0000110d-0000-1000-8000-00805f9b34fb)\n\tUUID: A/V Remote Control        (0000110e-0000-1000-8000-00805f9b34fb)\n\tUUID: Handsfree                 (0000111e-0000-1000-8000-00805f9b34fb)\n",
+  "cards": "48\talsa_card.platform-fe00b840.mailbox\talsa\n49\talsa_card.platform-fe00b840.mailbox.2\talsa\n",
+  "sinks": "75\talsa_output.platform-fe00b840.mailbox.stereo-fallback\tPipeWire\ts16le 2ch 48000Hz\tSUSPENDED\n76\talsa_output.platform-fe00b840.mailbox.2.stereo-fallback\tPipeWire\ts16le 2ch 48000Hz\tSUSPENDED\n",
+  "sources": "75\talsa_output.platform-fe00b840.mailbox.stereo-fallback.monitor\tPipeWire\ts16le 2ch 48000Hz\tSUSPENDED\n76\talsa_output.platform-fe00b840.mailbox.2.stereo-fallback.monitor\tPipeWire\ts16le 2ch 48000Hz\tSUSPENDED\n",
+  "monitorService": "● etr-audio-monitor.service - Capture et supervision du microphone EtR\n     Loaded: loaded (/etc/systemd/system/etr-audio-monitor.service; enabled; preset: enabled)\n     Active: active (running) since Mon 2026-08-03 14:38:00 CEST; 1min 39s ago\n Invocation: ba40bc59a18e41a398cb22af6c73520f\n   Main PID: 65337 (python3)\n      Tasks: 1 (limit: 4455)\n        CPU: 651ms\n     CGroup: /system.slice/etr-audio-monitor.service\n             └─65337 /usr/bin/python3 /home/oryx/EtR-core/src/audio_monitor.py\n\nAug 03 14:38:00 etr-core systemd[1]: Started etr-audio-monitor.service - Capture et supervision du microphone EtR.\n",
+  "monitorJournal": "Aug 03 14:38:00 etr-core systemd[1]: Started etr-audio-monitor.service - Capture et supervision du microphone EtR.\n",
+  "api": {
+    "audio": {
+      "input": {
+        "channels": 1,
+        "error": "Aucune source microphone PipeWire/PulseAudio détectée",
+        "online": false,
+        "sample_available": false,
+        "sample_rate_hz": 16000,
+        "schema_version": "1.0",
+        "source": null,
+        "speech_active": false,
+        "updated_at": "2026-08-03T12:40:02.305652+00:00"
+      },
+      "output": {
+        "connected": false,
+        "device_mac": "40:C1:F6:70:C0:1A",
+        "device_name": "JBL Go 3",
+        "message": "État de sortie audio indisponible",
+        "sink": null,
+        "updated_at": null
+      }
+    },
+    "schema_version": "1.0",
+    "timestamp": "2026-08-03T12:40:03.468856+00:00"
+  }
+}
