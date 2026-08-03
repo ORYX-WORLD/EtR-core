@@ -1,0 +1,21 @@
+{
+  "checkedAt": "2026-08-03T15:31:52.208272+00:00",
+  "jobStatus": "failure",
+  "eraseStatus": null,
+  "jobId": null,
+  "writingAccepted": false,
+  "observedStatus": null,
+  "state": {},
+  "capacityResetDetected": true,
+  "ioErrorDetected": true,
+  "installedCommit": "a83bb75eba03ca2ee0fd6f057147003ffefd4986",
+  "statusHistory": "",
+  "reader": "Bus 001 Device 006: ID 14cd:1212 Super Top microSD card reader (SY-T18)\n",
+  "worker": "MainPID=0\nResult=success\nActiveState=inactive\nSubState=dead\n",
+  "journal": "-- No entries --\n",
+  "kernel": "Aug 03 17:31:42 etr-core kernel: sda: detected capacity change from 61071360 to 0\nAug 03 17:31:51 etr-core kernel: sd 0:0:0:0: [sda] tag#0 UNKNOWN(0x2003) Result: hostbyte=0x00 driverbyte=DRIVER_OK cmd_age=26s\nAug 03 17:31:51 etr-core kernel: sd 0:0:0:0: [sda] tag#0 Sense Key : 0x3 [current] \nAug 03 17:31:51 etr-core kernel: sd 0:0:0:0: [sda] tag#0 ASC=0x3 ASCQ=0x0 \nAug 03 17:31:51 etr-core kernel: sd 0:0:0:0: [sda] tag#0 CDB: opcode=0x2a 2a 00 00 00 00 00 00 00 08 00\nAug 03 17:31:51 etr-core kernel: I/O error, dev sda, sector 0 op 0x1:(WRITE) flags 0x800 phys_seg 1 prio class 2\nAug 03 17:31:51 etr-core kernel: Buffer I/O error on dev sda, logical block 0, lost async page write\nAug 03 17:31:51 etr-core kernel: sd 0:0:0:0: [sda] 61071360 512-byte logical blocks: (31.3 GB/29.1 GiB)\nAug 03 17:31:51 etr-core kernel: sda: detected capacity change from 0 to 61071360\nAug 03 17:31:51 etr-core kernel:  sda: sda1 sda2\n",
+  "rsyncLogTail": "",
+  "lsusb": "Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub\nBus 001 Device 002: ID 2109:3431 VIA Labs, Inc. Hub\nBus 001 Device 006: ID 14cd:1212 Super Top microSD card reader (SY-T18)\nBus 001 Device 007: ID 046d:c542 Logitech, Inc. M185 compact wireless mouse\nBus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub\n",
+  "lsusbTree": "/:  Bus 001.Port 001: Dev 001, Class=root_hub, Driver=xhci_hcd/1p, 480M\n    |__ Port 001: Dev 002, If 0, Class=Hub, Driver=hub/4p, 480M\n        |__ Port 001: Dev 006, If 0, Class=Mass Storage, Driver=usb-storage, 480M\n        |__ Port 003: Dev 007, If 0, Class=Human Interface Device, Driver=usbhid, 12M\n/:  Bus 002.Port 001: Dev 001, Class=root_hub, Driver=xhci_hcd/4p, 5000M\n",
+  "lsblk": "NAME        PATH                  SIZE TYPE FSTYPE LABEL  MOUNTPOINTS    TRAN RM MODEL\nloop0       /dev/loop0      2147483648 loop swap                               0 \nsda         /dev/sda       31268536320 disk                              usb   1 Storage Device\n├─sda1      /dev/sda1        536870912 part vfat   bootfs                      1 \n└─sda2      /dev/sda2      30727471104 part ext4   rootfs                      1 \nmmcblk0     /dev/mmcblk0   31268536320 disk                              mmc   0 \n├─mmcblk0p1 /dev/mmcblk0p1   536870912 part vfat   bootfs /boot/firmware mmc   0 \n└─mmcblk0p2 /dev/mmcblk0p2 30723276800 part ext4   rootfs /              mmc   0 \nzram0       /dev/zram0      2147483648 disk swap   zram0  [SWAP]               0 \n"
+}
