@@ -37,6 +37,7 @@ class SdFactoryInstallContractTests(unittest.TestCase):
             "src/deploy/raspi/etr_sd_factory_core.py",
             "src/deploy/raspi/etr_sd_factory_fast.py",
             "src/deploy/raspi/etr_sd_factory_state.py",
+            "src/deploy/raspi/etr_sd_factory_usb_resume.py",
             "src/deploy/raspi/etr_sd_factory_worker.py",
             "src/deploy/raspi/etr_factory_firstboot.py",
             "src/deploy/raspi/etr-sd-factory.service",
@@ -96,13 +97,55 @@ class SdFactoryInstallContractTests(unittest.TestCase):
         for marker in [
             'ETR_SD_RSYNC_BWLIMIT_KB", "2048"',
             "--bwlimit=",
-            "_target_disk",
-            "_monitor_target",
-            "blockdev",
-            "Le lecteur USB ou la microSD a disparu pendant l'écriture",
-            "Copie prudente activée",
+            "inspect_target",
+            "monitor_target",
+            "Copie résiliente activée",
         ]:
             self.assertIn(marker, copy_engine)
+
+    def test_usb_loss_is_paused_checked_and_resumed(self):
+        copy_engine = (ROOT / "src/deploy/raspi/etr_sd_factory_fast.py").read_text(encoding="utf-8")
+        recovery = (ROOT / "src/deploy/raspi/etr_sd_factory_usb_resume.py").read_text(encoding="utf-8")
+        state = (ROOT / "src/deploy/raspi/etr_sd_factory_state.py").read_text(encoding="utf-8")
+        worker = (ROOT / "src/deploy/raspi/etr_sd_factory_worker.py").read_text(encoding="utf-8")
+
+        for marker in [
+            "MAX_USB_RECOVERIES",
+            "USB_RECONNECT_TIMEOUT_SECONDS",
+            "USB_STABLE_SECONDS",
+            "UsbTargetLost",
+            "recover_target_mount",
+            "--no-whole-file",
+            "--partial",
+            "--partial-dir=.etr-rsync-partial",
+            "USB_IO_ERROR_CODES = {10, 11, 12}",
+        ]:
+            self.assertIn(marker, copy_engine)
+
+        for marker in [
+            "class TargetIdentity",
+            "PTUUID",
+            "PARTUUID",
+            "resolve_reconnected_partition",
+            "fsck.vfat",
+            "e2fsck",
+            "Pause USB : communication perdue",
+            "Contrôle du système de fichiers après reconnexion USB",
+            "Reprise de la copie après reconnexion USB",
+        ]:
+            self.assertIn(marker, recovery)
+
+        for marker in [
+            '"paused_usb"',
+            '"checking_filesystem"',
+            '"resuming_copy"',
+            '"_preserve_progress": True',
+        ]:
+            self.assertIn(marker, state)
+
+        self.assertIn("progression globale présentée à l'utilisateur reste monotone", worker)
+        self.assertIn('"ready_to_remove": False', worker)
+        self.assertIn('"safe_to_remove": not remaining', worker)
 
     def test_repository_snapshot_uses_archive_without_identity_switch(self):
         copy_engine = (ROOT / "src/deploy/raspi/etr_sd_factory_fast.py").read_text(encoding="utf-8")

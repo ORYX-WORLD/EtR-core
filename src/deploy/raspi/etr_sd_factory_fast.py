@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copie microSD optimisée, mesurable et cohérente malgré les mises à jour du banc."""
+"""Copie microSD optimisée, mesurable et reprenable après une perte USB."""
 
 from __future__ import annotations
 
@@ -16,9 +16,25 @@ from pathlib import Path
 try:
     from src.deploy.raspi import etr_sd_factory as interface
     from src.deploy.raspi import etr_sd_factory_core as core
+    from src.deploy.raspi.etr_sd_factory_usb_resume import (
+        TargetIdentity,
+        UsbRecoveryError,
+        UsbTargetLost,
+        inspect_target,
+        monitor_target,
+        recover_target_mount,
+    )
 except ModuleNotFoundError:
     import etr_sd_factory as interface
     import etr_sd_factory_core as core
+    from etr_sd_factory_usb_resume import (
+        TargetIdentity,
+        UsbRecoveryError,
+        UsbTargetLost,
+        inspect_target,
+        monitor_target,
+        recover_target_mount,
+    )
 
 _PROGRESS_PATTERN = re.compile(
     r"(?P<bytes>[0-9,]+)\s+(?P<percent>[0-9]{1,3})%\s+"
@@ -26,7 +42,12 @@ _PROGRESS_PATTERN = re.compile(
 )
 _ERROR_PATTERN = re.compile(
     r"rsync:|permission denied|operation not permitted|operation not supported|"
-    r"no such file|vanished|input/output|no space left",
+    r"no such file|vanished|input/output|i/o error|no space left",
+    re.IGNORECASE,
+)
+_IO_ERROR_PATTERN = re.compile(
+    r"input/output error|i/o error|buffer i/o error|device or resource busy|"
+    r"connection unexpectedly closed",
     re.IGNORECASE,
 )
 _CURRENT_CALLBACK: Callable[[str], None] | None = None
@@ -35,9 +56,15 @@ REPOSITORY = Path("/home/oryx/EtR-core")
 SNAPSHOT_ROOT = Path("/run/etr-sd-factory")
 RSYNC_LOG = core.STATE_DIR / "sd-factory-rsync.log"
 RETRYABLE_CODES = {23, 24}
+USB_IO_ERROR_CODES = {10, 11, 12}
 MAX_RSYNC_ATTEMPTS = 3
+MAX_USB_RECOVERIES = max(0, min(4, int(os.getenv("ETR_SD_MAX_USB_RECOVERIES", "2"))))
+USB_RECONNECT_TIMEOUT_SECONDS = max(
+    20, min(300, int(os.getenv("ETR_SD_USB_RECONNECT_TIMEOUT_SECONDS", "90")))
+)
+USB_STABLE_SECONDS = max(3, min(15, int(os.getenv("ETR_SD_USB_STABLE_SECONDS", "5"))))
 RSYNC_BWLIMIT_KB = max(512, min(8192, int(os.getenv("ETR_SD_RSYNC_BWLIMIT_KB", "2048"))))
-TARGET_CHECK_SECONDS = 2.0
+_USB_RECOVERY_COUNT = 0
 
 # Ces chemins sont supprimés après la copie par scrub_clone, sont des montages
 # de session ou changent en permanence. Les exclure dès le départ évite les
@@ -94,89 +121,35 @@ def _append_log(text: str) -> None:
     os.chmod(RSYNC_LOG, 0o600)
 
 
-def _command_output(command: list[str], *, timeout: int = 5) -> str:
-    completed = subprocess.run(
-        command,
-        check=False,
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-    )
-    return completed.stdout.strip() if completed.returncode == 0 else ""
-
-
-def _target_disk(destination: str) -> tuple[str, int] | None:
-    partition = _command_output(
-        ["/usr/bin/findmnt", "-n", "-o", "SOURCE", "--target", destination]
-    )
-    if not partition.startswith("/dev/"):
-        return None
-    parent = _command_output(["/usr/bin/lsblk", "-ndo", "PKNAME", partition])
-    disk = f"/dev/{parent}" if parent else partition
-    size_text = _command_output(["/usr/sbin/blockdev", "--getsize64", disk])
-    if not size_text.isdigit():
-        return None
-    return disk, int(size_text)
-
-
-def _monitor_target(
-    process: subprocess.Popen[bytes],
-    disk: str,
-    expected_size: int,
-    stop_event: threading.Event,
-    failure: dict[str, str],
-) -> None:
-    while process.poll() is None and not stop_event.wait(TARGET_CHECK_SECONDS):
-        try:
-            size_text = _command_output(
-                ["/usr/sbin/blockdev", "--getsize64", disk], timeout=4
-            )
-        except (OSError, subprocess.SubprocessError):
-            size_text = ""
-        if not size_text.isdigit() or int(size_text) != expected_size:
-            failure["reason"] = (
-                "Le lecteur USB ou la microSD a disparu pendant l'écriture "
-                f"(capacité attendue {expected_size}, capacité lue {size_text or 'indisponible'})."
-            )
-            _append_log("ERREUR SUPPORT: " + failure["reason"])
-            try:
-                process.terminate()
-            except OSError:
-                pass
-            return
-
-
 def _stream_rsync(
     command: list[str],
     *,
-    attempt: int,
+    sequence: int,
     destination: str,
+    identity: TargetIdentity,
 ) -> tuple[int, list[str]]:
     environment = dict(os.environ)
     environment["LC_ALL"] = "C"
-    _append_log(f"\n=== tentative rsync {attempt}/{MAX_RSYNC_ATTEMPTS} ===")
+    _append_log(f"\n=== lancement rsync {sequence} ===")
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         env=environment,
         bufsize=0,
+        start_new_session=True,
     )
     assert process.stdout is not None
 
     stop_event = threading.Event()
     failure: dict[str, str] = {}
-    monitor: threading.Thread | None = None
-    target = _target_disk(destination)
-    if target is not None:
-        disk, expected_size = target
-        monitor = threading.Thread(
-            target=_monitor_target,
-            args=(process, disk, expected_size, stop_event, failure),
-            name="etr-sd-target-monitor",
-            daemon=True,
-        )
-        monitor.start()
+    monitor = threading.Thread(
+        target=monitor_target,
+        args=(process, identity, stop_event, failure),
+        name="etr-sd-target-monitor",
+        daemon=True,
+    )
+    monitor.start()
 
     error_lines: list[str] = []
     pending = bytearray()
@@ -189,7 +162,7 @@ def _stream_rsync(
         _publish_rsync_progress(line)
         if _ERROR_PATTERN.search(line):
             error_lines.append(line)
-            del error_lines[:-30]
+            del error_lines[:-40]
 
     try:
         while True:
@@ -208,13 +181,13 @@ def _stream_rsync(
         code = process.wait()
     finally:
         stop_event.set()
-        if monitor is not None:
-            monitor.join(timeout=5)
+        monitor.join(timeout=5)
 
     if failure.get("reason"):
-        raise core.FactoryError(failure["reason"])
+        _append_log("=== support USB perdu : arrêt contrôlé de rsync ===")
+        raise UsbTargetLost(identity, failure["reason"])
 
-    _append_log(f"=== fin tentative {attempt}: code {code} ===")
+    _append_log(f"=== fin lancement rsync {sequence}: code {code} ===")
     return code, error_lines
 
 
@@ -231,6 +204,78 @@ def _concise_rsync_error(code: int, lines: list[str]) -> str:
         f"Copie incomplète (code rsync {code}) : {detail}. "
         f"Le diagnostic complet est conservé dans {RSYNC_LOG}."
     )
+
+
+def _has_storage_io_error(lines: list[str]) -> bool:
+    return any(_IO_ERROR_PATTERN.search(line) for line in lines)
+
+
+def _recover_or_fail(identity: TargetIdentity) -> TargetIdentity:
+    global _USB_RECOVERY_COUNT
+    if MAX_USB_RECOVERIES <= 0 or _USB_RECOVERY_COUNT >= MAX_USB_RECOVERIES:
+        raise core.FactoryError(
+            f"Communication USB perdue : {MAX_USB_RECOVERIES} reprise(s) maximum déjà utilisée(s)."
+        )
+    _USB_RECOVERY_COUNT += 1
+    if _CURRENT_CALLBACK is None:
+        raise core.FactoryError("Callback de progression absent pendant la reprise USB")
+    try:
+        recovered = recover_target_mount(
+            identity,
+            progress=_CURRENT_CALLBACK,
+            attempt=_USB_RECOVERY_COUNT,
+            maximum=MAX_USB_RECOVERIES,
+            timeout_seconds=USB_RECONNECT_TIMEOUT_SECONDS,
+            stable_seconds=USB_STABLE_SECONDS,
+        )
+    except UsbRecoveryError as exc:
+        raise core.FactoryError(f"Reprise USB impossible : {exc}") from exc
+    _append_log(
+        "REPRISE USB RÉUSSIE "
+        f"{_USB_RECOVERY_COUNT}/{MAX_USB_RECOVERIES}: {recovered.partition_path}"
+    )
+    return recovered
+
+
+def _run_rsync_with_recovery(command: list[str], destination: str) -> None:
+    identity = inspect_target(destination)
+    partial_attempt = 1
+    sequence = 0
+
+    while True:
+        sequence += 1
+        try:
+            code, errors = _stream_rsync(
+                command,
+                sequence=sequence,
+                destination=destination,
+                identity=identity,
+            )
+        except UsbTargetLost as lost:
+            _append_log("ERREUR SUPPORT: " + lost.detail)
+            identity = _recover_or_fail(lost.identity)
+            continue
+
+        if code == 0:
+            return
+
+        if code in USB_IO_ERROR_CODES and _has_storage_io_error(errors):
+            _append_log(
+                f"Code rsync {code} associé à une erreur E/S : lancement de la reprise contrôlée."
+            )
+            identity = _recover_or_fail(identity)
+            continue
+
+        if code in RETRYABLE_CODES and partial_attempt < MAX_RSYNC_ATTEMPTS:
+            partial_attempt += 1
+            if _CURRENT_CALLBACK is not None:
+                _CURRENT_CALLBACK(
+                    f"Synchronisation finale : reprise automatique {partial_attempt}/{MAX_RSYNC_ATTEMPTS}…"
+                )
+            time.sleep(2)
+            continue
+
+        raise core.FactoryError(_concise_rsync_error(code, errors))
 
 
 def _git_from_repository(*arguments: str) -> list[str]:
@@ -306,31 +351,31 @@ def _repository_snapshot() -> Path:
         raise
 
 
+def _base_rsync_command(source: str, destination: str) -> list[str]:
+    return [
+        "/usr/bin/rsync",
+        "-aHAXx",
+        "--numeric-ids",
+        "--no-inc-recursive",
+        "--no-whole-file",
+        "--partial",
+        "--partial-dir=.etr-rsync-partial",
+        "--delete-delay",
+        "--outbuf=L",
+        f"--bwlimit={RSYNC_BWLIMIT_KB}",
+        "--info=progress2",
+        source,
+        destination,
+    ]
+
+
 def _overlay_repository(snapshot: Path, destination: str) -> None:
     if _CURRENT_CALLBACK is not None:
         _CURRENT_CALLBACK("Configuration : installation de la version EtR figée pour cette carte…")
     target = Path(destination) / "home/oryx/EtR-core"
     target.mkdir(parents=True, exist_ok=True)
-    completed = subprocess.run(
-        [
-            "/usr/bin/rsync",
-            "-aHAX",
-            "--numeric-ids",
-            "--whole-file",
-            f"--bwlimit={RSYNC_BWLIMIT_KB}",
-            f"{snapshot}/",
-            f"{target}/",
-        ],
-        text=True,
-        capture_output=True,
-        timeout=600,
-    )
-    if completed.returncode:
-        detail = (completed.stderr or completed.stdout or "").strip().splitlines()
-        raise core.FactoryError(
-            "Installation de la version EtR figée impossible : "
-            + (detail[0] if detail else f"code {completed.returncode}")
-        )
+    command = _base_rsync_command(f"{snapshot}/", f"{target}/")
+    _run_rsync_with_recovery(command, str(target))
 
 
 def optimized_rsync_copy(
@@ -338,9 +383,11 @@ def optimized_rsync_copy(
     destination: str,
     excludes: list[str] | None = None,
 ) -> None:
+    global _USB_RECOVERY_COUNT
     patterns = list(excludes or [])
     snapshot: Path | None = None
     if source == "/":
+        _USB_RECOVERY_COUNT = 0
         for pattern in ROOT_COPY_EXCLUDES:
             if pattern not in patterns:
                 patterns.append(pattern)
@@ -348,42 +395,22 @@ def optimized_rsync_copy(
         RSYNC_LOG.unlink(missing_ok=True)
         if _CURRENT_CALLBACK is not None:
             _CURRENT_CALLBACK(
-                f"Copie prudente activée : débit limité à {RSYNC_BWLIMIT_KB // 1024 or 1} Mio/s."
+                "Copie résiliente activée : débit limité à "
+                f"{RSYNC_BWLIMIT_KB // 1024 or 1} Mio/s, "
+                f"{MAX_USB_RECOVERIES} reprise(s) USB maximum."
             )
 
-    command = [
-        "/usr/bin/rsync",
-        "-aHAXx",
-        "--numeric-ids",
-        "--no-inc-recursive",
-        "--whole-file",
-        "--delete-delay",
-        "--outbuf=L",
-        f"--bwlimit={RSYNC_BWLIMIT_KB}",
-        "--info=progress2",
-    ]
+    command = _base_rsync_command(source, destination)
+    insert_at = len(command) - 2
     for pattern in patterns:
-        command.extend(["--exclude", pattern])
-    command.extend([source, destination])
+        command[insert_at:insert_at] = ["--exclude", pattern]
+        insert_at += 2
 
     try:
-        last_code = 0
-        last_errors: list[str] = []
-        for attempt in range(1, MAX_RSYNC_ATTEMPTS + 1):
-            if attempt > 1 and _CURRENT_CALLBACK is not None:
-                _CURRENT_CALLBACK(
-                    f"Synchronisation finale : reprise automatique {attempt}/{MAX_RSYNC_ATTEMPTS}…"
-                )
-            last_code, last_errors = _stream_rsync(
-                command,
-                attempt=attempt,
-                destination=destination,
-            )
-            if last_code == 0:
-                break
-            if last_code not in RETRYABLE_CODES or attempt == MAX_RSYNC_ATTEMPTS:
-                raise core.FactoryError(_concise_rsync_error(last_code, last_errors))
-            time.sleep(2)
+        _run_rsync_with_recovery(command, destination)
+        partial = Path(destination) / ".etr-rsync-partial"
+        if partial.exists():
+            shutil.rmtree(partial, ignore_errors=True)
 
         if snapshot is not None:
             _overlay_repository(snapshot, destination)
