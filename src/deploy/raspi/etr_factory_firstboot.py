@@ -8,6 +8,7 @@ import os
 import re
 import socket
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ STATE_DIR = Path("/var/lib/etr-core")
 TICKET_FILE = STATE_DIR / "factory-ticket.json"
 AUTH_FILE = STATE_DIR / "firebase-auth.json"
 RESULT_FILE = STATE_DIR / "factory-bootstrap-result.json"
+DISPLAY_RESULT_FILE = STATE_DIR / "headless-display-result.json"
 PRIVATE_KEY = STATE_DIR / "bootstrap-private.pem"
 PUBLIC_KEY = STATE_DIR / "bootstrap-public.pem"
 
@@ -57,7 +59,7 @@ def load_json(path: Path) -> dict[str, Any]:
 def atomic_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     os.chown(temporary, 1000, 1000)
     os.chmod(temporary, 0o600)
     temporary.replace(path)
@@ -85,7 +87,56 @@ def initialize_machine_identity() -> None:
     subprocess.run(["/usr/bin/ssh-keygen", "-A"], check=False)
 
 
-def redeem(ticket_data: dict[str, Any], serial: str, public_key: str) -> dict[str, Any]:
+def ensure_headless_display_runtime() -> dict[str, Any]:
+    """Garantit un écran :1 même quand aucun écran physique n'est raccordé."""
+    physical_screen = Path("/dev/fb1").exists()
+    result: dict[str, Any] = {
+        "checkedAt": datetime.now(timezone.utc).isoformat(),
+        "physicalScreen": physical_screen,
+        "mode": "spi" if physical_screen else "headless",
+        "xvfbInstalled": Path("/usr/bin/Xvfb").exists(),
+        "packageInstallAttempted": False,
+        "packageInstallSucceeded": False,
+        "error": None,
+    }
+    if physical_screen or result["xvfbInstalled"]:
+        result["packageInstallSucceeded"] = True
+        atomic_json(DISPLAY_RESULT_FILE, result)
+        return result
+
+    apt_get = Path("/usr/bin/apt-get")
+    if not apt_get.exists():
+        result["error"] = "apt-get absent et Xvfb non installé"
+        atomic_json(DISPLAY_RESULT_FILE, result)
+        return result
+
+    result["packageInstallAttempted"] = True
+    try:
+        subprocess.run(
+            [str(apt_get), "update"],
+            check=True,
+            timeout=300,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+        )
+        subprocess.run(
+            [str(apt_get), "install", "-y", "--no-install-recommends", "xvfb"],
+            check=True,
+            timeout=300,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+        )
+        result["xvfbInstalled"] = Path("/usr/bin/Xvfb").exists()
+        result["packageInstallSucceeded"] = bool(result["xvfbInstalled"])
+        if not result["xvfbInstalled"]:
+            result["error"] = "Le paquet xvfb a été installé sans fournir /usr/bin/Xvfb"
+    except (OSError, subprocess.SubprocessError) as exc:
+        result["error"] = str(exc)[:300]
+    atomic_json(DISPLAY_RESULT_FILE, result)
+    return result
+
+
+def redeem(ticket_data: dict[str, Any], serial: str, public_key: str, hostname: str) -> dict[str, Any]:
     origin = str(ticket_data.get("gatewayOrigin") or "").rstrip("/")
     ticket = str(ticket_data.get("ticket") or "")
     if not origin.startswith("https://") or not re.fullmatch(r"[A-Za-z0-9_-]{40,120}", ticket):
@@ -97,7 +148,7 @@ def redeem(ticket_data: dict[str, Any], serial: str, public_key: str) -> dict[st
             "serial": serial,
             "installationId": f"etr-{serial[-12:].lower()}",
             "publicKey": public_key,
-            "hostname": socket.gethostname(),
+            "hostname": hostname,
         },
         timeout=20,
     )
@@ -131,6 +182,20 @@ def save_factory_session(result: dict[str, Any]) -> None:
     atomic_json(RESULT_FILE, safe_result)
 
 
+def restart_etr_runtime() -> None:
+    subprocess.run(["/usr/bin/systemctl", "daemon-reload"], check=False)
+    for unit in (
+        "etr-firebase-bridge.service",
+        "spi-desktop.service",
+        "etr-wifi-portal.service",
+        "etr-kiosk.service",
+        "etr-vnc.service",
+        "etr-remote-screen.service",
+    ):
+        subprocess.run(["/usr/bin/systemctl", "enable", unit], check=False)
+        subprocess.run(["/usr/bin/systemctl", "restart", unit], check=False)
+
+
 def main() -> int:
     if not TICKET_FILE.exists():
         return 0
@@ -138,16 +203,22 @@ def main() -> int:
         raise SystemExit("Le premier démarrage EtR doit s'exécuter en root")
     initialize_machine_identity()
     serial = raspberry_serial()
-    set_hostname(serial)
+    hostname = set_hostname(serial)
     ensure_device_keypair(PRIVATE_KEY, PUBLIC_KEY)
     os.chown(PRIVATE_KEY, 1000, 1000)
     os.chown(PUBLIC_KEY, 1000, 1000)
     os.chmod(PRIVATE_KEY, 0o600)
     os.chmod(PUBLIC_KEY, 0o644)
-    result = redeem(load_json(TICKET_FILE), serial, PUBLIC_KEY.read_text(encoding="ascii"))
+    result = redeem(
+        load_json(TICKET_FILE),
+        serial,
+        PUBLIC_KEY.read_text(encoding="ascii"),
+        hostname,
+    )
     save_factory_session(result)
+    ensure_headless_display_runtime()
     TICKET_FILE.unlink()
-    subprocess.run(["/usr/bin/systemctl", "restart", "etr-firebase-bridge.service"], check=False)
+    restart_etr_runtime()
     return 0
 
 

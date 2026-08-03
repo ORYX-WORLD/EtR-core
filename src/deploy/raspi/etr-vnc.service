@@ -1,12 +1,13 @@
 [Unit]
 Description=EtR local VNC screen source
 After=spi-desktop.service
-Wants=spi-desktop.service
+Requires=spi-desktop.service
 
 [Service]
 Type=simple
 Environment=DISPLAY=:1
 Environment=XAUTHORITY=/home/oryx/.Xauthority
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 45); do [ -S /tmp/.X11-unix/X1 ] && exit 0; sleep 1; done; echo "Ecran EtR :1 indisponible" >&2; exit 1'
 ExecStart=/usr/bin/x11vnc -display :1 -auth /home/oryx/.Xauthority -localhost -forever -shared -nopw -rfbport 5901 -noxdamage
 Restart=always
 RestartSec=3
