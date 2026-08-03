@@ -1,6 +1,6 @@
 name: Réparer immédiatement l'écran distant EtR
 
-# Relance explicite après déploiement de la révision Cloud Run 00029.
+# Relance explicite après déploiement de la révision Cloud Run 00030.
 on:
   workflow_dispatch:
   push:
