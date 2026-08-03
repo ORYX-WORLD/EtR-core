@@ -20,9 +20,10 @@ except ModuleNotFoundError:
 
 STATE_DIR = Path("/var/lib/etr-core")
 TICKET_FILE = STATE_DIR / "factory-ticket.json"
+AUTH_FILE = STATE_DIR / "firebase-auth.json"
+RESULT_FILE = STATE_DIR / "factory-bootstrap-result.json"
 PRIVATE_KEY = STATE_DIR / "bootstrap-private.pem"
 PUBLIC_KEY = STATE_DIR / "bootstrap-public.pem"
-ENV_FILE = Path("/etc/etr-core/firebase-bridge.env")
 
 
 def normalize_serial(value: str) -> str:
@@ -51,6 +52,15 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RuntimeError("Ticket de fabrication invalide")
     return value
+
+
+def atomic_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.chown(temporary, 1000, 1000)
+    os.chmod(temporary, 0o600)
+    temporary.replace(path)
 
 
 def set_hostname(serial: str) -> str:
@@ -100,7 +110,25 @@ def redeem(ticket_data: dict[str, Any], serial: str, public_key: str) -> dict[st
     value = response.json()
     if value.get("status") not in {"registered", "already_registered"}:
         raise RuntimeError("Réponse d'enregistrement usine invalide")
+    if str(value.get("idToken") or "").count(".") != 2 or len(str(value.get("refreshToken") or "")) < 40:
+        raise RuntimeError("Session Firebase usine absente ou invalide")
     return value
+
+
+def save_factory_session(result: dict[str, Any]) -> None:
+    atomic_json(
+        AUTH_FILE,
+        {
+            "idToken": str(result["idToken"]),
+            "refreshToken": str(result["refreshToken"]),
+        },
+    )
+    safe_result = {
+        key: value
+        for key, value in result.items()
+        if key not in {"idToken", "refreshToken"}
+    }
+    atomic_json(RESULT_FILE, safe_result)
 
 
 def main() -> int:
@@ -117,11 +145,7 @@ def main() -> int:
     os.chmod(PRIVATE_KEY, 0o600)
     os.chmod(PUBLIC_KEY, 0o644)
     result = redeem(load_json(TICKET_FILE), serial, PUBLIC_KEY.read_text(encoding="ascii"))
-    (STATE_DIR / "factory-bootstrap-result.json").write_text(
-        json.dumps(result, ensure_ascii=False), encoding="utf-8"
-    )
-    os.chown(STATE_DIR / "factory-bootstrap-result.json", 1000, 1000)
-    os.chmod(STATE_DIR / "factory-bootstrap-result.json", 0o600)
+    save_factory_session(result)
     TICKET_FILE.unlink()
     subprocess.run(["/usr/bin/systemctl", "restart", "etr-firebase-bridge.service"], check=False)
     return 0
