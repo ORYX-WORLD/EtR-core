@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Interface tactile de la fabrique microSD, réservée au bureau Linux EtR."""
+"""Interface tactile de la fabrique microSD, indépendante du moteur de copie."""
 
 from __future__ import annotations
 
 import os
-import re
-import threading
+import subprocess
+import uuid
 from tkinter import BOTH, LEFT, RIGHT, StringVar, Tk, Toplevel, messagebox
 from tkinter import ttk
 
@@ -16,10 +16,16 @@ try:
         active_wifi_profile,
         candidate_disks,
         lsblk_data,
-        prepare_card,
         source_disk,
     )
-    from src.deploy.raspi.etr_sd_factory_diagnostics import explain_creation_error
+    from src.deploy.raspi.etr_sd_factory_state import (
+        RUNNING_STATUSES,
+        TERMINAL_STATUSES,
+        read_state,
+        terminal_state,
+        write_request,
+        write_state,
+    )
 except ModuleNotFoundError:
     from etr_sd_factory_core import (
         Disk,
@@ -27,12 +33,18 @@ except ModuleNotFoundError:
         active_wifi_profile,
         candidate_disks,
         lsblk_data,
-        prepare_card,
         source_disk,
     )
-    from etr_sd_factory_diagnostics import explain_creation_error
+    from etr_sd_factory_state import (
+        RUNNING_STATUSES,
+        TERMINAL_STATUSES,
+        read_state,
+        terminal_state,
+        write_request,
+        write_state,
+    )
 
-_PERCENT_PATTERN = re.compile(r"(?<!\d)(\d{1,3})\s*%")
+WORKER_SERVICE = "etr-sd-factory-worker.service"
 
 
 def fit_small_screen(window: Tk | Toplevel, preferred_width: int, preferred_height: int) -> None:
@@ -43,6 +55,20 @@ def fit_small_screen(window: Tk | Toplevel, preferred_width: int, preferred_heig
     height = max(180, min(preferred_height, screen_height - 70))
     x = max(0, (screen_width - width) // 2)
     window.geometry(f"{width}x{height}+{x}+2")
+
+
+def systemctl(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["/usr/bin/systemctl", *args],
+        check=False,
+        text=True,
+        capture_output=True,
+        timeout=15,
+    )
+
+
+def worker_active() -> bool:
+    return systemctl("is-active", "--quiet", WORKER_SERVICE).returncode == 0
 
 
 class ConfirmDialog(Toplevel):
@@ -97,9 +123,11 @@ class FactoryApp:
         self.wifi_name = active_wifi_profile()
         self.copy_wifi = StringVar(value="1" if self.wifi_name else "0")
         self.busy = False
+        self.last_notified_job: str | None = None
+        self.inactive_polls = 0
 
         style = ttk.Style()
-        style.configure("TButton", font=("DejaVu Sans", 10), padding=(7, 4))
+        style.configure("TButton", font=("DejaVu Sans", 9), padding=(6, 4))
         style.configure("Title.TLabel", font=("DejaVu Sans", 14, "bold"))
 
         frame = ttk.Frame(root, padding=(10, 7))
@@ -107,7 +135,7 @@ class FactoryApp:
         ttk.Label(frame, text="Créer une carte microSD EtR", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             frame,
-            text="Effacement, clonage et préparation automatique.",
+            text="La fabrication continue même si cette fenêtre est fermée.",
             wraplength=445,
         ).pack(anchor="w", pady=(1, 5))
 
@@ -120,7 +148,8 @@ class FactoryApp:
             font=("DejaVu Sans", 9),
         )
         self.combo.pack(side=LEFT, fill="x", expand=True)
-        ttk.Button(row, text="Actualiser", command=self.refresh).pack(side=RIGHT, padx=(6, 0))
+        self.refresh_button = ttk.Button(row, text="Actualiser", command=self.refresh)
+        self.refresh_button.pack(side=RIGHT, padx=(6, 0))
 
         wifi_text = (
             f"Copier le Wi-Fi actif : {self.wifi_name}"
@@ -138,7 +167,7 @@ class FactoryApp:
         if not self.wifi_name:
             self.wifi_check.state(["disabled"])
 
-        self.progress = ttk.Progressbar(frame, mode="indeterminate", maximum=100)
+        self.progress = ttk.Progressbar(frame, mode="determinate", maximum=100, value=0)
         self.progress.pack(fill="x", pady=(0, 3))
         ttk.Label(frame, textvariable=self.status, wraplength=445, justify="left").pack(
             anchor="w", fill="x"
@@ -146,11 +175,17 @@ class FactoryApp:
 
         buttons = ttk.Frame(frame)
         buttons.pack(side="bottom", fill="x", pady=(5, 0))
-        self.close_button = ttk.Button(buttons, text="Fermer", command=root.destroy)
-        self.close_button.pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
-        self.create_button = ttk.Button(buttons, text="PRÉPARER LA CARTE", command=self.start)
-        self.create_button.pack(side=RIGHT, fill="x", expand=True, padx=(4, 0))
+        self.close_button = ttk.Button(buttons, text="Fermer", command=self.close)
+        self.close_button.pack(side=LEFT, fill="x", expand=True, padx=(0, 3))
+        self.cancel_button = ttk.Button(buttons, text="ANNULER", command=self.cancel)
+        self.cancel_button.pack(side=LEFT, fill="x", expand=True, padx=3)
+        self.create_button = ttk.Button(buttons, text="PRÉPARER", command=self.start)
+        self.create_button.pack(side=RIGHT, fill="x", expand=True, padx=(3, 0))
+        self.cancel_button.state(["disabled"])
+
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.refresh()
+        self.poll_state()
 
     def refresh(self) -> None:
         if self.busy:
@@ -163,30 +198,18 @@ class FactoryApp:
             labels = list(self.disks)
             self.combo["values"] = labels
             self.selected.set(labels[0] if labels else "")
-            self.status.set(
-                f"{len(labels)} carte amovible détectée."
-                if len(labels) == 1
-                else f"{len(labels)} cartes amovibles détectées."
-            )
+            if not read_state():
+                self.status.set(
+                    f"{len(labels)} carte amovible détectée."
+                    if len(labels) == 1
+                    else f"{len(labels)} cartes amovibles détectées."
+                )
         except Exception as exc:
             self.status.set(f"Détection impossible : {exc}")
 
-    def set_status(self, message: str) -> None:
-        def apply() -> None:
-            self.status.set(message)
-            match = _PERCENT_PATTERN.search(message)
-            if match:
-                self.progress.stop()
-                self.progress.configure(mode="determinate", maximum=100)
-                self.progress["value"] = min(100, int(match.group(1)))
-            elif self.busy and str(self.progress.cget("mode")) != "indeterminate":
-                self.progress.configure(mode="indeterminate", maximum=100, value=0)
-                self.progress.start(12)
-
-        self.root.after(0, apply)
-
     def start(self) -> None:
-        if self.busy:
+        if self.busy or worker_active():
+            self.status.set("Une fabrication est déjà en cours. Le suivi est rétabli automatiquement.")
             return
         disk = self.disks.get(self.selected.get())
         if disk is None:
@@ -196,42 +219,108 @@ class FactoryApp:
         self.root.wait_window(dialog)
         if not dialog.result:
             return
-        self.busy = True
-        self.create_button.state(["disabled"])
-        self.close_button.state(["disabled"])
-        self.progress.configure(mode="indeterminate", maximum=100, value=0)
-        self.progress.start(12)
-        thread = threading.Thread(target=self.worker, args=(disk,), daemon=True)
-        thread.start()
 
-    def worker(self, disk: Disk) -> None:
-        try:
-            prepare_card(
-                disk,
-                copy_wifi=self.copy_wifi.get() == "1",
-                progress=self.set_status,
-            )
-        except Exception as exc:
-            message = explain_creation_error(exc, disk.path)
-            self.root.after(0, messagebox.showerror, "Création impossible", message)
-            self.set_status(f"Échec : {message}")
+        job_id = str(uuid.uuid4())
+        write_request(
+            {
+                "job_id": job_id,
+                "device": disk.path,
+                "disk_label": disk.label,
+                "size_bytes": disk.size,
+                "copy_wifi": self.copy_wifi.get() == "1",
+            }
+        )
+        self.last_notified_job = None
+        systemctl("reset-failed", WORKER_SERVICE)
+        result = systemctl("start", "--no-block", WORKER_SERVICE)
+        if result.returncode != 0:
+            message = result.stderr.strip() or "Impossible de démarrer le moteur de fabrication"
+            messagebox.showerror("Démarrage impossible", message)
+            self.status.set(message)
+            return
+        self.status.set("Démarrage du moteur de fabrication…")
+        self.set_busy(True)
+
+    def cancel(self) -> None:
+        if not worker_active():
+            return
+        if not messagebox.askyesno(
+            "Annuler la fabrication",
+            "La carte sera démontée et devra être recréée depuis le début. Continuer ?",
+        ):
+            return
+        self.status.set("Annulation et démontage en cours…")
+        systemctl("kill", "--signal=SIGINT", WORKER_SERVICE)
+
+    def close(self) -> None:
+        if self.busy and not messagebox.askyesno(
+            "Fermer le suivi",
+            "La fabrication continuera en arrière-plan. Fermer seulement cette fenêtre ?",
+        ):
+            return
+        self.root.destroy()
+
+    def set_busy(self, busy: bool) -> None:
+        self.busy = busy
+        if busy:
+            self.create_button.state(["disabled"])
+            self.refresh_button.state(["disabled"])
+            self.combo.state(["disabled"])
+            self.wifi_check.state(["disabled"])
+            self.cancel_button.state(["!disabled"])
         else:
-            self.root.after(
-                0,
-                messagebox.showinfo,
-                "Carte EtR prête",
-                "La microSD est prête. Insérez-la dans le nouvel EtR puis mettez-le sous tension.",
-            )
-        finally:
-            self.root.after(0, self.finish)
+            self.create_button.state(["!disabled"])
+            self.refresh_button.state(["!disabled"])
+            self.combo.state(["readonly"])
+            if self.wifi_name:
+                self.wifi_check.state(["!disabled"])
+            self.cancel_button.state(["disabled"])
 
-    def finish(self) -> None:
-        self.progress.stop()
-        self.progress.configure(mode="determinate", maximum=100, value=0)
-        self.create_button.state(["!disabled"])
-        self.close_button.state(["!disabled"])
-        self.busy = False
-        self.refresh()
+    def poll_state(self) -> None:
+        try:
+            state = read_state()
+            status = str(state.get("status") or "")
+            active = status in RUNNING_STATUSES or bool(state.get("active"))
+            service_active = worker_active()
+
+            if active and not service_active:
+                self.inactive_polls += 1
+                if self.inactive_polls >= 4:
+                    state = terminal_state(
+                        state,
+                        status="interrupted",
+                        message="Le moteur s'est arrêté avant la validation finale. Relancez la fabrication depuis le début.",
+                        error="worker_service_inactive",
+                    )
+                    write_state(state)
+                    status = "interrupted"
+                    active = False
+            else:
+                self.inactive_polls = 0
+
+            if state:
+                value = float(state.get("progress_percent") or 0)
+                self.progress.configure(value=max(0, min(100, value)))
+                message = str(state.get("message") or state.get("stage") or "")
+                self.status.set(message)
+                self.set_busy(active or service_active)
+
+                job_id = str(state.get("job_id") or "")
+                if status in TERMINAL_STATUSES and job_id and job_id != self.last_notified_job:
+                    self.last_notified_job = job_id
+                    if status == "ready":
+                        messagebox.showinfo("Carte EtR prête", message)
+                    elif status == "cancelled":
+                        messagebox.showwarning("Fabrication annulée", message)
+                    else:
+                        messagebox.showerror("Fabrication incomplète", message)
+                    self.refresh()
+            else:
+                self.set_busy(service_active)
+        except Exception as exc:
+            self.status.set(f"Suivi indisponible : {exc}")
+        finally:
+            self.root.after(600, self.poll_state)
 
 
 def main() -> int:
