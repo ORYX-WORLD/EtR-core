@@ -35,8 +35,13 @@ class SdFactoryInstallContractTests(unittest.TestCase):
         required = [
             "src/deploy/raspi/etr_sd_factory.py",
             "src/deploy/raspi/etr_sd_factory_core.py",
+            "src/deploy/raspi/etr_sd_factory_fast.py",
+            "src/deploy/raspi/etr_sd_factory_state.py",
+            "src/deploy/raspi/etr_sd_factory_worker.py",
             "src/deploy/raspi/etr_factory_firstboot.py",
             "src/deploy/raspi/etr-sd-factory.service",
+            "src/deploy/raspi/etr-sd-factory-worker.service",
+            "src/deploy/raspi/etr-sd-factory-cleanup.sh",
             "src/deploy/raspi/etr-factory-firstboot.service",
             "src/deploy/raspi/etr-sd-factory-launch.sh",
             "src/deploy/raspi/etr-sd-factory.desktop",
@@ -44,6 +49,16 @@ class SdFactoryInstallContractTests(unittest.TestCase):
         ]
         missing = [path for path in required if not (ROOT / path).is_file()]
         self.assertEqual(missing, [])
+
+    def test_ui_is_decoupled_from_destructive_worker(self):
+        interface = (ROOT / "src/deploy/raspi/etr_sd_factory.py").read_text(encoding="utf-8")
+        worker = (ROOT / "src/deploy/raspi/etr_sd_factory_worker.py").read_text(encoding="utf-8")
+        launcher = (ROOT / "src/deploy/raspi/etr-sd-factory-launch.sh").read_text(encoding="utf-8")
+        self.assertNotIn("prepare_card(", interface)
+        self.assertIn("etr-sd-factory-worker.service", interface)
+        self.assertIn("prepare_card(", worker)
+        self.assertIn("etr-sd-factory-worker.service", launcher)
+        self.assertIn("La fabrication continue même si cette fenêtre est fermée", interface)
 
     def test_gateway_exposes_one_time_factory_provisioning_contract(self):
         bootstrap = (ROOT / "gateway/device-bootstrap.mjs").read_text(encoding="utf-8")
