@@ -60,6 +60,19 @@ class SdFactoryInstallContractTests(unittest.TestCase):
         self.assertIn("etr-sd-factory-worker.service", launcher)
         self.assertIn("La fabrication continue même si cette fenêtre est fermée", interface)
 
+    def test_ui_treats_oneshot_activating_as_running(self):
+        interface = (ROOT / "src/deploy/raspi/etr_sd_factory.py").read_text(encoding="utf-8")
+        for marker in [
+            'ACTIVE_SERVICE_STATES = {"active", "activating", "reloading", "deactivating"}',
+            'STOPPED_SERVICE_STATES = {"inactive", "failed"}',
+            "INTERRUPTION_CONFIRM_POLLS = 10",
+            "def worker_service_state()",
+            'systemctl("show", "--property=ActiveState", "--value", WORKER_SERVICE)',
+            "service_state in STOPPED_SERVICE_STATES",
+        ]:
+            self.assertIn(marker, interface)
+        self.assertNotIn('systemctl("is-active", "--quiet", WORKER_SERVICE)', interface)
+
     def test_copy_excludes_session_mounts_and_handles_partial_rsync(self):
         copy_engine = (ROOT / "src/deploy/raspi/etr_sd_factory_fast.py").read_text(encoding="utf-8")
         for marker in [
