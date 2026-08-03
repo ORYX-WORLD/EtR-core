@@ -1,0 +1,157 @@
+name: Annuler et relancer la fabrication microSD
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-sd-cancel-restart.yml
+      - src/deploy/raspi/etr_sd_factory_auto.py
+      - src/deploy/raspi/etr-sd-factory-auto.service
+
+concurrency:
+  group: etr-sd-cancel-restart
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  restart:
+    name: Annuler proprement puis relancer la carte
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Actualiser le dépôt installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          sudo -u oryx -H git -C "$install_dir" remote set-url origin https://github.com/ORYX-WORLD/EtR-core.git
+          if [ -n "$(sudo -u oryx -H git -C "$install_dir" status --porcelain)" ]; then
+            sudo -u oryx -H git -C "$install_dir" stash push --include-untracked -m "Sauvegarde avant relance microSD $(date -u +%Y%m%dT%H%M%SZ)"
+          fi
+          sudo -u oryx -H git -C "$install_dir" fetch origin main
+          sudo -u oryx -H git -C "$install_dir" checkout main
+          sudo -u oryx -H git -C "$install_dir" pull --ff-only origin main
+
+      - name: Annuler la copie et démonter la carte
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl stop etr-sd-factory-auto.service etr-sd-factory.service 2>/dev/null || true
+          sudo pkill -TERM -f '/usr/bin/rsync.*?/run/etr-sd-factory/' 2>/dev/null || true
+          sudo pkill -TERM -f 'etr_sd_factory(_auto)?\.py' 2>/dev/null || true
+          sleep 4
+          sudo pkill -KILL -f '/usr/bin/rsync.*?/run/etr-sd-factory/' 2>/dev/null || true
+          sudo pkill -KILL -f 'etr_sd_factory(_auto)?\.py' 2>/dev/null || true
+          sudo sync
+          findmnt -rn -o TARGET | awk '/^\/run\/etr-sd-factory\// {print length($0),$0}' | sort -rn | cut -d' ' -f2- | while read -r target; do
+            sudo umount "$target" 2>/dev/null || sudo umount -l "$target" 2>/dev/null || true
+          done
+          for device in /dev/sda1 /dev/sda2; do
+            if [ -b "$device" ] && findmnt -rn -S "$device" >/dev/null; then
+              sudo umount "$device" 2>/dev/null || sudo umount -l "$device" 2>/dev/null || true
+            fi
+          done
+          sudo rm -rf /run/etr-sd-factory/job-*
+          ! pgrep -af '/usr/bin/rsync.*?/run/etr-sd-factory/'
+          ! findmnt -rn -S /dev/sda1 >/dev/null
+          ! findmnt -rn -S /dev/sda2 >/dev/null
+
+      - name: Vérifier l'unique carte amovible
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, subprocess
+          data=json.loads(subprocess.run([
+              '/usr/bin/lsblk','-J','-b','-o','PATH,TYPE,SIZE,TRAN,RM,MOUNTPOINTS'
+          ],check=True,text=True,capture_output=True).stdout)
+          candidates=[]
+          def walk(nodes):
+              for item in nodes:
+                  if item.get('type') == 'disk':
+                      path=str(item.get('path') or '')
+                      tran=str(item.get('tran') or '').lower()
+                      removable=str(item.get('rm') or '0') in {'1','true','True'}
+                      size=int(item.get('size') or 0)
+                      if path != '/dev/mmcblk0' and size >= 8*1024**3 and (tran == 'usb' or removable):
+                          candidates.append(path)
+                  walk(item.get('children') or [])
+          walk(data.get('blockdevices') or [])
+          if candidates != ['/dev/sda']:
+              raise SystemExit(f'Carte cible ambiguë ou absente: {candidates}')
+          print('Carte cible validée: /dev/sda')
+          PY
+
+      - name: Installer et lancer la relance automatique
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo install -m 644 /home/oryx/EtR-core/src/deploy/raspi/etr-sd-factory-auto.service /etc/systemd/system/etr-sd-factory-auto.service
+          sudo systemctl daemon-reload
+          sudo systemctl reset-failed etr-sd-factory-auto.service 2>/dev/null || true
+          sudo systemctl start etr-sd-factory-auto.service
+          active=false
+          for attempt in $(seq 1 30); do
+            if sudo systemctl is-active --quiet etr-sd-factory-auto.service; then
+              active=true
+              break
+            fi
+            sleep 1
+          done
+          [ "$active" = true ] || {
+            sudo systemctl status etr-sd-factory-auto.service --no-pager -l || true
+            sudo journalctl -u etr-sd-factory-auto.service -n 100 --no-pager || true
+            exit 1
+          }
+          sleep 6
+          pgrep -af 'etr_sd_factory_auto.py|/usr/bin/rsync.*?/run/etr-sd-factory/' || true
+          lsblk -b -o NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS,TRAN,RM,MODEL
+
+      - name: Enregistrer la preuve de relance
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          sudo systemctl status etr-sd-factory-auto.service --no-pager -l > /tmp/etr-sd-restart-service.txt 2>&1 || true
+          sudo journalctl -u etr-sd-factory-auto.service -n 120 --no-pager > /tmp/etr-sd-restart-journal.txt 2>&1 || true
+          pgrep -af 'etr_sd_factory_auto.py|/usr/bin/rsync.*?/run/etr-sd-factory/' > /tmp/etr-sd-restart-processes.txt || true
+          lsblk -b -o NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS,TRAN,RM,MODEL > /tmp/etr-sd-restart-lsblk.txt
+          python3 - <<'PY' > /tmp/etr-sd-restart.json
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          def text(path):
+              try:return Path(path).read_text(encoding='utf-8',errors='replace')[-16000:]
+              except OSError:return ''
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'jobStatus':os.getenv('JOB_STATUS'),
+              'service':text('/tmp/etr-sd-restart-service.txt'),
+              'journal':text('/tmp/etr-sd-restart-journal.txt'),
+              'processes':text('/tmp/etr-sd-restart-processes.txt'),
+              'lsblk':text('/tmp/etr-sd-restart-lsblk.txt'),
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-sd-restart.json
+          git fetch origin main
+          git checkout -B etr-sd-restart-report origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-sd-restart.json .github/deployment/etr-sd-restart.json
+          git config user.name 'EtR SD restart'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/deployment/etr-sd-restart.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR SD restart [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
