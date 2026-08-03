@@ -1,0 +1,25 @@
+{
+  "checkedAt": "2026-08-03T14:25:17.055768+00:00",
+  "jobStatus": "success",
+  "state": {
+    "active": true,
+    "copy_wifi": true,
+    "device": "/dev/sda",
+    "disk_label": "Storage Device — 29.1 Gio — /dev/sda",
+    "error": null,
+    "eta": "0:08:28",
+    "finished_at": null,
+    "job_id": "b1b0d0f0-1e00-40ce-bbd3-63520bf36e0c",
+    "message": "Copie système EtR : 47 % — 7.02MB/s — reste 0:08:28",
+    "progress_percent": 50.9,
+    "schema_version": "1.0",
+    "size_bytes": 31268536320,
+    "speed": "7.02MB/s",
+    "stage": "Copie du système EtR",
+    "started_at": "2026-08-03T14:16:18.522641+00:00",
+    "status": "copying_root",
+    "updated_at": "2026-08-03T14:25:16.965029+00:00"
+  },
+  "worker": "MainPID=94319\nResult=success\nActiveState=activating\nSubState=start\n",
+  "gui": "MainPID=0\nResult=success\nActiveState=inactive\nSubState=dead\n"
+}
