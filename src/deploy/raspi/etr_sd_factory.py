@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 from tkinter import BOTH, LEFT, RIGHT, StringVar, Tk, Toplevel, messagebox
 from tkinter import ttk
@@ -30,6 +31,8 @@ except ModuleNotFoundError:
         source_disk,
     )
     from etr_sd_factory_diagnostics import explain_creation_error
+
+_PERCENT_PATTERN = re.compile(r"(?<!\d)(\d{1,3})\s*%")
 
 
 def fit_small_screen(window: Tk | Toplevel, preferred_width: int, preferred_height: int) -> None:
@@ -135,7 +138,7 @@ class FactoryApp:
         if not self.wifi_name:
             self.wifi_check.state(["disabled"])
 
-        self.progress = ttk.Progressbar(frame, mode="indeterminate")
+        self.progress = ttk.Progressbar(frame, mode="indeterminate", maximum=100)
         self.progress.pack(fill="x", pady=(0, 3))
         ttk.Label(frame, textvariable=self.status, wraplength=445, justify="left").pack(
             anchor="w", fill="x"
@@ -169,7 +172,18 @@ class FactoryApp:
             self.status.set(f"Détection impossible : {exc}")
 
     def set_status(self, message: str) -> None:
-        self.root.after(0, self.status.set, message)
+        def apply() -> None:
+            self.status.set(message)
+            match = _PERCENT_PATTERN.search(message)
+            if match:
+                self.progress.stop()
+                self.progress.configure(mode="determinate", maximum=100)
+                self.progress["value"] = min(100, int(match.group(1)))
+            elif self.busy and str(self.progress.cget("mode")) != "indeterminate":
+                self.progress.configure(mode="indeterminate", maximum=100, value=0)
+                self.progress.start(12)
+
+        self.root.after(0, apply)
 
     def start(self) -> None:
         if self.busy:
@@ -185,6 +199,7 @@ class FactoryApp:
         self.busy = True
         self.create_button.state(["disabled"])
         self.close_button.state(["disabled"])
+        self.progress.configure(mode="indeterminate", maximum=100, value=0)
         self.progress.start(12)
         thread = threading.Thread(target=self.worker, args=(disk,), daemon=True)
         thread.start()
@@ -212,6 +227,7 @@ class FactoryApp:
 
     def finish(self) -> None:
         self.progress.stop()
+        self.progress.configure(mode="determinate", maximum=100, value=0)
         self.create_button.state(["!disabled"])
         self.close_button.state(["!disabled"])
         self.busy = False
