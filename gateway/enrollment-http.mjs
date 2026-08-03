@@ -74,7 +74,9 @@ export function installEnrollmentRoutes({
   deviceSessionIssuer = createFirebaseDeviceSessionIssuer({ auth }),
   now = () => Date.now()
 }) {
-  if (!deviceBootstrap?.verifyDeviceRequest || !deviceBootstrap?.verifyWorkflowToken) throw new Error("Enrollment routes require device bootstrap verification");
+  if (!deviceBootstrap?.verifyDeviceRequest || !deviceBootstrap?.verifyWorkflowToken) {
+    throw new Error("Enrollment routes require device bootstrap verification");
+  }
   if (!deviceSessionIssuer?.issue || !deviceSessionIssuer?.health) throw new Error("Enrollment routes require Firebase device session issuance");
   const enrollment = createEnrollmentService({
     store: createFirebaseEnrollmentStore(db),
@@ -95,6 +97,40 @@ export function installEnrollmentRoutes({
       return safeError(res, error);
     }
   });
+
+  if (deviceBootstrap?.issueFactoryTicket && deviceBootstrap?.redeemFactoryTicket) {
+    app.post("/api/enrollment/factory-ticket", async (req, res) => {
+      try {
+        enforceRate(req, "factory-ticket", 20);
+        const decodedUser = await verifyIdToken(bearer(req));
+        const result = await deviceBootstrap.issueFactoryTicket({
+          decodedUser,
+          expiresIn: req.body?.expiresIn
+        });
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(201).json(result);
+      } catch (error) {
+        return safeError(res, error);
+      }
+    });
+
+    app.post("/api/enrollment/factory-bootstrap", async (req, res) => {
+      try {
+        enforceRate(req, "factory-bootstrap", 60);
+        const result = await deviceBootstrap.redeemFactoryTicket({
+          ticket: req.body?.ticket,
+          serial: req.body?.serial,
+          installationId: req.body?.installationId,
+          publicKeyPem: req.body?.publicKey,
+          hostname: req.body?.hostname
+        });
+        res.setHeader("Cache-Control", "no-store");
+        return res.status(result.status === "registered" ? 201 : 200).json(result);
+      } catch (error) {
+        return safeError(res, error);
+      }
+    });
+  }
 
   async function requestEnrollment(req, res) {
     try {
