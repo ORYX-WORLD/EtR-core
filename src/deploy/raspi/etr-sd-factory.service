@@ -10,7 +10,7 @@ Group=root
 Environment=DISPLAY=:1
 Environment=XAUTHORITY=/home/oryx/.Xauthority
 WorkingDirectory=/home/oryx/EtR-core
-ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/deploy/raspi/etr_sd_factory.py
+ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/deploy/raspi/etr_sd_factory_fast.py
 Restart=no
 TimeoutStopSec=10
 
