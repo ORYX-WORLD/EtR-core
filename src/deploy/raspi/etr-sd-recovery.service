@@ -1,0 +1,20 @@
+[Unit]
+Description=Diagnostic et récupération contrôlée d'une microSD EtR
+After=local-fs.target
+Conflicts=etr-sd-factory.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/home/oryx/EtR-core
+ExecStart=/usr/local/sbin/etr-sd-recovery
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
