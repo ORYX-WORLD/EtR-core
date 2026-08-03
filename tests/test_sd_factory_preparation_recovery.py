@@ -63,7 +63,9 @@ class SdFactoryPreparationRecoveryTests(unittest.TestCase):
 
     def test_udev_fallback_is_present_for_scsi_symlink_layouts(self):
         for marker in [
-            '"udevadm", "info", "--query=path", "--name", disk_path',
+            '"/usr/bin/udevadm"',
+            '"--query=path"',
+            '"--name"',
             "_usb_node_name_from_devpath",
             'Path("/sys/bus/usb/devices") / node_name',
             "Le lecteur USB cible n'est pas identifiable",
