@@ -1,0 +1,33 @@
+{
+  "checkedAt": "2026-08-03T14:01:15.163952+00:00",
+  "jobStatus": "failure",
+  "jobId": "251984b0-33fa-4dd0-bd1e-ff3509192e5f",
+  "accepted": true,
+  "liveStatus": null,
+  "installedCommit": "d647140cf958449074772f11c67f59d8a99f234c",
+  "snapshotPreflight": "snapshot=ok\n/run/etr-sd-factory/repo-snapshot-1tqdi665/EtR-core\n",
+  "state": {
+    "active": false,
+    "copy_wifi": true,
+    "device": "/dev/sda",
+    "disk_label": "Storage Device — 29.1 Gio — /dev/sda",
+    "error": "CalledProcessError: Command '['/usr/sbin/runuser', '-u', 'oryx', '--', '/usr/bin/git', '-C', '/home/oryx/EtR-core', 'rev-parse', 'HEAD']' returned non-zero exit status 1.",
+    "eta": null,
+    "finished_at": "2026-08-03T14:00:09.904110+00:00",
+    "job_id": "251984b0-33fa-4dd0-bd1e-ff3509192e5f",
+    "message": "La préparation de la microSD a échoué. Détail technique : /usr/sbin/runuser -u oryx -- /usr/bin/git -C /home/oryx/EtR-core rev-parse HEAD runuser: cannot set user id: Operation not permitted Command '['/usr/sbin/runuser', '-u', 'oryx', '--', '/usr/bin/git', '-C', '/home/oryx/EtR-core', 'rev-parse', 'HEAD']' returned non-zero exit status 1.",
+    "progress_percent": 0.0,
+    "ready_to_remove": true,
+    "schema_version": "1.0",
+    "size_bytes": 31268536320,
+    "speed": null,
+    "stage": "Fabrication en échec",
+    "started_at": "2026-08-03T13:59:57.794992+00:00",
+    "status": "failed",
+    "updated_at": "2026-08-03T14:00:09.904157+00:00"
+  },
+  "rsyncLogTail": "",
+  "worker": "× etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR\n     Loaded: loaded (/etc/systemd/system/etr-sd-factory-worker.service; disabled; preset: enabled)\n     Active: failed (Result: exit-code) since Mon 2026-08-03 16:00:10 CEST; 1min 4s ago\n Invocation: 3c339f3f569241fe94c1fcfdf99c4c26\n    Process: 92444 ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/deploy/raspi/etr_sd_factory_worker.py (code=exited, status=1/FAILURE)\n    Process: 92557 ExecStopPost=/usr/local/bin/etr-sd-factory-cleanup (code=exited, status=0/SUCCESS)\n   Main PID: 92444 (code=exited, status=1/FAILURE)\n        CPU: 1.202s\n\nAug 03 15:59:57 etr-core systemd[1]: Starting etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR...\nAug 03 16:00:09 etr-core runuser[92544]: pam_keyinit(runuser:session): Unable to change UID to 1000 temporarily\nAug 03 16:00:09 etr-core runuser[92544]: pam_unix(runuser:session): session opened for user oryx(uid=1000) by (uid=0)\nAug 03 16:00:09 etr-core runuser[92544]: pam_unix(runuser:session): session closed for user oryx\nAug 03 16:00:10 etr-core systemd[1]: etr-sd-factory-worker.service: Main process exited, code=exited, status=1/FAILURE\nAug 03 16:00:10 etr-core systemd[1]: etr-sd-factory-worker.service: Failed with result 'exit-code'.\nAug 03 16:00:10 etr-core systemd[1]: Failed to start etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR.\nAug 03 16:00:10 etr-core systemd[1]: etr-sd-factory-worker.service: Consumed 1.202s CPU time.\n",
+  "journal": "Aug 03 15:45:44 etr-core systemd[1]: Starting etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR...\nAug 03 15:45:58 etr-core systemd[1]: etr-sd-factory-worker.service: Main process exited, code=exited, status=1/FAILURE\nAug 03 15:45:58 etr-core systemd[1]: etr-sd-factory-worker.service: Failed with result 'exit-code'.\nAug 03 15:45:58 etr-core systemd[1]: Failed to start etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR.\nAug 03 15:45:58 etr-core systemd[1]: etr-sd-factory-worker.service: Consumed 1.122s CPU time.\nAug 03 15:53:20 etr-core systemd[1]: Starting etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR...\nAug 03 15:53:34 etr-core systemd[1]: etr-sd-factory-worker.service: Main process exited, code=exited, status=1/FAILURE\nAug 03 15:53:34 etr-core systemd[1]: etr-sd-factory-worker.service: Failed with result 'exit-code'.\nAug 03 15:53:34 etr-core systemd[1]: Failed to start etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR.\nAug 03 15:53:34 etr-core systemd[1]: etr-sd-factory-worker.service: Consumed 1.241s CPU time.\nAug 03 15:59:57 etr-core systemd[1]: Starting etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR...\nAug 03 16:00:09 etr-core runuser[92544]: pam_keyinit(runuser:session): Unable to change UID to 1000 temporarily\nAug 03 16:00:09 etr-core runuser[92544]: pam_unix(runuser:session): session opened for user oryx(uid=1000) by (uid=0)\nAug 03 16:00:09 etr-core runuser[92544]: pam_unix(runuser:session): session closed for user oryx\nAug 03 16:00:10 etr-core systemd[1]: etr-sd-factory-worker.service: Main process exited, code=exited, status=1/FAILURE\nAug 03 16:00:10 etr-core systemd[1]: etr-sd-factory-worker.service: Failed with result 'exit-code'.\nAug 03 16:00:10 etr-core systemd[1]: Failed to start etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR.\nAug 03 16:00:10 etr-core systemd[1]: etr-sd-factory-worker.service: Consumed 1.202s CPU time.\n",
+  "lsblk": "NAME        PATH                  SIZE TYPE FSTYPE LABEL  MOUNTPOINTS    TRAN RM MODEL\nloop0       /dev/loop0      2147483648 loop swap                               0 \nsda         /dev/sda       31268536320 disk                              usb   1 Storage Device\n├─sda1      /dev/sda1        536870912 part vfat   bootfs                      1 \n└─sda2      /dev/sda2      30727471104 part ext4   rootfs                      1 \nmmcblk0     /dev/mmcblk0   31268536320 disk                              mmc   0 \n├─mmcblk0p1 /dev/mmcblk0p1   536870912 part vfat   bootfs /boot/firmware mmc   0 \n└─mmcblk0p2 /dev/mmcblk0p2 30723276800 part ext4   rootfs /              mmc   0 \nzram0       /dev/zram0      2147483648 disk swap   zram0  [SWAP]               0 \n"
+}
