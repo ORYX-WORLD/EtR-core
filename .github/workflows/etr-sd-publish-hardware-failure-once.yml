@@ -1,0 +1,90 @@
+name: Afficher l'échec matériel du lecteur microSD
+
+on:
+  push:
+    branches:
+      - ops/sd-retry-current-reader
+    paths:
+      - .github/workflows/etr-sd-publish-hardware-failure-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 5
+    steps:
+      - name: Publier un état terminal clair sans toucher à la carte
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl stop etr-sd-factory-worker.service 2>/dev/null || true
+          sudo sync
+          mounted=false
+          for partition in /dev/sda1 /dev/sda2; do
+            if [ -b "$partition" ] && findmnt -rn -S "$partition" >/dev/null; then
+              mounted=true
+            fi
+          done
+          [ "$mounted" = false ] || { echo '::error::La carte est encore montée'; exit 1; }
+
+          sudo python3 - <<'PY'
+          import json, os, tempfile, uuid
+          from datetime import datetime, timezone
+          from pathlib import Path
+          path=Path('/var/lib/etr-core/sd-factory-state.json')
+          now=datetime.now(timezone.utc).isoformat()
+          state={
+              'schema_version':'1.0',
+              'job_id':'hardware-failure-'+str(uuid.uuid4()),
+              'status':'failed',
+              'active':False,
+              'stage':'Défaillance du lecteur microSD',
+              'message':(
+                  "Essai arrêté à l'étape 1 : dès la première écriture, le lecteur a fait passer "
+                  "la capacité de la carte de 31,3 Go à 0 puis l'a reconnectée. Les données n'ont "
+                  "pas été supprimées complètement, le formatage et l'écriture EtR n'ont pas démarré. "
+                  "La carte est démontée et peut être retirée, mais elle n'est pas utilisable."
+              ),
+              'progress_percent':0.0,
+              'device':'/dev/sda',
+              'disk_label':'Storage Device — 29.1 Gio — /dev/sda',
+              'copy_wifi':True,
+              'speed':None,
+              'eta':None,
+              'started_at':now,
+              'updated_at':now,
+              'finished_at':now,
+              'error':'usb_reader_capacity_reset_on_first_write',
+              'ready_to_remove':False,
+              'safe_to_remove':True,
+              'verification':'failed',
+          }
+          path.parent.mkdir(parents=True,exist_ok=True)
+          fd,tmp=tempfile.mkstemp(prefix='.sd-factory-state.',dir=path.parent)
+          with os.fdopen(fd,'w',encoding='utf-8') as stream:
+              json.dump(state,stream,ensure_ascii=False,indent=2)
+              stream.write('\n'); stream.flush(); os.fsync(stream.fileno())
+          os.chmod(tmp,0o600)
+          os.replace(tmp,path)
+          PY
+          sudo systemctl restart etr-sd-factory.service
+
+      - name: Retirer ce workflow ponctuel
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/etr-sd-failure-ui-repo
+          git clone --depth 1 --branch ops/sd-retry-current-reader "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/etr-sd-failure-ui-repo
+          cd /tmp/etr-sd-failure-ui-repo
+          rm -f .github/workflows/etr-sd-publish-hardware-failure-once.yml
+          git config user.name 'EtR SD failure UI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/workflows/etr-sd-publish-hardware-failure-once.yml
+          git commit -m 'chore: remove SD hardware failure UI workflow [skip ci]'
+          git pull --rebase origin ops/sd-retry-current-reader
+          git push origin HEAD:ops/sd-retry-current-reader
