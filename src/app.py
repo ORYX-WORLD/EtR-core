@@ -10,13 +10,16 @@ from pathlib import Path
 from typing import Any
 
 import psutil
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_file
 
 SCHEMA_VERSION = "1.0"
-SERVICE_VERSION = "3.2.0"
+SERVICE_VERSION = "3.3.0"
 DEFAULT_STATE_FILE = "/var/lib/etr-core/telemetry.json"
 DEFAULT_ENROLLMENT_FILE = "/var/lib/etr-core/enrollment.json"
 DEFAULT_TOKEN_FILE = "/var/lib/etr-core/firebase-auth.json"
+DEFAULT_AUDIO_STATE_FILE = "/var/lib/etr-core/audio-status.json"
+DEFAULT_AUDIO_OUTPUT_FILE = "/var/lib/etr-core/audio-output.json"
+DEFAULT_AUDIO_SAMPLE_FILE = "/run/etr-core/microphone-latest.wav"
 
 
 def utc_now() -> str:
@@ -68,6 +71,36 @@ def read_telemetry_state(path: Path) -> tuple[dict[str, Any], str | None]:
         "states": states,
         "alerts": alerts[:100],
     }, None
+
+
+def read_audio_state(input_path: Path, output_path: Path, sample_path: Path) -> dict[str, Any]:
+    microphone = _read_json(input_path)
+    output = _read_json(output_path)
+    if not microphone:
+        microphone = {
+            "schema_version": "1.0",
+            "updated_at": None,
+            "online": False,
+            "source": None,
+            "speech_active": False,
+            "sample_available": False,
+            "error": "audio_state_missing",
+        }
+    else:
+        microphone = {
+            **microphone,
+            "sample_available": bool(sample_path.is_file()),
+        }
+    if not output:
+        output = {
+            "updated_at": None,
+            "device_name": "JBL Go 3",
+            "device_mac": "40:C1:F6:70:C0:1A",
+            "connected": False,
+            "sink": None,
+            "message": "État de sortie audio indisponible",
+        }
+    return {"input": microphone, "output": output}
 
 
 def _display_activation_code(value: Any) -> str | None:
@@ -122,8 +155,12 @@ def build_status() -> dict[str, Any]:
     state_file = Path(os.getenv("ETR_TELEMETRY_FILE", DEFAULT_STATE_FILE))
     enrollment_file = Path(os.getenv("ETR_ENROLLMENT_FILE", DEFAULT_ENROLLMENT_FILE))
     token_file = Path(os.getenv("ETR_TOKEN_FILE", DEFAULT_TOKEN_FILE))
+    audio_state_file = Path(os.getenv("ETR_AUDIO_STATE_FILE", DEFAULT_AUDIO_STATE_FILE))
+    audio_output_file = Path(os.getenv("ETR_AUDIO_OUTPUT_FILE", DEFAULT_AUDIO_OUTPUT_FILE))
+    audio_sample_file = Path(os.getenv("ETR_AUDIO_SAMPLE_FILE", DEFAULT_AUDIO_SAMPLE_FILE))
     telemetry, telemetry_error = read_telemetry_state(state_file)
     enrollment = read_enrollment_state(enrollment_file, token_file)
+    audio = read_audio_state(audio_state_file, audio_output_file, audio_sample_file)
     system = system_status()
     measurements = telemetry.get("measurements", {})
     states = telemetry.get("states", {})
@@ -156,6 +193,7 @@ def build_status() -> dict[str, Any]:
             "states": states,
             "alerts": alerts,
         },
+        "audio": audio,
         "capabilities": {
             "local_dashboard": True,
             "wifi_onboarding": True,
@@ -164,6 +202,9 @@ def build_status() -> dict[str, Any]:
             "remote_screen": True,
             "telemetry_contract": SCHEMA_VERSION,
             "ads1263_acquisition": True,
+            "audio_input": True,
+            "bluetooth_audio": True,
+            "rolling_audio_sample_seconds": 5,
         },
     }
 
@@ -221,6 +262,24 @@ def create_app() -> Flask:
                 "enrollment": status["enrollment"],
             }
         )
+
+    @app.get("/api/v1/audio")
+    def audio_endpoint():
+        status = build_status()
+        return jsonify(
+            {
+                "schema_version": status["schema_version"],
+                "timestamp": status["timestamp"],
+                "audio": status["audio"],
+            }
+        )
+
+    @app.get("/api/v1/audio/sample")
+    def audio_sample_endpoint():
+        sample = Path(os.getenv("ETR_AUDIO_SAMPLE_FILE", DEFAULT_AUDIO_SAMPLE_FILE))
+        if not sample.is_file():
+            return jsonify({"error": "audio_sample_unavailable"}), 404
+        return send_file(sample, mimetype="audio/wav", as_attachment=False, conditional=False)
 
     @app.get("/healthz")
     def health_endpoint():
