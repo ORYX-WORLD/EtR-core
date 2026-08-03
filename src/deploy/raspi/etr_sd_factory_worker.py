@@ -7,7 +7,6 @@ import fcntl
 import os
 import signal
 import subprocess
-import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -70,18 +69,44 @@ def _find_requested_disk(request: dict[str, Any]) -> core.Disk:
     raise core.FactoryError("La microSD sélectionnée n'est plus présente dans le lecteur USB")
 
 
-def _cleanup_mounts(device: str) -> None:
-    try:
-        core.unmount_disk(device)
-    except Exception:
-        pass
+def _remaining_mounts(device: str) -> list[str]:
+    if not device.startswith("/dev/"):
+        return []
+    remaining: list[str] = []
+    for number in (1, 2):
+        partition = core.partition_path(device, number)
+        completed = subprocess.run(
+            ["/usr/bin/findmnt", "-rn", "-S", partition, "-o", "TARGET"],
+            check=False,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        remaining.extend(line.strip() for line in completed.stdout.splitlines() if line.strip())
+    return sorted(set(remaining))
+
+
+def _cleanup_mounts(device: str) -> list[str]:
+    """Synchronise et démonte uniquement le support cible de la fabrique."""
     try:
         subprocess.run(["/usr/bin/sync"], check=False, timeout=30)
     except (OSError, subprocess.SubprocessError):
         pass
+
+    if device.startswith("/dev/"):
+        try:
+            core.unmount_target(device)
+        except Exception:
+            pass
+
     mount_root = Path(core.MOUNT_ROOT)
     if mount_root.exists():
-        for path in sorted(mount_root.glob("job-*/*"), reverse=True):
+        paths = sorted(
+            (path for path in mount_root.glob("job-*/*") if path.name in {"root", "boot"}),
+            key=lambda path: len(str(path)),
+            reverse=True,
+        )
+        for path in paths:
             try:
                 subprocess.run(["/usr/bin/umount", str(path)], check=False, timeout=15)
             except (OSError, subprocess.SubprocessError):
@@ -91,6 +116,22 @@ def _cleanup_mounts(device: str) -> None:
                 path.rmdir()
             except OSError:
                 pass
+
+    # Deuxième passage après le démontage des chemins connus, puis contrôle réel.
+    if device.startswith("/dev/"):
+        try:
+            core.unmount_target(device)
+        except Exception:
+            pass
+    try:
+        subprocess.run(["/usr/bin/sync"], check=False, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return _remaining_mounts(device)
+
+
+def _cleanup_warning(remaining: list[str]) -> str:
+    return "Points de montage encore actifs : " + ", ".join(remaining)
 
 
 def main() -> int:
@@ -116,6 +157,7 @@ def main() -> int:
     job_id = str(request.get("job_id") or uuid.uuid4())
     state = initial_state(job_id=job_id, device=device, disk_label=label, copy_wifi=copy_wifi)
     write_state(state)
+    cleanup_completed = False
 
     def publish(message: str) -> None:
         nonlocal state
@@ -131,35 +173,64 @@ def main() -> int:
         write_state(state)
         core.prepare_card(disk, copy_wifi=copy_wifi, progress=publish)
     except FactoryCancelled as exc:
+        remaining = _cleanup_mounts(device)
+        cleanup_completed = True
+        message = "Fabrication annulée. La carte a été démontée et doit être relancée depuis le début."
+        if remaining:
+            message += " " + _cleanup_warning(remaining)
         state = terminal_state(
             state,
-            status="cancelled",
-            message="Fabrication annulée. La carte a été démontée et doit être relancée depuis le début.",
-            error=str(exc),
+            status="cancelled" if not remaining else "failed",
+            message=message,
+            error=str(exc) if not remaining else _cleanup_warning(remaining),
         )
+        state["ready_to_remove"] = not remaining
         write_state(state)
-        return 0
+        return 0 if not remaining else 1
     except Exception as exc:  # le détail est conservé dans l'état persistant
+        remaining = _cleanup_mounts(device)
+        cleanup_completed = True
         message = explain_creation_error(exc, device)
+        if remaining:
+            message += " " + _cleanup_warning(remaining)
         state = terminal_state(
             state,
             status="failed",
             message=message,
             error=f"{type(exc).__name__}: {exc}",
         )
+        state["ready_to_remove"] = not remaining
         write_state(state)
         return 1
     else:
+        remaining = _cleanup_mounts(device)
+        cleanup_completed = True
+        if remaining:
+            state = terminal_state(
+                state,
+                status="failed",
+                message=(
+                    "La copie est terminée, mais la carte n'a pas pu être démontée complètement. "
+                    + _cleanup_warning(remaining)
+                    + ". Ne la retirez pas."
+                ),
+                error=_cleanup_warning(remaining),
+            )
+            state.update({"ready_to_remove": False, "verification": "mounts_remaining"})
+            write_state(state)
+            return 1
+
         state = terminal_state(
             state,
             status="ready",
-            message="Carte EtR vérifiée et démontée. Vous pouvez la retirer puis l'insérer dans le nouvel EtR.",
+            message="Carte EtR vérifiée, synchronisée et démontée. Vous pouvez la retirer puis l'insérer dans le nouvel EtR.",
         )
         state.update({"ready_to_remove": True, "verification": "passed"})
         write_state(state)
         return 0
     finally:
-        _cleanup_mounts(device)
+        if not cleanup_completed:
+            _cleanup_mounts(device)
         try:
             REQUEST_PATH.unlink()
         except FileNotFoundError:
