@@ -1,0 +1,144 @@
+name: Arrêter proprement la fabrique après erreurs USB
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-sd-emergency-stop-once.yml
+
+concurrency:
+  group: etr-sd-emergency-stop-once
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  stop:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 10
+    steps:
+      - name: Arrêter le moteur et démonter la carte
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-sd-emergency
+          sudo cat /var/lib/etr-core/sd-factory-state.json > /tmp/etr-sd-emergency/state-before.json 2>/dev/null || printf '{}\n' > /tmp/etr-sd-emergency/state-before.json
+          sudo systemctl stop etr-sd-factory.service 2>/dev/null || true
+          set +e
+          timeout 50 sudo systemctl stop etr-sd-factory-worker.service
+          stop_code=$?
+          set -e
+          if [ "$stop_code" -ne 0 ]; then
+            sudo systemctl kill --kill-who=all --signal=SIGKILL etr-sd-factory-worker.service 2>/dev/null || true
+            sleep 2
+          fi
+          timeout 25 sudo sync || true
+          findmnt -rn -o TARGET | awk '/^\/run\/etr-sd-factory\/job-[^/]+\/(root|boot)$/ {print length($0),$0}' | sort -rn | cut -d' ' -f2- | while read -r target; do
+            sudo umount "$target" 2>/dev/null || sudo umount -l "$target" 2>/dev/null || true
+          done
+          for device in /dev/sda1 /dev/sda2; do
+            if [ -b "$device" ] && findmnt -rn -S "$device" >/dev/null; then
+              sudo umount "$device" 2>/dev/null || sudo umount -l "$device" 2>/dev/null || true
+            fi
+          done
+          sudo rm -f /var/lib/etr-core/sd-factory-request.json
+          sudo python3 - <<'PY'
+          import json, os, tempfile
+          from datetime import datetime, timezone
+          from pathlib import Path
+          path=Path('/var/lib/etr-core/sd-factory-state.json')
+          try:data=json.loads(path.read_text(encoding='utf-8'))
+          except Exception:data={}
+          now=datetime.now(timezone.utc).isoformat()
+          data.update({
+              'schema_version':data.get('schema_version') or '1.0',
+              'status':'failed',
+              'active':False,
+              'stage':'Défaillance du support USB',
+              'message':"Écriture interrompue : le lecteur USB ou la microSD a disparu temporairement pendant la copie. La carte est démontée mais n'est pas utilisable. Contrôlez ou remplacez le lecteur USB avant une nouvelle fabrication.",
+              'error':'usb_storage_capacity_reset',
+              'progress_percent':0.0,
+              'speed':None,
+              'eta':None,
+              'finished_at':now,
+              'updated_at':now,
+              'ready_to_remove':False,
+              'safe_to_remove':True,
+              'verification':'failed',
+          })
+          path.parent.mkdir(parents=True,exist_ok=True)
+          fd,tmp=tempfile.mkstemp(prefix='.sd-factory-state.',dir=path.parent)
+          with os.fdopen(fd,'w',encoding='utf-8') as stream:
+              json.dump(data,stream,ensure_ascii=False,indent=2,sort_keys=True)
+              stream.write('\n'); stream.flush(); os.fsync(stream.fileno())
+          os.chmod(tmp,0o600); os.replace(tmp,path)
+          PY
+
+      - name: Capturer le diagnostic matériel
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo cat /var/lib/etr-core/sd-factory-state.json > /tmp/etr-sd-emergency/state-after.json
+          sudo systemctl show etr-sd-factory-worker.service -p MainPID -p ActiveState -p SubState -p Result -p ExecMainStatus > /tmp/etr-sd-emergency/worker.txt 2>&1 || true
+          pgrep -af 'etr_sd_factory_worker|[r]sync.*?/run/etr-sd-factory/' > /tmp/etr-sd-emergency/processes.txt || true
+          findmnt -rn -S /dev/sda1 -o SOURCE,TARGET,FSTYPE,OPTIONS > /tmp/etr-sd-emergency/mounts.txt 2>&1 || true
+          findmnt -rn -S /dev/sda2 -o SOURCE,TARGET,FSTYPE,OPTIONS >> /tmp/etr-sd-emergency/mounts.txt 2>&1 || true
+          lsblk -b -o NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS,TRAN,RM,MODEL > /tmp/etr-sd-emergency/lsblk.txt
+          lsusb > /tmp/etr-sd-emergency/lsusb.txt 2>&1 || true
+          lsusb -t > /tmp/etr-sd-emergency/lsusb-tree.txt 2>&1 || true
+          udevadm info --query=all --name=/dev/sda > /tmp/etr-sd-emergency/udev.txt 2>&1 || true
+          vcgencmd get_throttled > /tmp/etr-sd-emergency/throttled.txt 2>&1 || true
+          journalctl -k --since '2026-08-03 16:30:00' --no-pager > /tmp/etr-sd-emergency/kernel.txt 2>&1 || true
+          sudo journalctl -u etr-sd-factory-worker.service -n 220 --no-pager > /tmp/etr-sd-emergency/journal.txt 2>&1 || true
+
+      - name: Publier la preuve et retirer le workflow ponctuel
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/etr-sd-emergency-stop.json
+          import json, re
+          from datetime import datetime, timezone
+          from pathlib import Path
+          base=Path('/tmp/etr-sd-emergency')
+          def text(name,limit=40000):
+              try:return (base/name).read_text(encoding='utf-8',errors='replace')[-limit:]
+              except OSError:return ''
+          def data(name):
+              try:return json.loads(text(name))
+              except Exception:return {}
+          kernel=text('kernel.txt')
+          print(json.dumps({
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'stateBefore':data('state-before.json'),
+              'stateAfter':data('state-after.json'),
+              'worker':text('worker.txt'),
+              'processes':text('processes.txt'),
+              'mounts':text('mounts.txt'),
+              'lsblk':text('lsblk.txt'),
+              'lsusb':text('lsusb.txt'),
+              'lsusbTree':text('lsusb-tree.txt'),
+              'udev':text('udev.txt'),
+              'throttled':text('throttled.txt'),
+              'capacityReset':bool(re.search(r'detected capacity change from .* to 0',kernel,re.I)),
+              'writeErrors':len(re.findall(r'I/O error, dev sda.*WRITE',kernel,re.I)),
+              'kernel':kernel,
+              'journal':text('journal.txt'),
+          },ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-sd-emergency-stop.json
+          rm -rf /tmp/etr-sd-emergency-repo
+          git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/etr-sd-emergency-repo
+          cd /tmp/etr-sd-emergency-repo
+          mkdir -p .github/deployment
+          cp /tmp/etr-sd-emergency-stop.json .github/deployment/etr-sd-emergency-stop.json
+          rm -f .github/workflows/etr-sd-emergency-stop-once.yml
+          git config user.name 'EtR SD emergency stop'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/deployment/etr-sd-emergency-stop.json .github/workflows/etr-sd-emergency-stop-once.yml
+          git commit -m 'chore: record SD emergency stop and remove one-shot workflow [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
