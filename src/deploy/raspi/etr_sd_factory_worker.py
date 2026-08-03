@@ -164,6 +164,17 @@ def main() -> int:
         if _cancel_requested:
             raise FactoryCancelled("Annulation demandée par l'utilisateur")
         update = progress_from_message(message)
+        preserve_progress = bool(update.pop("_preserve_progress", False))
+        current_progress = float(state.get("progress_percent") or 0)
+        if preserve_progress:
+            update["progress_percent"] = current_progress
+        elif "progress_percent" in update:
+            # Une relance rsync repart de 0 au niveau de son propre compteur. La
+            # progression globale présentée à l'utilisateur reste monotone.
+            update["progress_percent"] = max(
+                current_progress,
+                float(update.get("progress_percent") or 0),
+            )
         state = {**state, **update, "active": True}
         write_state(state)
 
@@ -184,7 +195,13 @@ def main() -> int:
             message=message,
             error=str(exc) if not remaining else _cleanup_warning(remaining),
         )
-        state["ready_to_remove"] = not remaining
+        state.update(
+            {
+                "ready_to_remove": False,
+                "safe_to_remove": not remaining,
+                "verification": "cancelled" if not remaining else "mounts_remaining",
+            }
+        )
         write_state(state)
         return 0 if not remaining else 1
     except Exception as exc:  # le détail est conservé dans l'état persistant
@@ -199,7 +216,13 @@ def main() -> int:
             message=message,
             error=f"{type(exc).__name__}: {exc}",
         )
-        state["ready_to_remove"] = not remaining
+        state.update(
+            {
+                "ready_to_remove": False,
+                "safe_to_remove": not remaining,
+                "verification": "failed" if not remaining else "mounts_remaining",
+            }
+        )
         write_state(state)
         return 1
     else:
@@ -216,7 +239,13 @@ def main() -> int:
                 ),
                 error=_cleanup_warning(remaining),
             )
-            state.update({"ready_to_remove": False, "verification": "mounts_remaining"})
+            state.update(
+                {
+                    "ready_to_remove": False,
+                    "safe_to_remove": False,
+                    "verification": "mounts_remaining",
+                }
+            )
             write_state(state)
             return 1
 
@@ -225,7 +254,13 @@ def main() -> int:
             status="ready",
             message="Carte EtR vérifiée, synchronisée et démontée. Vous pouvez la retirer puis l'insérer dans le nouvel EtR.",
         )
-        state.update({"ready_to_remove": True, "verification": "passed"})
+        state.update(
+            {
+                "ready_to_remove": True,
+                "safe_to_remove": True,
+                "verification": "passed",
+            }
+        )
         write_state(state)
         return 0
     finally:
