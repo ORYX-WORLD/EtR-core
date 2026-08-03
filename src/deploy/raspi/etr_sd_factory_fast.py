@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -35,6 +36,8 @@ SNAPSHOT_ROOT = Path("/run/etr-sd-factory")
 RSYNC_LOG = core.STATE_DIR / "sd-factory-rsync.log"
 RETRYABLE_CODES = {23, 24}
 MAX_RSYNC_ATTEMPTS = 3
+RSYNC_BWLIMIT_KB = max(512, min(8192, int(os.getenv("ETR_SD_RSYNC_BWLIMIT_KB", "2048"))))
+TARGET_CHECK_SECONDS = 2.0
 
 # Ces chemins sont supprimés après la copie par scrub_clone, sont des montages
 # de session ou changent en permanence. Les exclure dès le départ évite les
@@ -49,6 +52,10 @@ ROOT_COPY_EXCLUDES = (
     "/home/oryx/.local/share/gvfs-metadata/***",
     "/home/oryx/EtR-core/.git/***",
     "/home/oryx/EtR-core/**/__pycache__/***",
+    "/usr/share/doc/***",
+    "/usr/share/man/***",
+    "/usr/share/info/***",
+    "/var/lib/apt/lists/***",
     "/var/lib/etr-core/***",
     "/var/cache/apt/archives/***",
     "/var/cache/man/***",
@@ -87,7 +94,64 @@ def _append_log(text: str) -> None:
     os.chmod(RSYNC_LOG, 0o600)
 
 
-def _stream_rsync(command: list[str], *, attempt: int) -> tuple[int, list[str]]:
+def _command_output(command: list[str], *, timeout: int = 5) -> str:
+    completed = subprocess.run(
+        command,
+        check=False,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+    )
+    return completed.stdout.strip() if completed.returncode == 0 else ""
+
+
+def _target_disk(destination: str) -> tuple[str, int] | None:
+    partition = _command_output(
+        ["/usr/bin/findmnt", "-n", "-o", "SOURCE", "--target", destination]
+    )
+    if not partition.startswith("/dev/"):
+        return None
+    parent = _command_output(["/usr/bin/lsblk", "-ndo", "PKNAME", partition])
+    disk = f"/dev/{parent}" if parent else partition
+    size_text = _command_output(["/usr/sbin/blockdev", "--getsize64", disk])
+    if not size_text.isdigit():
+        return None
+    return disk, int(size_text)
+
+
+def _monitor_target(
+    process: subprocess.Popen[bytes],
+    disk: str,
+    expected_size: int,
+    stop_event: threading.Event,
+    failure: dict[str, str],
+) -> None:
+    while process.poll() is None and not stop_event.wait(TARGET_CHECK_SECONDS):
+        try:
+            size_text = _command_output(
+                ["/usr/sbin/blockdev", "--getsize64", disk], timeout=4
+            )
+        except (OSError, subprocess.SubprocessError):
+            size_text = ""
+        if not size_text.isdigit() or int(size_text) != expected_size:
+            failure["reason"] = (
+                "Le lecteur USB ou la microSD a disparu pendant l'écriture "
+                f"(capacité attendue {expected_size}, capacité lue {size_text or 'indisponible'})."
+            )
+            _append_log("ERREUR SUPPORT: " + failure["reason"])
+            try:
+                process.terminate()
+            except OSError:
+                pass
+            return
+
+
+def _stream_rsync(
+    command: list[str],
+    *,
+    attempt: int,
+    destination: str,
+) -> tuple[int, list[str]]:
     environment = dict(os.environ)
     environment["LC_ALL"] = "C"
     _append_log(f"\n=== tentative rsync {attempt}/{MAX_RSYNC_ATTEMPTS} ===")
@@ -99,6 +163,20 @@ def _stream_rsync(command: list[str], *, attempt: int) -> tuple[int, list[str]]:
         bufsize=0,
     )
     assert process.stdout is not None
+
+    stop_event = threading.Event()
+    failure: dict[str, str] = {}
+    monitor: threading.Thread | None = None
+    target = _target_disk(destination)
+    if target is not None:
+        disk, expected_size = target
+        monitor = threading.Thread(
+            target=_monitor_target,
+            args=(process, disk, expected_size, stop_event, failure),
+            name="etr-sd-target-monitor",
+            daemon=True,
+        )
+        monitor.start()
 
     error_lines: list[str] = []
     pending = bytearray()
@@ -113,21 +191,29 @@ def _stream_rsync(command: list[str], *, attempt: int) -> tuple[int, list[str]]:
             error_lines.append(line)
             del error_lines[:-30]
 
-    while True:
-        chunk = process.stdout.read(4096)
-        if not chunk:
-            break
-        for value in chunk:
-            if value in (10, 13):
-                if pending:
-                    consume(bytes(pending))
-                    pending.clear()
-            else:
-                pending.append(value)
-    if pending:
-        consume(bytes(pending))
+    try:
+        while True:
+            chunk = process.stdout.read(4096)
+            if not chunk:
+                break
+            for value in chunk:
+                if value in (10, 13):
+                    if pending:
+                        consume(bytes(pending))
+                        pending.clear()
+                else:
+                    pending.append(value)
+        if pending:
+            consume(bytes(pending))
+        code = process.wait()
+    finally:
+        stop_event.set()
+        if monitor is not None:
+            monitor.join(timeout=5)
 
-    code = process.wait()
+    if failure.get("reason"):
+        raise core.FactoryError(failure["reason"])
+
     _append_log(f"=== fin tentative {attempt}: code {code} ===")
     return code, error_lines
 
@@ -231,12 +317,13 @@ def _overlay_repository(snapshot: Path, destination: str) -> None:
             "-aHAX",
             "--numeric-ids",
             "--whole-file",
+            f"--bwlimit={RSYNC_BWLIMIT_KB}",
             f"{snapshot}/",
             f"{target}/",
         ],
         text=True,
         capture_output=True,
-        timeout=300,
+        timeout=600,
     )
     if completed.returncode:
         detail = (completed.stderr or completed.stdout or "").strip().splitlines()
@@ -259,6 +346,10 @@ def optimized_rsync_copy(
                 patterns.append(pattern)
         snapshot = _repository_snapshot()
         RSYNC_LOG.unlink(missing_ok=True)
+        if _CURRENT_CALLBACK is not None:
+            _CURRENT_CALLBACK(
+                f"Copie prudente activée : débit limité à {RSYNC_BWLIMIT_KB // 1024 or 1} Mio/s."
+            )
 
     command = [
         "/usr/bin/rsync",
@@ -267,6 +358,8 @@ def optimized_rsync_copy(
         "--no-inc-recursive",
         "--whole-file",
         "--delete-delay",
+        "--outbuf=L",
+        f"--bwlimit={RSYNC_BWLIMIT_KB}",
         "--info=progress2",
     ]
     for pattern in patterns:
@@ -281,7 +374,11 @@ def optimized_rsync_copy(
                 _CURRENT_CALLBACK(
                     f"Synchronisation finale : reprise automatique {attempt}/{MAX_RSYNC_ATTEMPTS}…"
                 )
-            last_code, last_errors = _stream_rsync(command, attempt=attempt)
+            last_code, last_errors = _stream_rsync(
+                command,
+                attempt=attempt,
+                destination=destination,
+            )
             if last_code == 0:
                 break
             if last_code not in RETRYABLE_CODES or attempt == MAX_RSYNC_ATTEMPTS:
