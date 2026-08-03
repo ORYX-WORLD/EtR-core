@@ -151,24 +151,35 @@ def _read(path: Path) -> str:
         return ""
 
 
-def inspect_physical_target(disk_path: str) -> PhysicalTargetIdentity:
-    """Capture l'identité physique avant toute écriture destructive."""
+def inspect_physical_target(
+    disk_path: str,
+    *,
+    expected_size: int = 0,
+) -> PhysicalTargetIdentity:
+    """Capture l'identité physique, même si la capacité vient de passer à zéro.
+
+    `expected_size` provient de la sélection utilisateur déjà validée. Il sert
+    uniquement de référence de récupération lorsque `blockdev` ne peut plus lire
+    la capacité au moment précis où le worker démarre.
+    """
     real = os.path.realpath(disk_path)
-    size = _disk_size(real)
+    observed_size = _disk_size(real)
+    reference_size = observed_size if observed_size > 0 else int(expected_size or 0)
     node = _usb_device_node(real)
-    if not real.startswith("/dev/") or size <= 0 or node is None:
+    if not real.startswith("/dev/") or reference_size <= 0 or node is None:
         devpath = _output(
             ["/usr/bin/udevadm", "info", "--query=path", "--name", real],
             timeout=8,
         )
         raise PreparationRecoveryError(
             "Le lecteur USB cible n'est pas identifiable "
-            f"(disque={real or 'absent'}, capacité={size}, devpath={devpath or 'absent'})"
+            f"(disque={real or 'absent'}, capacité_lue={observed_size}, "
+            f"capacité_attendue={int(expected_size or 0)}, devpath={devpath or 'absent'})"
         )
     model = _output(["/usr/bin/lsblk", "-ndo", "MODEL", real]).strip()
     identity = PhysicalTargetIdentity(
         disk_path=real,
-        disk_size=size,
+        disk_size=reference_size,
         usb_node=node.name,
         vendor_id=_read(node / "idVendor").lower(),
         product_id=_read(node / "idProduct").lower(),
@@ -178,6 +189,14 @@ def inspect_physical_target(disk_path: str) -> PhysicalTargetIdentity:
     if not identity.usb_node or not identity.vendor_id or not identity.product_id:
         raise PreparationRecoveryError("Identité USB du lecteur incomplète")
     return identity
+
+
+def target_capacity_matches(
+    identity: PhysicalTargetIdentity,
+    disk_path: str | None = None,
+) -> bool:
+    """Indique si le support répond avec la capacité mémorisée."""
+    return _disk_size(disk_path or identity.disk_path) == identity.disk_size
 
 
 def configure_conservative_transport(disk_path: str) -> None:
@@ -274,7 +293,10 @@ def _matches(identity: PhysicalTargetIdentity, disk_path: str) -> bool:
     if _disk_size(disk_path) != identity.disk_size:
         return False
     try:
-        candidate = inspect_physical_target(disk_path)
+        candidate = inspect_physical_target(
+            disk_path,
+            expected_size=identity.disk_size,
+        )
     except PreparationRecoveryError:
         return False
     # Le lecteur testé s'est déjà présenté sous deux couples VID:PID après un
