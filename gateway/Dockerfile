@@ -20,6 +20,7 @@ COPY enrollment.mjs ./
 COPY enrollment-http.mjs ./
 COPY device-bootstrap.mjs ./
 COPY firebase-device-session.mjs ./
+COPY factory-device-session.mjs ./
 COPY admin.mjs ./
 
 USER node

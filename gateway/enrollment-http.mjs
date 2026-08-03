@@ -5,6 +5,7 @@ import {
 } from "./enrollment.mjs";
 import { createDeviceBootstrapService, installDeviceBootstrapRoute } from "./device-bootstrap.mjs";
 import { createFirebaseDeviceSessionIssuer } from "./firebase-device-session.mjs";
+import { createFactoryDeviceSessionIssuer } from "./factory-device-session.mjs";
 
 const WINDOW_MS = 15 * 60 * 1000;
 
@@ -41,6 +42,13 @@ function safeError(res, error) {
     code: error?.code || "",
     message: String(error?.message || error || "unknown").slice(0, 400)
   });
+  const explicitStatus = Number(error?.status);
+  if (explicitStatus >= 400 && explicitStatus < 600) {
+    return res.status(explicitStatus).json({
+      error: "Erreur d’activation EtR",
+      code: String(error?.code || "enrollment_error")
+    });
+  }
   return res.status(500).json({ error: "Erreur d’activation EtR", code: "enrollment_error" });
 }
 
@@ -72,12 +80,14 @@ export function installEnrollmentRoutes({
   verifyIdToken,
   deviceBootstrap = createDeviceBootstrapService({ db, now: () => Date.now() }),
   deviceSessionIssuer = createFirebaseDeviceSessionIssuer({ auth }),
+  factorySessionIssuer = createFactoryDeviceSessionIssuer(),
   now = () => Date.now()
 }) {
   if (!deviceBootstrap?.verifyDeviceRequest || !deviceBootstrap?.verifyWorkflowToken) {
     throw new Error("Enrollment routes require device bootstrap verification");
   }
   if (!deviceSessionIssuer?.issue || !deviceSessionIssuer?.health) throw new Error("Enrollment routes require Firebase device session issuance");
+  if (!factorySessionIssuer?.issue) throw new Error("Enrollment routes require factory device session issuance");
   const enrollment = createEnrollmentService({
     store: createFirebaseEnrollmentStore(db),
     auth: enrollmentAuthAdapter(auth, deviceSessionIssuer),
@@ -117,15 +127,36 @@ export function installEnrollmentRoutes({
     app.post("/api/enrollment/factory-bootstrap", async (req, res) => {
       try {
         enforceRate(req, "factory-bootstrap", 60);
-        const result = await deviceBootstrap.redeemFactoryTicket({
+        const bootstrap = await deviceBootstrap.redeemFactoryTicket({
           ticket: req.body?.ticket,
           serial: req.body?.serial,
           installationId: req.body?.installationId,
           publicKeyPem: req.body?.publicKey,
           hostname: req.body?.hostname
         });
+        const session = await factorySessionIssuer.issue({
+          ticket: req.body?.ticket,
+          serial: req.body?.serial
+        });
+        const timestamp = new Date(now()).toISOString();
+        await db.ref().update({
+          [`deviceAccess/${session.uid}`]: bootstrap.installationId,
+          [`installations/${bootstrap.installationId}/metadata/installation_id`]: bootstrap.installationId,
+          [`installations/${bootstrap.installationId}/metadata/device_uid`]: session.uid,
+          [`installations/${bootstrap.installationId}/metadata/device_fingerprint`]: session.serialHash,
+          [`installations/${bootstrap.installationId}/metadata/device_bound_at`]: timestamp,
+          [`installations/${bootstrap.installationId}/metadata/provisioning_mode`]: "factory-ticket"
+        });
+        const result = {
+          ...bootstrap,
+          deviceUid: session.uid,
+          idToken: session.idToken,
+          refreshToken: session.refreshToken,
+          expiresIn: session.expiresIn,
+          authMode: session.authMode
+        };
         res.setHeader("Cache-Control", "no-store");
-        return res.status(result.status === "registered" ? 201 : 200).json(result);
+        return res.status(bootstrap.status === "registered" ? 201 : 200).json(result);
       } catch (error) {
         return safeError(res, error);
       }
