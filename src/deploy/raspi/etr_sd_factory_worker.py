@@ -225,7 +225,7 @@ def main() -> int:
             update["progress_percent"] = current_progress
         elif "progress_percent" in update:
             # Une relance rsync ou une reprise de préparation repart de zéro au
-            # niveau local. La progression globale affichée reste monotone.
+            # niveau local. La progression globale présentée à l'utilisateur reste monotone.
             update["progress_percent"] = max(
                 current_progress,
                 float(update.get("progress_percent") or 0),
