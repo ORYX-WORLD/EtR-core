@@ -20,14 +20,11 @@ jobs:
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
       - name: Vérifier que la copie est arrêtée
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf /tmp/etr-sd-rsync-diagnostic /run/etr-sd-diagnostic
           mkdir -p /tmp/etr-sd-rsync-diagnostic /run/etr-sd-diagnostic/root
           pgrep -af 'etr_sd_factory|[r]sync.*?/run/etr-sd-factory/' > /tmp/etr-sd-rsync-diagnostic/processes.txt || true
           if pgrep -af '[r]sync.*?/run/etr-sd-factory/' >/dev/null; then
@@ -38,7 +35,10 @@ jobs:
           sudo journalctl -u etr-sd-factory-auto.service -u etr-sd-factory.service --since '2026-08-03 15:00:00' --no-pager > /tmp/etr-sd-rsync-diagnostic/journal.txt 2>&1 || true
           sudo dmesg --ctime | tail -n 400 > /tmp/etr-sd-rsync-diagnostic/dmesg.txt 2>&1 || true
           test -b /dev/sda2
-          ! findmnt -rn -S /dev/sda2 >/dev/null
+          if findmnt -rn -S /dev/sda2 >/dev/null; then
+            echo '::error::La partition cible est encore montée; diagnostic interrompu sans la modifier.'
+            exit 1
+          fi
 
       - name: Rejouer uniquement la comparaison rsync en lecture seule
         id: compare
@@ -85,11 +85,11 @@ jobs:
           grep -Eai 'rsync:|error|failed|denied|vanished|not supported|no space|input/output|read-only' \
             /tmp/etr-sd-rsync-diagnostic/rsync.txt \
             > /tmp/etr-sd-rsync-diagnostic/rsync-errors.txt || true
-          tail -n 120 /tmp/etr-sd-rsync-diagnostic/rsync.txt > /tmp/etr-sd-rsync-diagnostic/rsync-tail.txt
+          tail -n 160 /tmp/etr-sd-rsync-diagnostic/rsync.txt > /tmp/etr-sd-rsync-diagnostic/rsync-tail.txt
           cat /tmp/etr-sd-rsync-diagnostic/rsync-errors.txt
           cat /tmp/etr-sd-rsync-diagnostic/rsync-tail.txt
 
-      - name: Publier le diagnostic exploitable
+      - name: Construire le rapport
         if: always()
         shell: bash
         env:
@@ -97,6 +97,7 @@ jobs:
           RSYNC_EXIT_CODE: ${{ steps.compare.outputs.exit_code }}
         run: |
           set -euo pipefail
+          mkdir -p /tmp/etr-sd-rsync-diagnostic
           python3 - <<'PY' > /tmp/etr-sd-rsync-diagnostic.json
           import json, os, re
           from datetime import datetime, timezone
@@ -125,8 +126,17 @@ jobs:
           print(json.dumps(report,ensure_ascii=False,indent=2))
           PY
           cat /tmp/etr-sd-rsync-diagnostic.json
-          git fetch origin main
-          git checkout -B sd-rsync-diagnostic-report origin/main
+
+      - name: Publier le diagnostic
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/etr-sd-diagnostic-repo
+          git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/etr-sd-diagnostic-repo
+          cd /tmp/etr-sd-diagnostic-repo
           mkdir -p .github/deployment
           cp /tmp/etr-sd-rsync-diagnostic.json .github/deployment/etr-sd-rsync-diagnostic.json
           git config user.name 'EtR SD rsync diagnostic'
@@ -134,6 +144,5 @@ jobs:
           git add .github/deployment/etr-sd-rsync-diagnostic.json
           if ! git diff --cached --quiet; then
             git commit -m 'chore: record EtR SD rsync diagnostic [skip ci]'
-            git pull --rebase origin main
             git push origin HEAD:main
           fi
