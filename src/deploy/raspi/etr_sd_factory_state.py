@@ -23,6 +23,8 @@ RUNNING_STATUSES = {
     "partitioning",
     "formatting",
     "mounting",
+    "paused_usb_setup",
+    "restarting_preparation",
     "copying_root",
     "copying_boot",
     "paused_usb",
@@ -41,6 +43,8 @@ _STAGE_PROGRESS = {
     "partitioning": 12.0,
     "formatting": 18.0,
     "mounting": 22.0,
+    "paused_usb_setup": 12.0,
+    "restarting_preparation": 12.0,
     "copying_root": 25.0,
     "copying_boot": 82.0,
     "paused_usb": 25.0,
@@ -131,6 +135,8 @@ def initial_state(*, job_id: str, device: str, disk_label: str, copy_wifi: bool)
         "copy_wifi": bool(copy_wifi),
         "speed": None,
         "eta": None,
+        "precopy_recovery_attempt": 0,
+        "precopy_recovery_max": None,
         "usb_recovery_attempt": 0,
         "usb_recovery_max": None,
         "resume_count": 0,
@@ -148,6 +154,16 @@ def _usb_attempt_fields(text: str) -> dict[str, Any]:
     return {
         "usb_recovery_attempt": int(match.group("attempt")),
         "usb_recovery_max": int(match.group("maximum")),
+    }
+
+
+def _precopy_attempt_fields(text: str) -> dict[str, Any]:
+    match = _USB_ATTEMPT_RE.search(text)
+    if not match:
+        return {}
+    return {
+        "precopy_recovery_attempt": int(match.group("attempt")),
+        "precopy_recovery_max": int(match.group("maximum")),
     }
 
 
@@ -175,6 +191,28 @@ def progress_from_message(message: str) -> dict[str, Any]:
         }
 
     lowered = text.lower()
+    if lowered.startswith("pause usb avant copie"):
+        remaining = _USB_REMAINING_RE.search(text)
+        return {
+            "status": "paused_usb_setup",
+            "stage": "Pause USB — récupération avant copie",
+            "message": text,
+            "speed": None,
+            "eta": f"{remaining.group('seconds')} s" if remaining else "reconnexion",
+            "_preserve_progress": True,
+            **_precopy_attempt_fields(text),
+        }
+    if lowered.startswith("reprise de la préparation"):
+        fields = _precopy_attempt_fields(text)
+        return {
+            "status": "restarting_preparation",
+            "stage": "Reprise depuis l'effacement",
+            "message": text,
+            "speed": None,
+            "eta": "redémarrage de la préparation",
+            "_preserve_progress": True,
+            **fields,
+        }
     if lowered.startswith("pause usb"):
         remaining = _USB_REMAINING_RE.search(text)
         return {
