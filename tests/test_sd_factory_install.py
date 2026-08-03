@@ -71,13 +71,27 @@ class SdFactoryInstallContractTests(unittest.TestCase):
             "MAX_RSYNC_ATTEMPTS = 3",
             "Synchronisation finale : reprise automatique",
             "sd-factory-rsync.log",
-            "GIT_SAFE_OPTIONS",
-            "safe.directory=",
+            "GIT_OWNER = \"oryx\"",
+            "RUNUSER = Path(\"/usr/sbin/runuser\")",
+            "_git_as_owner",
         ]:
             self.assertIn(marker, copy_engine)
         self.assertIn("--delete-delay", copy_engine)
         self.assertIn("_concise_rsync_error", copy_engine)
         self.assertNotIn("git config --global", copy_engine)
+        self.assertNotIn("safe.directory=*", copy_engine)
+
+    def test_ready_state_requires_confirmed_unmount(self):
+        worker = (ROOT / "src/deploy/raspi/etr_sd_factory_worker.py").read_text(encoding="utf-8")
+        for marker in [
+            "_remaining_mounts",
+            "core.unmount_target(device)",
+            '"ready_to_remove": False',
+            '"ready_to_remove": True',
+            '"verification": "passed"',
+            "Carte EtR vérifiée, synchronisée et démontée",
+        ]:
+            self.assertIn(marker, worker)
 
     def test_gateway_exposes_one_time_factory_provisioning_contract(self):
         bootstrap = (ROOT / "gateway/device-bootstrap.mjs").read_text(encoding="utf-8")
