@@ -1,0 +1,72 @@
+name: Inspecter le moteur microSD sans interruption
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-sd-live-inspect-once.yml
+
+concurrency:
+  group: etr-sd-live-inspect-once
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 5
+    steps:
+      - name: Capturer l'état courant sans écriture sur la carte
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo cat /var/lib/etr-core/sd-factory-state.json > /tmp/etr-sd-live-state.json 2>/dev/null || printf '{}\n' > /tmp/etr-sd-live-state.json
+          sudo cat /var/lib/etr-core/sd-factory-rsync.log > /tmp/etr-sd-live-rsync.log 2>/dev/null || : > /tmp/etr-sd-live-rsync.log
+          sudo systemctl status etr-sd-factory-worker.service --no-pager -l > /tmp/etr-sd-live-worker.txt 2>&1 || true
+          sudo systemctl show etr-sd-factory-worker.service -p ActiveState -p SubState -p Result -p MainPID -p ExecMainStatus > /tmp/etr-sd-live-show.txt 2>&1 || true
+          pgrep -af '[r]sync.*?/run/etr-sd-factory/|etr_sd_factory_worker.py|mkfs.ext4|mkfs.vfat' > /tmp/etr-sd-live-processes.txt || true
+          lsblk -b -o NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS,TRAN,RM,MODEL > /tmp/etr-sd-live-lsblk.txt
+
+      - name: Publier puis retirer le diagnostic ponctuel
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/etr-sd-live-inspect.json
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+          def data(path):
+              try:return json.loads(Path(path).read_text(encoding='utf-8'))
+              except Exception:return {}
+          def text(path, limit=30000):
+              try:return Path(path).read_text(encoding='utf-8',errors='replace')[-limit:]
+              except OSError:return ''
+          print(json.dumps({
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'state':data('/tmp/etr-sd-live-state.json'),
+              'serviceShow':text('/tmp/etr-sd-live-show.txt'),
+              'worker':text('/tmp/etr-sd-live-worker.txt'),
+              'processes':text('/tmp/etr-sd-live-processes.txt'),
+              'rsyncLogTail':text('/tmp/etr-sd-live-rsync.log'),
+              'lsblk':text('/tmp/etr-sd-live-lsblk.txt'),
+          },ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-sd-live-inspect.json
+          rm -rf /tmp/etr-sd-live-report-repo
+          git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/etr-sd-live-report-repo
+          cd /tmp/etr-sd-live-report-repo
+          mkdir -p .github/deployment
+          cp /tmp/etr-sd-live-inspect.json .github/deployment/etr-sd-live-inspect.json
+          rm -f .github/workflows/etr-sd-live-inspect-once.yml
+          git config user.name 'EtR SD live inspect'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/deployment/etr-sd-live-inspect.json .github/workflows/etr-sd-live-inspect-once.yml
+          git commit -m 'chore: record SD live inspect and remove one-shot workflow [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
