@@ -1,11 +1,10 @@
 [Unit]
-Description=EtR SPI desktop on display :1
+Description=EtR desktop on display :1 (SPI or headless virtual screen)
 Wants=network-online.target
 After=network-online.target systemd-user-sessions.service
 Conflicts=getty@tty2.service
 StartLimitIntervalSec=120
-StartLimitBurst=3
-ConditionPathExists=/dev/fb1
+StartLimitBurst=5
 
 [Service]
 Type=simple
