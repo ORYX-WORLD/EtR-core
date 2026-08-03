@@ -29,33 +29,51 @@ except ModuleNotFoundError:
         source_disk,
     )
 
+
+def fit_small_screen(window: Tk | Toplevel, preferred_width: int, preferred_height: int) -> None:
+    """Garde la fenêtre au-dessus de la barre des tâches de l'écran SPI 480x320."""
+    screen_width = max(1, window.winfo_screenwidth())
+    screen_height = max(1, window.winfo_screenheight())
+    width = max(360, min(preferred_width, screen_width - 10))
+    height = max(180, min(preferred_height, screen_height - 70))
+    x = max(0, (screen_width - width) // 2)
+    window.geometry(f"{width}x{height}+{x}+2")
+
+
 class ConfirmDialog(Toplevel):
     def __init__(self, parent: Tk, disk: Disk):
         super().__init__(parent)
         self.result = False
         self.title("Confirmation")
-        self.geometry("450x250")
+        fit_small_screen(self, 450, 205)
         self.resizable(False, False)
         self.transient(parent)
         self.grab_set()
-        frame = ttk.Frame(self, padding=16)
+
+        frame = ttk.Frame(self, padding=(12, 9))
         frame.pack(fill=BOTH, expand=True)
         ttk.Label(
             frame,
             text="ATTENTION : EFFACEMENT COMPLET",
-            font=("DejaVu Sans", 16, "bold"),
-        ).pack(pady=(0, 12))
+            font=("DejaVu Sans", 13, "bold"),
+        ).pack(pady=(0, 5))
         ttk.Label(
             frame,
-            text=f"Toutes les données de cette carte seront supprimées :\n\n{disk.label}",
+            text=f"Toutes les données de cette carte seront supprimées :\n{disk.label}",
             justify="center",
-            wraplength=410,
-        ).pack(expand=True)
+            wraplength=420,
+        ).pack(fill="x", expand=True)
+
         buttons = ttk.Frame(frame)
-        buttons.pack(fill="x", pady=(12, 0))
-        ttk.Button(buttons, text="Annuler", command=self.destroy).pack(side=LEFT, expand=True, fill="x", padx=(0, 8))
-        ttk.Button(buttons, text="EFFACER ET CRÉER", command=self.confirm).pack(side=RIGHT, expand=True, fill="x", padx=(8, 0))
+        buttons.pack(fill="x", pady=(7, 0))
+        ttk.Button(buttons, text="Annuler", command=self.destroy).pack(
+            side=LEFT, expand=True, fill="x", padx=(0, 5)
+        )
+        ttk.Button(buttons, text="EFFACER ET CRÉER", command=self.confirm).pack(
+            side=RIGHT, expand=True, fill="x", padx=(5, 0)
+        )
         self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.after_idle(self.focus_force)
 
     def confirm(self) -> None:
         self.result = True
@@ -66,36 +84,43 @@ class FactoryApp:
     def __init__(self, root: Tk):
         self.root = root
         self.root.title("Fabrique de cartes EtR")
-        self.root.geometry("480x320")
-        self.root.minsize(440, 300)
+        fit_small_screen(self.root, 470, 250)
+        self.root.resizable(False, False)
         self.disks: dict[str, Disk] = {}
         self.selected = StringVar()
-        self.status = StringVar(value="Insérez une microSD dans le lecteur USB puis actualisez.")
+        self.status = StringVar(value="Insérez une microSD puis actualisez.")
         self.wifi_name = active_wifi_profile()
         self.copy_wifi = StringVar(value="1" if self.wifi_name else "0")
         self.busy = False
 
         style = ttk.Style()
-        style.configure("TButton", font=("DejaVu Sans", 12), padding=8)
-        style.configure("Title.TLabel", font=("DejaVu Sans", 16, "bold"))
+        style.configure("TButton", font=("DejaVu Sans", 10), padding=(7, 4))
+        style.configure("Title.TLabel", font=("DejaVu Sans", 14, "bold"))
 
-        frame = ttk.Frame(root, padding=12)
+        frame = ttk.Frame(root, padding=(10, 7))
         frame.pack(fill=BOTH, expand=True)
         ttk.Label(frame, text="Créer une carte microSD EtR", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             frame,
-            text="La carte sera clonée, nettoyée et prête pour un EtR sans écran.",
-            wraplength=450,
-        ).pack(anchor="w", pady=(4, 10))
+            text="Effacement, clonage et préparation automatique.",
+            wraplength=445,
+        ).pack(anchor="w", pady=(1, 5))
 
         row = ttk.Frame(frame)
         row.pack(fill="x")
-        self.combo = ttk.Combobox(row, textvariable=self.selected, state="readonly", font=("DejaVu Sans", 11))
+        self.combo = ttk.Combobox(
+            row,
+            textvariable=self.selected,
+            state="readonly",
+            font=("DejaVu Sans", 9),
+        )
         self.combo.pack(side=LEFT, fill="x", expand=True)
-        ttk.Button(row, text="Actualiser", command=self.refresh).pack(side=RIGHT, padx=(8, 0))
+        ttk.Button(row, text="Actualiser", command=self.refresh).pack(side=RIGHT, padx=(6, 0))
 
         wifi_text = (
-            f"Copier le Wi-Fi actif : {self.wifi_name}" if self.wifi_name else "Aucun Wi-Fi actif : démarrage Ethernet conseillé"
+            f"Copier le Wi-Fi actif : {self.wifi_name}"
+            if self.wifi_name
+            else "Aucun Wi-Fi actif : Ethernet conseillé"
         )
         self.wifi_check = ttk.Checkbutton(
             frame,
@@ -104,20 +129,22 @@ class FactoryApp:
             onvalue="1",
             offvalue="0",
         )
-        self.wifi_check.pack(anchor="w", pady=10)
+        self.wifi_check.pack(anchor="w", pady=(4, 3))
         if not self.wifi_name:
             self.wifi_check.state(["disabled"])
 
         self.progress = ttk.Progressbar(frame, mode="indeterminate")
-        self.progress.pack(fill="x", pady=(2, 8))
-        ttk.Label(frame, textvariable=self.status, wraplength=450, justify="left").pack(anchor="w", fill="x")
+        self.progress.pack(fill="x", pady=(0, 3))
+        ttk.Label(frame, textvariable=self.status, wraplength=445, justify="left").pack(
+            anchor="w", fill="x"
+        )
 
         buttons = ttk.Frame(frame)
-        buttons.pack(side="bottom", fill="x", pady=(10, 0))
+        buttons.pack(side="bottom", fill="x", pady=(5, 0))
         self.close_button = ttk.Button(buttons, text="Fermer", command=root.destroy)
-        self.close_button.pack(side=LEFT, fill="x", expand=True, padx=(0, 6))
+        self.close_button.pack(side=LEFT, fill="x", expand=True, padx=(0, 4))
         self.create_button = ttk.Button(buttons, text="PRÉPARER LA CARTE", command=self.start)
-        self.create_button.pack(side=RIGHT, fill="x", expand=True, padx=(6, 0))
+        self.create_button.pack(side=RIGHT, fill="x", expand=True, padx=(4, 0))
         self.refresh()
 
     def refresh(self) -> None:
@@ -132,7 +159,9 @@ class FactoryApp:
             self.combo["values"] = labels
             self.selected.set(labels[0] if labels else "")
             self.status.set(
-                f"{len(labels)} carte amovible détectée." if len(labels) == 1 else f"{len(labels)} cartes amovibles détectées."
+                f"{len(labels)} carte amovible détectée."
+                if len(labels) == 1
+                else f"{len(labels)} cartes amovibles détectées."
             )
         except Exception as exc:
             self.status.set(f"Détection impossible : {exc}")
