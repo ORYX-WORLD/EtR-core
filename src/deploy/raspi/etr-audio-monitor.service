@@ -1,0 +1,25 @@
+[Unit]
+Description=Capture et supervision du microphone EtR
+After=user@1000.service pipewire.service pipewire-pulse.service wireplumber.service
+Wants=user@1000.service
+
+[Service]
+Type=simple
+User=oryx
+Group=oryx
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+WorkingDirectory=/home/oryx/EtR-core
+ExecStart=/usr/bin/python3 /home/oryx/EtR-core/src/audio_monitor.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/etr-core /run/etr-core
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
