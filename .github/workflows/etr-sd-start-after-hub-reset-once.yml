@@ -1,0 +1,231 @@
+name: Démarrer la fabrication microSD après récupération USB
+
+on:
+  push:
+    branches:
+      - ops/sd-retry-current-reader
+    paths:
+      - .github/workflows/etr-sd-start-after-hub-reset-once.yml
+
+concurrency:
+  group: etr-sd-start-after-hub-reset
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  start:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 12
+    env:
+      REPO: /home/oryx/EtR-core
+      TARGET: /dev/sda
+      EXPECTED_SIZE: "31268536320"
+      REPORT_BRANCH: ops/sd-retry-current-reader
+
+    steps:
+      - name: Vérifier le lecteur et installer la fabrique prudente
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-sd-start
+          date +%s > /tmp/etr-sd-start/start-epoch
+          lsusb -d 14cd:1212 > /tmp/etr-sd-start/reader.txt
+          test -b "$TARGET"
+          size=$(sudo blockdev --getsize64 "$TARGET")
+          [ "$size" = "$EXPECTED_SIZE" ]
+          [ "$(lsblk -ndo TRAN "$TARGET" | xargs)" = usb ]
+          [ "$(findmnt -n -o SOURCE / | sed -E 's/p?[0-9]+$//')" != "$TARGET" ]
+
+          sudo systemctl stop etr-sd-factory.service etr-sd-factory-worker.service 2>/dev/null || true
+          sudo sync
+          sudo -u oryx -H git -C "$REPO" remote set-url origin https://github.com/ORYX-WORLD/EtR-core.git
+          if [ -n "$(sudo -u oryx -H git -C "$REPO" status --porcelain)" ]; then
+            sudo -u oryx -H git -C "$REPO" stash push --include-untracked -m "Sauvegarde avant fabrication SD $(date -u +%Y%m%dT%H%M%SZ)"
+          fi
+          sudo -u oryx -H git -C "$REPO" fetch origin main
+          sudo -u oryx -H git -C "$REPO" checkout main
+          sudo -u oryx -H git -C "$REPO" reset --hard origin/main
+          sudo -u oryx -H git -C "$REPO" rev-parse HEAD > /tmp/etr-sd-start/installed-commit
+
+          sudo install -m 755 "$REPO/src/deploy/raspi/etr-sd-factory-cleanup.sh" /usr/local/bin/etr-sd-factory-cleanup
+          sudo install -m 644 "$REPO/src/deploy/raspi/etr-sd-factory-worker.service" /etc/systemd/system/etr-sd-factory-worker.service
+          sudo install -m 644 "$REPO/src/deploy/raspi/etr-sd-factory.service" /etc/systemd/system/etr-sd-factory.service
+          sudo install -m 755 "$REPO/src/deploy/raspi/etr-sd-factory-launch.sh" /usr/local/bin/etr-sd-factory-launch.sh
+          sudo systemctl daemon-reload
+          sudo systemctl reset-failed etr-sd-factory-worker.service etr-sd-factory.service 2>/dev/null || true
+
+      - name: Étape 1 — supprimer les données
+        id: erase
+        shell: bash
+        run: |
+          set -euo pipefail
+          for partition in "${TARGET}"?*; do
+            [ -b "$partition" ] || continue
+            while read -r mountpoint; do
+              [ -n "$mountpoint" ] || continue
+              sudo umount "$mountpoint" 2>/dev/null || sudo umount -l "$mountpoint"
+            done < <(findmnt -rn -S "$partition" -o TARGET || true)
+          done
+          sudo sync
+          sudo rm -rf /run/etr-sd-factory/job-* /run/etr-sd-factory/repo-snapshot-*
+          sudo rm -f /var/lib/etr-core/sd-factory-request.json \
+                       /var/lib/etr-core/sd-factory-state.json \
+                       /var/lib/etr-core/sd-factory-rsync.log
+
+          echo 64 | sudo tee /sys/block/sda/queue/max_sectors_kb >/dev/null 2>&1 || true
+          echo 128 | sudo tee /sys/block/sda/queue/read_ahead_kb >/dev/null 2>&1 || true
+          if [ -w /sys/block/sda/device/queue_depth ]; then
+            echo 1 | sudo tee /sys/block/sda/device/queue_depth >/dev/null || true
+          fi
+
+          for attempt in $(seq 1 8); do
+            [ "$(sudo blockdev --getsize64 "$TARGET" 2>/dev/null || echo 0)" = "$EXPECTED_SIZE" ]
+            sleep 1
+          done
+          sudo wipefs --all --force "$TARGET"
+          sudo dd if=/dev/zero of="$TARGET" bs=1M count=16 oflag=direct,dsync status=progress
+          disk_mib=$((EXPECTED_SIZE / 1024 / 1024))
+          sudo dd if=/dev/zero of="$TARGET" bs=1M seek=$((disk_mib - 16)) count=16 oflag=direct,dsync status=progress
+          sudo sync
+          sudo blockdev --rereadpt "$TARGET" 2>/dev/null || true
+          sudo udevadm settle || true
+          [ "$(sudo blockdev --getsize64 "$TARGET" 2>/dev/null || echo 0)" = "$EXPECTED_SIZE" ]
+          echo "status=success" >> "$GITHUB_OUTPUT"
+
+      - name: Étapes 2 et 3 — lancer formatage et écriture
+        id: worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$REPO"
+          sudo .venv/bin/python - <<'PY' > /tmp/etr-sd-start/request.json
+          import json, uuid
+          from src.deploy.raspi import etr_sd_factory_core as core
+          from src.deploy.raspi.etr_sd_factory_state import write_request
+          devices=core.lsblk_data()
+          source=core.source_disk(devices)
+          matches=[d for d in core.candidate_disks(devices, source) if d.path == '/dev/sda' and d.size == 31268536320]
+          if len(matches) != 1:
+              raise SystemExit(f'Cible non sûre: {[(d.path,d.size,d.transport,d.removable) for d in core.candidate_disks(devices, source)]}')
+          disk=matches[0]
+          request={
+              'job_id':str(uuid.uuid4()),
+              'device':disk.path,
+              'disk_label':disk.label,
+              'size_bytes':disk.size,
+              'copy_wifi':bool(core.active_wifi_profile()),
+          }
+          write_request(request)
+          print(json.dumps(request,ensure_ascii=False,indent=2))
+          PY
+          job_id=$(python3 -c 'import json; print(json.load(open("/tmp/etr-sd-start/request.json"))["job_id"])')
+          echo "job_id=$job_id" >> "$GITHUB_OUTPUT"
+          sudo systemctl reset-failed etr-sd-factory-worker.service etr-sd-factory.service 2>/dev/null || true
+          sudo systemctl start --no-block etr-sd-factory-worker.service
+          sudo systemctl restart etr-sd-factory.service
+
+      - name: Confirmer que l'écriture a réellement commencé
+        id: confirm
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > /tmp/etr-sd-start/status-history.txt
+          accepted=false
+          terminal=false
+          final_status=""
+          for attempt in $(seq 1 240); do
+            if sudo test -s /var/lib/etr-core/sd-factory-state.json; then
+              sudo cat /var/lib/etr-core/sd-factory-state.json > /tmp/etr-sd-start/state.json
+              status=$(python3 -c 'import json; print(json.load(open("/tmp/etr-sd-start/state.json")).get("status", ""))')
+              printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$status" >> /tmp/etr-sd-start/status-history.txt
+              case "$status" in
+                copying_root|copying_boot|configuring|verifying|syncing|finalizing|ready)
+                  accepted=true
+                  final_status="$status"
+                  break
+                  ;;
+                failed|cancelled|interrupted)
+                  terminal=true
+                  final_status="$status"
+                  break
+                  ;;
+              esac
+            fi
+            sleep 1
+          done
+          echo "accepted=$accepted" >> "$GITHUB_OUTPUT"
+          echo "terminal=$terminal" >> "$GITHUB_OUTPUT"
+          echo "status=$final_status" >> "$GITHUB_OUTPUT"
+          [ "$accepted" = true ]
+
+      - name: Publier l'état de départ et retirer ce workflow ponctuel
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+          ERASE_STATUS: ${{ steps.erase.outputs.status }}
+          JOB_ID: ${{ steps.worker.outputs.job_id }}
+          ACCEPTED: ${{ steps.confirm.outputs.accepted }}
+          OBSERVED_STATUS: ${{ steps.confirm.outputs.status }}
+        run: |
+          set -euo pipefail
+          start_epoch=$(cat /tmp/etr-sd-start/start-epoch 2>/dev/null || echo 0)
+          sudo cat /var/lib/etr-core/sd-factory-state.json > /tmp/etr-sd-start/state.json 2>/dev/null || printf '{}\n' > /tmp/etr-sd-start/state.json
+          sudo cat /var/lib/etr-core/sd-factory-rsync.log > /tmp/etr-sd-start/rsync.log 2>/dev/null || : > /tmp/etr-sd-start/rsync.log
+          sudo systemctl show etr-sd-factory-worker.service -p MainPID -p ActiveState -p SubState -p Result > /tmp/etr-sd-start/worker.txt 2>&1 || true
+          sudo journalctl -u etr-sd-factory-worker.service --since "@${start_epoch}" --no-pager > /tmp/etr-sd-start/journal.txt 2>&1 || true
+          sudo journalctl -k --since "@${start_epoch}" --no-pager > /tmp/etr-sd-start/kernel.txt 2>&1 || true
+          lsusb > /tmp/etr-sd-start/lsusb.txt || true
+          lsusb -t > /tmp/etr-sd-start/lsusb-tree.txt || true
+          lsblk -b -o NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS,TRAN,RM,MODEL > /tmp/etr-sd-start/lsblk.txt
+
+          python3 - <<'PY' > /tmp/etr-sd-current-reader-live.json
+          import json, os, re
+          from datetime import datetime, timezone
+          from pathlib import Path
+          def data(path):
+              try:return json.loads(Path(path).read_text(encoding='utf-8'))
+              except Exception:return {}
+          def text(path, limit=20000):
+              try:return Path(path).read_text(encoding='utf-8',errors='replace')[-limit:]
+              except OSError:return ''
+          kernel=text('/tmp/etr-sd-start/kernel.txt')
+          print(json.dumps({
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'jobStatus':os.getenv('JOB_STATUS'),
+              'eraseStatus':os.getenv('ERASE_STATUS') or None,
+              'jobId':os.getenv('JOB_ID') or None,
+              'writingAccepted':os.getenv('ACCEPTED') == 'true',
+              'observedStatus':os.getenv('OBSERVED_STATUS') or None,
+              'state':data('/tmp/etr-sd-start/state.json'),
+              'capacityResetDetected':bool(re.search(r'capacity change from .* to 0|access beyond end of device',kernel,re.I)),
+              'ioErrorDetected':bool(re.search(r'I/O error|Input/output error|Buffer I/O error',kernel,re.I)),
+              'installedCommit':text('/tmp/etr-sd-start/installed-commit').strip() or None,
+              'statusHistory':text('/tmp/etr-sd-start/status-history.txt'),
+              'reader':text('/tmp/etr-sd-start/reader.txt'),
+              'worker':text('/tmp/etr-sd-start/worker.txt'),
+              'journal':text('/tmp/etr-sd-start/journal.txt'),
+              'kernel':kernel,
+              'rsyncLogTail':text('/tmp/etr-sd-start/rsync.log'),
+              'lsusb':text('/tmp/etr-sd-start/lsusb.txt'),
+              'lsusbTree':text('/tmp/etr-sd-start/lsusb-tree.txt'),
+              'lsblk':text('/tmp/etr-sd-start/lsblk.txt'),
+          },ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-sd-current-reader-live.json
+
+          rm -rf /tmp/etr-sd-start-report
+          git clone --depth 1 --branch "$REPORT_BRANCH" "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/etr-sd-start-report
+          cd /tmp/etr-sd-start-report
+          mkdir -p .github/deployment
+          cp /tmp/etr-sd-current-reader-live.json .github/deployment/etr-sd-current-reader-live.json
+          rm -f .github/workflows/etr-sd-start-after-hub-reset-once.yml
+          git config user.name 'EtR SD start after USB recovery'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/deployment/etr-sd-current-reader-live.json .github/workflows/etr-sd-start-after-hub-reset-once.yml
+          git commit -m 'chore: record SD manufacturing start and remove one-shot workflow [skip ci]'
+          git pull --rebase origin "$REPORT_BRANCH"
+          git push origin HEAD:"$REPORT_BRANCH"
