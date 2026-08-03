@@ -1,0 +1,25 @@
+{
+  "checkedAt": "2026-08-03T13:50:11.811449+00:00",
+  "state": {
+    "active": false,
+    "copy_wifi": true,
+    "device": "/dev/sda",
+    "disk_label": "Storage Device — 29.1 Gio — /dev/sda",
+    "error": "CalledProcessError: Command '['/usr/bin/git', '-C', '/home/oryx/EtR-core', 'rev-parse', 'HEAD']' returned non-zero exit status 128.",
+    "eta": null,
+    "finished_at": "2026-08-03T13:45:58.555085+00:00",
+    "job_id": "7768528f-5567-4a84-853f-1b8bdd22f212",
+    "message": "La préparation de la microSD a échoué. Détail technique : /usr/bin/git -C /home/oryx/EtR-core rev-parse HEAD fatal: detected dubious ownership in repository at '/home/oryx/EtR-core' To add an exception for this directory, call: git config --global --add safe.directory /home/oryx/EtR-core Command '['/usr/bin/git', '-C', '/home/oryx/EtR-core', 'rev-parse', 'HEAD']' returned …",
+    "progress_percent": 0.0,
+    "schema_version": "1.0",
+    "size_bytes": 31268536320,
+    "speed": null,
+    "stage": "Fabrication en échec",
+    "started_at": "2026-08-03T13:45:45.379492+00:00",
+    "status": "failed",
+    "updated_at": "2026-08-03T13:45:58.555135+00:00"
+  },
+  "request": {},
+  "rsyncLog": "",
+  "journal": "Starting etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR...\netr-sd-factory-worker.service: Main process exited, code=exited, status=1/FAILURE\netr-sd-factory-worker.service: Failed with result 'exit-code'.\nFailed to start etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR.\netr-sd-factory-worker.service: Consumed 1.122s CPU time.\n"
+}
