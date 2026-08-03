@@ -35,6 +35,17 @@ if [ -f "$REPO_DIR/src/deploy/raspi/etr-dashboard.desktop" ]; then
     /home/oryx/.local/share/applications/etr-dashboard.desktop
 fi
 
+# La fabrication de microSD est volontairement séparée de l'interface EtR :
+# elle n'est accessible qu'après retour au bureau Linux local.
+if [ -f "$REPO_DIR/src/deploy/raspi/etr-sd-factory.desktop" ]; then
+  install -m 755 -o oryx -g oryx \
+    "$REPO_DIR/src/deploy/raspi/etr-sd-factory.desktop" \
+    /home/oryx/Desktop/Creer-une-carte-EtR.desktop
+  install -m 644 -o oryx -g oryx \
+    "$REPO_DIR/src/deploy/raspi/etr-sd-factory.desktop" \
+    /home/oryx/.local/share/applications/etr-sd-factory.desktop
+fi
+
 touch /home/oryx/.Xauthority
 chown oryx:oryx /home/oryx/.Xauthority
 rm -f /tmp/.X1-lock
