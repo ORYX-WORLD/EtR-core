@@ -13,6 +13,7 @@ const FACTORY_TICKET_MIN_SECONDS = 10 * 60;
 const FACTORY_TICKET_MAX_SECONDS = 7 * 24 * 60 * 60;
 const FACTORY_TICKET_DEFAULT_SECONDS = 24 * 60 * 60;
 const DEFAULT_FACTORY_INSTALLATION = "etr-0000dd7429c2";
+const DEFAULT_FACTORY_INSTALLATIONS = `${DEFAULT_FACTORY_INSTALLATION},etr-core`;
 
 function publicKeyDetails(publicKeyPem) {
   const pem = String(publicKeyPem || "").trim() + "\n";
@@ -91,7 +92,7 @@ export function createDeviceBootstrapService({
   now = () => Date.now(),
   githubRepository = process.env.ETR_GITHUB_REPOSITORY || "ORYX-WORLD/EtR-core",
   githubJwks = GITHUB_JWKS,
-  factoryInstallations = process.env.ETR_FACTORY_INSTALLATION_IDS || DEFAULT_FACTORY_INSTALLATION,
+  factoryInstallations = process.env.ETR_FACTORY_INSTALLATION_IDS || DEFAULT_FACTORY_INSTALLATIONS,
   randomBytes = crypto.randomBytes
 }) {
   if (!db?.ref) throw new Error("Device bootstrap requires Firebase Database");
