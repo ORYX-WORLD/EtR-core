@@ -45,6 +45,9 @@ except ModuleNotFoundError:
     )
 
 WORKER_SERVICE = "etr-sd-factory-worker.service"
+ACTIVE_SERVICE_STATES = {"active", "activating", "reloading", "deactivating"}
+STOPPED_SERVICE_STATES = {"inactive", "failed"}
+INTERRUPTION_CONFIRM_POLLS = 10
 
 
 def fit_small_screen(window: Tk | Toplevel, preferred_width: int, preferred_height: int) -> None:
@@ -67,8 +70,15 @@ def systemctl(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def worker_service_state() -> str:
+    result = systemctl("show", "--property=ActiveState", "--value", WORKER_SERVICE)
+    if result.returncode != 0:
+        return "unknown"
+    return result.stdout.strip().lower() or "unknown"
+
+
 def worker_active() -> bool:
-    return systemctl("is-active", "--quiet", WORKER_SERVICE).returncode == 0
+    return worker_service_state() in ACTIVE_SERVICE_STATES
 
 
 class ConfirmDialog(Toplevel):
@@ -281,16 +291,17 @@ class FactoryApp:
             state = read_state()
             status = str(state.get("status") or "")
             active = status in RUNNING_STATUSES or bool(state.get("active"))
-            service_active = worker_active()
+            service_state = worker_service_state()
+            service_active = service_state in ACTIVE_SERVICE_STATES
 
-            if active and not service_active:
+            if active and service_state in STOPPED_SERVICE_STATES:
                 self.inactive_polls += 1
-                if self.inactive_polls >= 4:
+                if self.inactive_polls >= INTERRUPTION_CONFIRM_POLLS:
                     state = terminal_state(
                         state,
                         status="interrupted",
                         message="Le moteur s'est arrêté avant la validation finale. Relancez la fabrication depuis le début.",
-                        error="worker_service_inactive",
+                        error=f"worker_service_{service_state}",
                     )
                     write_state(state)
                     status = "interrupted"
