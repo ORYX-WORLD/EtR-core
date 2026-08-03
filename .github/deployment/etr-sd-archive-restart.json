@@ -1,0 +1,33 @@
+{
+  "checkedAt": "2026-08-03T14:16:21.914967+00:00",
+  "jobStatus": "failure",
+  "jobId": "b1b0d0f0-1e00-40ce-bbd3-63520bf36e0c",
+  "started": false,
+  "terminalFailure": true,
+  "persistedStatus": null,
+  "installedCommit": "97291c335283d7e9e5508642bed050e3b7cccae1",
+  "snapshotPreflight": "snapshot_archive=ok\nrevision=97291c335283d7e9e5508642bed050e3b7cccae1\npath=/run/etr-sd-factory/repo-snapshot-j6x_k9l8/EtR-core\n",
+  "state": {
+    "active": false,
+    "copy_wifi": true,
+    "device": "/dev/sda",
+    "disk_label": "Storage Device — 29.1 Gio — /dev/sda",
+    "error": "worker_service_inactive",
+    "eta": null,
+    "finished_at": "2026-08-03T14:16:20.718162+00:00",
+    "job_id": "b1b0d0f0-1e00-40ce-bbd3-63520bf36e0c",
+    "message": "Le moteur s'est arrêté avant la validation finale. Relancez la fabrication depuis le début.",
+    "progress_percent": 0.0,
+    "schema_version": "1.0",
+    "size_bytes": 31268536320,
+    "speed": null,
+    "stage": "Fabrication interrompue",
+    "started_at": "2026-08-03T14:16:18.522641+00:00",
+    "status": "interrupted",
+    "updated_at": "2026-08-03T14:16:20.718283+00:00"
+  },
+  "rsyncLogTail": "",
+  "worker": "● etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR\n     Loaded: loaded (/etc/systemd/system/etr-sd-factory-worker.service; disabled; preset: enabled)\n     Active: activating (start) since Mon 2026-08-03 16:16:17 CEST; 3s ago\n        Job: 180812\n Invocation: e4bd08e87fbd47988457d3fcaea6b7ca\n   Main PID: 94319 (python)\n      Tasks: 1 (limit: 4455)\n        CPU: 681ms\n     CGroup: /system.slice/etr-sd-factory-worker.service\n             └─94319 /home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/deploy/raspi/etr_sd_factory_worker.py\n\nAug 03 16:16:17 etr-core systemd[1]: Starting etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR...\n",
+  "journal": "Aug 03 15:45:44 etr-core systemd[1]: Starting etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR...\nAug 03 15:45:58 etr-core systemd[1]: etr-sd-factory-worker.service: Main process exited, code=exited, status=1/FAILURE\nAug 03 15:45:58 etr-core systemd[1]: etr-sd-factory-worker.service: Failed with result 'exit-code'.\nAug 03 15:45:58 etr-core systemd[1]: Failed to start etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR.\nAug 03 15:45:58 etr-core systemd[1]: etr-sd-factory-worker.service: Consumed 1.122s CPU time.\nAug 03 15:53:20 etr-core systemd[1]: Starting etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR...\nAug 03 15:53:34 etr-core systemd[1]: etr-sd-factory-worker.service: Main process exited, code=exited, status=1/FAILURE\nAug 03 15:53:34 etr-core systemd[1]: etr-sd-factory-worker.service: Failed with result 'exit-code'.\nAug 03 15:53:34 etr-core systemd[1]: Failed to start etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR.\nAug 03 15:53:34 etr-core systemd[1]: etr-sd-factory-worker.service: Consumed 1.241s CPU time.\nAug 03 15:59:57 etr-core systemd[1]: Starting etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR...\nAug 03 16:00:09 etr-core runuser[92544]: pam_keyinit(runuser:session): Unable to change UID to 1000 temporarily\nAug 03 16:00:09 etr-core runuser[92544]: pam_unix(runuser:session): session opened for user oryx(uid=1000) by (uid=0)\nAug 03 16:00:09 etr-core runuser[92544]: pam_unix(runuser:session): session closed for user oryx\nAug 03 16:00:10 etr-core systemd[1]: etr-sd-factory-worker.service: Main process exited, code=exited, status=1/FAILURE\nAug 03 16:00:10 etr-core systemd[1]: etr-sd-factory-worker.service: Failed with result 'exit-code'.\nAug 03 16:00:10 etr-core systemd[1]: Failed to start etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR.\nAug 03 16:00:10 etr-core systemd[1]: etr-sd-factory-worker.service: Consumed 1.202s CPU time.\nAug 03 16:16:17 etr-core systemd[1]: Starting etr-sd-factory-worker.service - Moteur persistant de fabrication microSD EtR...\n",
+  "lsblk": "NAME        PATH                  SIZE TYPE FSTYPE LABEL  MOUNTPOINTS    TRAN RM MODEL\nloop0       /dev/loop0      2147483648 loop swap                               0 \nsda         /dev/sda       31268536320 disk                              usb   1 Storage Device\n├─sda1      /dev/sda1        536870912 part vfat   bootfs                      1 \n└─sda2      /dev/sda2      30727471104 part ext4   rootfs                      1 \nmmcblk0     /dev/mmcblk0   31268536320 disk                              mmc   0 \n├─mmcblk0p1 /dev/mmcblk0p1   536870912 part vfat   bootfs /boot/firmware mmc   0 \n└─mmcblk0p2 /dev/mmcblk0p2 30723276800 part ext4   rootfs /              mmc   0 \nzram0       /dev/zram0      2147483648 disk swap   zram0  [SWAP]               0 \n"
+}
