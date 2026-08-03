@@ -60,6 +60,22 @@ class SdFactoryInstallContractTests(unittest.TestCase):
         self.assertIn("etr-sd-factory-worker.service", launcher)
         self.assertIn("La fabrication continue même si cette fenêtre est fermée", interface)
 
+    def test_copy_excludes_session_mounts_and_handles_partial_rsync(self):
+        copy_engine = (ROOT / "src/deploy/raspi/etr_sd_factory_fast.py").read_text(encoding="utf-8")
+        for marker in [
+            '"/home/oryx/.gvfs"',
+            '"/home/oryx/.gvfs/***"',
+            '"/home/oryx/.local/share/gvfs-metadata/***"',
+            "RSYNC_LOG",
+            "RETRYABLE_CODES = {23, 24}",
+            "MAX_RSYNC_ATTEMPTS = 3",
+            "Synchronisation finale : reprise automatique",
+            "sd-factory-rsync.log",
+        ]:
+            self.assertIn(marker, copy_engine)
+        self.assertIn("--delete-delay", copy_engine)
+        self.assertIn("_concise_rsync_error", copy_engine)
+
     def test_gateway_exposes_one_time_factory_provisioning_contract(self):
         bootstrap = (ROOT / "gateway/device-bootstrap.mjs").read_text(encoding="utf-8")
         routes = (ROOT / "gateway/enrollment-http.mjs").read_text(encoding="utf-8")
