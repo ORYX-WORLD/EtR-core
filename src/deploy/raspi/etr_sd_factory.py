@@ -18,6 +18,7 @@ try:
         prepare_card,
         source_disk,
     )
+    from src.deploy.raspi.etr_sd_factory_diagnostics import explain_creation_error
 except ModuleNotFoundError:
     from etr_sd_factory_core import (
         Disk,
@@ -28,6 +29,7 @@ except ModuleNotFoundError:
         prepare_card,
         source_disk,
     )
+    from etr_sd_factory_diagnostics import explain_creation_error
 
 
 def fit_small_screen(window: Tk | Toplevel, preferred_width: int, preferred_height: int) -> None:
@@ -195,8 +197,9 @@ class FactoryApp:
                 progress=self.set_status,
             )
         except Exception as exc:
-            self.root.after(0, messagebox.showerror, "Création impossible", str(exc))
-            self.set_status(f"Échec : {exc}")
+            message = explain_creation_error(exc, disk.path)
+            self.root.after(0, messagebox.showerror, "Création impossible", message)
+            self.set_status(f"Échec : {message}")
         else:
             self.root.after(
                 0,
