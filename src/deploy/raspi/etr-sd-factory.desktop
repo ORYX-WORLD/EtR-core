@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Créer une carte EtR
+Name[fr]=Créer une carte EtR
+Comment=Préparer automatiquement une microSD pour un nouvel EtR
+Comment[fr]=Préparer automatiquement une microSD pour un nouvel EtR
+Exec=/usr/local/bin/etr-sd-factory-launch.sh
+Path=/home/oryx/EtR-core
+Icon=drive-removable-media
+Terminal=false
+StartupNotify=true
+Categories=System;Utility;

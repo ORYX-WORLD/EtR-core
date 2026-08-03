@@ -12,6 +12,8 @@ EtR est le logiciel embarqué du Raspberry Pi ORYX. Le dépôt est la source de 
 | Portail Wi-Fi | `etr-wifi-portal.service` | `127.0.0.1:8090` | `src/wifi_portal.py` |
 | Bureau SPI | `spi-desktop.service` | écran local | `src/deploy/raspi/` |
 | Kiosque Chromium | `etr-kiosk.service` | écran local | `src/deploy/raspi/` |
+| Fabrique microSD | `etr-sd-factory.service` | bureau Linux local | `src/deploy/raspi/etr_sd_factory.py` |
+| Premier démarrage usine | `etr-factory-firstboot.service` | HTTPS sortant | `src/deploy/raspi/etr_factory_firstboot.py` |
 | VNC EtR | `etr-vnc.service` | `127.0.0.1:5901` | `src/deploy/raspi/` |
 | Relais écran | `etr-remote-screen.service` | WSS sortant | `src/remote_screen_agent.py` |
 | Passerelle Cloud | Cloud Run | HTTPS/WSS | `gateway/` |
@@ -25,6 +27,12 @@ Un EtR neuf génère localement sa clé Ed25519 puis demande automatiquement un 
 La session appareil est émise sans `signBlob` : la passerelle crée ou renouvelle un compte technique déterministe avec un mot de passe éphémère aléatoire de 384 bits, applique les claims EtR, effectue la connexion Firebase et remet uniquement l'ID token et le refresh token au Raspberry authentifié. Le mot de passe n'est ni retourné ni conservé par EtR.
 
 Le protocole, ses propriétés cryptographiques, ses données et ses preuves de déploiement sont décrits dans [`docs/SECURE_ENROLLMENT.md`](docs/SECURE_ENROLLMENT.md).
+
+## Fabrique de cartes microSD
+
+Le raccourci **Créer une carte EtR** est installé exclusivement sur le bureau Linux local. Il détecte uniquement les disques USB/amovibles et refuse le disque qui exécute EtR. La carte choisie est repartitionnée, reçoit une copie cohérente du système de référence, puis toutes les données uniques du banc sont supprimées : jetons Firebase, clé privée Ed25519, état d'enrôlement, identité machine, clés SSH, profils Chromium et runner GitHub.
+
+Le système logiciel reste identique d'une carte à l'autre, mais chaque carte reçoit un ticket de fabrication aléatoire de 256 bits, stocké uniquement sous forme hachée côté Cloud et consommable une seule fois. Au premier démarrage dans le nouveau Raspberry, la carte génère une nouvelle identité Ed25519 liée au numéro de série matériel, échange le ticket, supprime celui-ci puis reprend le parcours d'activation normal. Le Wi-Fi actif du banc peut être copié sans liaison à l'adresse MAC ; sinon le nouvel EtR démarre par Ethernet ou par son portail Wi-Fi.
 
 ## Contrat de télémétrie
 
@@ -40,7 +48,7 @@ Le déploiement GitHub Actions sur le runner ARM64 vérifie ensuite :
 
 - les unités systemd, y compris le bridge Firebase sous l'utilisateur `oryx` ;
 - les endpoints de santé, le contrat API et `/api/v1/enrollment` ;
-- la présence du dashboard et du panneau d'association versionnés ;
+- la présence du dashboard, du panneau d'association et de la fabrique microSD versionnés ;
 - les permissions `root:oryx 0640` des variables et `oryx:oryx 0600` des états ;
 - le portail Wi-Fi tactile et Chromium ;
 - l'absence d'exposition des ports 8000, 8080 et 5901 ;
@@ -65,4 +73,4 @@ npm test
 
 Les secrets ne sont jamais versionnés. Les variables restent dans `/etc/etr-core/firebase-bridge.env`, propriété `root:oryx` avec le mode `0640`. Les jetons, codes temporaires et états d'exécution restent dans `/var/lib/etr-core`, propriété `oryx:oryx` avec le mode `0600`.
 
-Le bridge Firebase fonctionne sous l'utilisateur non privilégié `oryx`. Aucun mot de passe, jeton Firebase, clé WSS, code d'activation, jeton de rotation ou clé privée ne doit être ajouté au dépôt.
+Le bridge Firebase fonctionne sous l'utilisateur non privilégié `oryx`. Aucun mot de passe, jeton Firebase, clé WSS, code d'activation, jeton de rotation, ticket usine ou clé privée ne doit être ajouté au dépôt.

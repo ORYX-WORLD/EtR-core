@@ -1,0 +1,1 @@
+oryx ALL=(root) NOPASSWD: /usr/bin/systemctl start etr-sd-factory.service, /usr/bin/systemctl restart etr-sd-factory.service

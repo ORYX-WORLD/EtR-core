@@ -9,6 +9,10 @@ const GITHUB_JWKS = createRemoteJWKSet(new URL("https://token.actions.githubuser
 });
 const SIGNATURE_WINDOW_SECONDS = 5 * 60;
 const NONCE_TTL_MS = 10 * 60 * 1000;
+const FACTORY_TICKET_MIN_SECONDS = 10 * 60;
+const FACTORY_TICKET_MAX_SECONDS = 7 * 24 * 60 * 60;
+const FACTORY_TICKET_DEFAULT_SECONDS = 24 * 60 * 60;
+const DEFAULT_FACTORY_INSTALLATION = "etr-0000dd7429c2";
 
 function publicKeyDetails(publicKeyPem) {
   const pem = String(publicKeyPem || "").trim() + "\n";
@@ -61,14 +65,38 @@ function safeJsonError(res, error) {
   return res.status(500).json({ error: "Erreur d’identité EtR", code: "device_bootstrap_error" });
 }
 
+function normalizeFactoryInstallations(value) {
+  const source = Array.isArray(value) ? value : String(value || "").split(",");
+  const installations = source
+    .map(item => String(item || "").trim().toLowerCase())
+    .filter(item => /^etr-[a-z0-9._-]{4,76}$/.test(item));
+  if (!installations.length) installations.push(DEFAULT_FACTORY_INSTALLATION);
+  return new Set(installations);
+}
+
+function factoryTokenHash(token) {
+  return crypto.createHash("sha256").update(String(token || ""), "utf8").digest("hex");
+}
+
+function factoryTicketToken(value) {
+  const token = String(value || "").trim();
+  if (!/^[A-Za-z0-9_-]{40,120}$/.test(token)) {
+    throw clientError(400, "factory_ticket_invalid", "Ticket de fabrication invalide");
+  }
+  return token;
+}
+
 export function createDeviceBootstrapService({
   db,
   now = () => Date.now(),
   githubRepository = process.env.ETR_GITHUB_REPOSITORY || "ORYX-WORLD/EtR-core",
-  githubJwks = GITHUB_JWKS
+  githubJwks = GITHUB_JWKS,
+  factoryInstallations = process.env.ETR_FACTORY_INSTALLATION_IDS || DEFAULT_FACTORY_INSTALLATION,
+  randomBytes = crypto.randomBytes
 }) {
   if (!db?.ref) throw new Error("Device bootstrap requires Firebase Database");
   const usedNonces = new Map();
+  const allowedFactoryInstallations = normalizeFactoryInstallations(factoryInstallations);
 
   function cleanupNonces(timestamp) {
     if (usedNonces.size < 500) return;
@@ -135,6 +163,133 @@ export function createDeviceBootstrapService({
     };
   }
 
+  function verifyFactoryPrincipal(decodedUser) {
+    const installationId = String(decodedUser?.installationId || "").trim().toLowerCase();
+    const uid = String(decodedUser?.uid || decodedUser?.sub || "").trim();
+    if (decodedUser?.etrDevice !== true || !uid || !allowedFactoryInstallations.has(installationId)) {
+      throw clientError(403, "factory_device_refused", "Cet EtR n’est pas autorisé à fabriquer des cartes");
+    }
+    return { installationId, uid };
+  }
+
+  async function issueFactoryTicket({ decodedUser, expiresIn } = {}) {
+    const factory = verifyFactoryPrincipal(decodedUser);
+    const requestedTtl = Number(expiresIn || FACTORY_TICKET_DEFAULT_SECONDS);
+    const ttlSeconds = Math.max(
+      FACTORY_TICKET_MIN_SECONDS,
+      Math.min(FACTORY_TICKET_MAX_SECONDS, Number.isFinite(requestedTtl) ? requestedTtl : FACTORY_TICKET_DEFAULT_SECONDS)
+    );
+    const token = randomBytes(32).toString("base64url");
+    const tokenHash = factoryTokenHash(token);
+    const issuedAtEpoch = now();
+    const expiresAtEpoch = issuedAtEpoch + ttlSeconds * 1000;
+    const issuedAt = new Date(issuedAtEpoch).toISOString();
+    const expiresAt = new Date(expiresAtEpoch).toISOString();
+    const record = {
+      version: 1,
+      status: "issued",
+      tokenHash,
+      issuedAt,
+      issuedAtEpoch,
+      expiresAt,
+      expiresAtEpoch,
+      issuedByUid: factory.uid,
+      issuedByInstallationId: factory.installationId
+    };
+    const result = await db.ref(`factoryBootstrapTickets/${tokenHash}`).transaction(current => current ? undefined : record);
+    if (!result.committed) throw new Error("factory_ticket_collision");
+    return { status: "issued", ticket: token, issuedAt, expiresAt, expiresIn: ttlSeconds };
+  }
+
+  async function redeemFactoryTicket({ ticket, serial, installationId, publicKeyPem, hostname } = {}) {
+    const normalizedTicket = factoryTicketToken(ticket);
+    const normalizedSerial = normalizeSerial(serial);
+    const expectedInstallationId = deriveInstallationId(normalizedSerial);
+    if (installationId && String(installationId) !== expectedInstallationId) {
+      throw clientError(400, "installation_mismatch", "Identifiant d’installation incohérent");
+    }
+    const serialHash = serialFingerprint(normalizedSerial);
+    const keyDetails = publicKeyDetails(publicKeyPem);
+    const tokenHash = factoryTokenHash(normalizedTicket);
+    const ticketRef = db.ref(`factoryBootstrapTickets/${tokenHash}`);
+    const existingTicket = (await ticketRef.get()).val();
+    if (!existingTicket) throw clientError(404, "factory_ticket_unknown", "Ticket de fabrication inconnu");
+    if (existingTicket.status === "used") {
+      if (existingTicket.serialHash === serialHash && existingTicket.publicKeyFingerprint === keyDetails.fingerprint) {
+        return {
+          status: "already_registered",
+          installationId: expectedInstallationId,
+          publicKeyFingerprint: keyDetails.fingerprint,
+          registeredAt: existingTicket.usedAt
+        };
+      }
+      throw clientError(409, "factory_ticket_used", "Ticket de fabrication déjà utilisé");
+    }
+    if (Number(existingTicket.expiresAtEpoch || 0) <= now()) {
+      throw clientError(410, "factory_ticket_expired", "Ticket de fabrication expiré");
+    }
+
+    const usedAt = new Date(now()).toISOString();
+    const reserved = await ticketRef.transaction(current => {
+      if (!current || current.status !== "issued" || Number(current.expiresAtEpoch || 0) <= now()) return undefined;
+      return {
+        ...current,
+        status: "used",
+        usedAt,
+        serialHash,
+        installationId: expectedInstallationId,
+        publicKeyFingerprint: keyDetails.fingerprint,
+        hostname: String(hostname || "").slice(0, 128)
+      };
+    });
+    if (!reserved.committed) {
+      const latest = (await ticketRef.get()).val();
+      if (latest?.status === "used" && latest.serialHash === serialHash && latest.publicKeyFingerprint === keyDetails.fingerprint) {
+        return {
+          status: "already_registered",
+          installationId: expectedInstallationId,
+          publicKeyFingerprint: keyDetails.fingerprint,
+          registeredAt: latest.usedAt
+        };
+      }
+      throw clientError(409, "factory_ticket_used", "Ticket de fabrication déjà utilisé");
+    }
+
+    const bootstrapRef = db.ref(`deviceBootstrap/${serialHash}`);
+    const bootstrap = await bootstrapRef.transaction(current => {
+      if (current?.publicKeyFingerprint && current.publicKeyFingerprint !== keyDetails.fingerprint) return undefined;
+      return {
+        version: 1,
+        serialHash,
+        installationId: expectedInstallationId,
+        publicKey: keyDetails.pem,
+        publicKeyFingerprint: keyDetails.fingerprint,
+        previousPublicKeyFingerprint: current?.previousPublicKeyFingerprint || null,
+        registeredAt: current?.registeredAt || usedAt,
+        repository: githubRepository,
+        provisioningMode: "factory-ticket",
+        factoryTicketHash: tokenHash,
+        factoryInstallationId: existingTicket.issuedByInstallationId,
+        factoryUid: existingTicket.issuedByUid
+      };
+    });
+    if (!bootstrap.committed) {
+      await ticketRef.transaction(current => {
+        if (current?.status !== "used" || current.serialHash !== serialHash) return current;
+        const { usedAt: _usedAt, serialHash: _serialHash, installationId: _installationId,
+          publicKeyFingerprint: _fingerprint, hostname: _hostname, ...rest } = current;
+        return { ...rest, status: "issued" };
+      });
+      throw clientError(409, "device_already_registered", "Cet EtR possède déjà une autre identité");
+    }
+    return {
+      status: "registered",
+      installationId: expectedInstallationId,
+      publicKeyFingerprint: keyDetails.fingerprint,
+      registeredAt: bootstrap.snapshot.val()?.registeredAt || usedAt
+    };
+  }
+
   async function verifyDeviceRequest(req, action) {
     const normalizedSerial = normalizeSerial(req.body?.serial);
     const serialHash = serialFingerprint(normalizedSerial);
@@ -191,7 +346,14 @@ export function createDeviceBootstrapService({
     };
   }
 
-  return { register, verifyDeviceRequest, verifyWorkflowToken };
+  return {
+    register,
+    verifyDeviceRequest,
+    verifyWorkflowToken,
+    issueFactoryTicket,
+    redeemFactoryTicket,
+    verifyFactoryPrincipal
+  };
 }
 
 export function installDeviceBootstrapRoute({ app, service }) {
@@ -216,4 +378,12 @@ export const DEVICE_BOOTSTRAP_POLICY = Object.freeze({
   signatureWindowSeconds: SIGNATURE_WINDOW_SECONDS,
   nonceTtlSeconds: Math.floor(NONCE_TTL_MS / 1000),
   githubAudience: "etr-bootstrap"
+});
+
+export const FACTORY_PROVISIONING_POLICY = Object.freeze({
+  ticketEntropyBits: 256,
+  ticketMinimumSeconds: FACTORY_TICKET_MIN_SECONDS,
+  ticketMaximumSeconds: FACTORY_TICKET_MAX_SECONDS,
+  defaultFactoryInstallation: DEFAULT_FACTORY_INSTALLATION,
+  oneTimeUse: true
 });
