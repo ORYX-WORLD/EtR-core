@@ -66,6 +66,10 @@ class SdFactoryInstallContractTests(unittest.TestCase):
             '"/home/oryx/.gvfs"',
             '"/home/oryx/.gvfs/***"',
             '"/home/oryx/.local/share/gvfs-metadata/***"',
+            '"/usr/share/doc/***"',
+            '"/usr/share/man/***"',
+            '"/usr/share/info/***"',
+            '"/var/lib/apt/lists/***"',
             "RSYNC_LOG",
             "RETRYABLE_CODES = {23, 24}",
             "MAX_RSYNC_ATTEMPTS = 3",
@@ -75,6 +79,19 @@ class SdFactoryInstallContractTests(unittest.TestCase):
             self.assertIn(marker, copy_engine)
         self.assertIn("--delete-delay", copy_engine)
         self.assertIn("_concise_rsync_error", copy_engine)
+
+    def test_conservative_reader_profile_limits_and_monitors_writes(self):
+        copy_engine = (ROOT / "src/deploy/raspi/etr_sd_factory_fast.py").read_text(encoding="utf-8")
+        for marker in [
+            'ETR_SD_RSYNC_BWLIMIT_KB", "2048"',
+            "--bwlimit=",
+            "_target_disk",
+            "_monitor_target",
+            "blockdev",
+            "Le lecteur USB ou la microSD a disparu pendant l'écriture",
+            "Copie prudente activée",
+        ]:
+            self.assertIn(marker, copy_engine)
 
     def test_repository_snapshot_uses_archive_without_identity_switch(self):
         copy_engine = (ROOT / "src/deploy/raspi/etr_sd_factory_fast.py").read_text(encoding="utf-8")
