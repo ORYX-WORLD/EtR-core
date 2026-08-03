@@ -2,6 +2,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 RECOVERY_PATH = ROOT / "src/deploy/raspi/etr_sd_factory_preparation_recovery.py"
@@ -30,6 +31,7 @@ class SdFactoryPreparationRecoveryTests(unittest.TestCase):
         for marker in [
             "class PhysicalTargetIdentity",
             "inspect_physical_target",
+            "target_capacity_matches",
             "configure_conservative_transport",
             "kernel_indicates_transport_loss",
             "recover_physical_target",
@@ -69,6 +71,31 @@ class SdFactoryPreparationRecoveryTests(unittest.TestCase):
         ]:
             self.assertIn(marker, RECOVERY)
 
+    def test_expected_size_preserves_identity_when_live_capacity_is_zero(self):
+        node = Path("/sys/bus/usb/devices/1-1.1")
+
+        def fake_read(path: Path) -> str:
+            return {
+                "idVendor": "1908",
+                "idProduct": "0226",
+                "serial": "reader-1",
+            }.get(path.name, "")
+
+        with (
+            patch.object(recovery_module, "_disk_size", return_value=0),
+            patch.object(recovery_module, "_usb_device_node", return_value=node),
+            patch.object(recovery_module, "_read", side_effect=fake_read),
+            patch.object(recovery_module, "_output", return_value="Mass-Storage"),
+        ):
+            identity = recovery_module.inspect_physical_target(
+                "/dev/sda",
+                expected_size=31268536320,
+            )
+        self.assertEqual(identity.disk_size, 31268536320)
+        self.assertEqual(identity.usb_node, "1-1.1")
+        self.assertEqual(identity.vendor_id, "1908")
+        self.assertEqual(identity.product_id, "0226")
+
     def test_worker_only_restarts_during_pre_copy_stages(self):
         for marker in [
             "MAX_PRECOPY_USB_RECOVERIES",
@@ -76,6 +103,9 @@ class SdFactoryPreparationRecoveryTests(unittest.TestCase):
             "kernel_indicates_transport_loss",
             "recover_physical_target",
             "configure_conservative_transport",
+            "target_capacity_matches",
+            "expected_size=disk.size",
+            "capacity_unavailable_before_preparation",
             "precopy_recoveries < MAX_PRECOPY_USB_RECOVERIES",
             "status in PRECOPY_STATUSES",
             "La préparation est volontairement relancée depuis l'effacement",
