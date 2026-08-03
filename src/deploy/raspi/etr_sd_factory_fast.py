@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Lance la fabrique EtR avec copie rsync optimisée et progression exploitable."""
+"""Copie microSD optimisée, mesurable et cohérente malgré les mises à jour du banc."""
 
 from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 from collections.abc import Callable
+from pathlib import Path
 
 try:
     from src.deploy.raspi import etr_sd_factory as interface
@@ -21,6 +24,8 @@ _PROGRESS_PATTERN = re.compile(
 )
 _CURRENT_CALLBACK: Callable[[str], None] | None = None
 _CURRENT_STAGE = "système EtR"
+REPOSITORY = Path("/home/oryx/EtR-core")
+SNAPSHOT_ROOT = Path("/run/etr-sd-factory")
 
 # Ces chemins sont supprimés après la copie par scrub_clone. Les exclure dès le
 # départ évite plusieurs gigaoctets d'écritures inutiles et réduit l'usure SD.
@@ -29,6 +34,8 @@ ROOT_COPY_EXCLUDES = (
     "/home/oryx/.cache/***",
     "/home/oryx/.config/chromium/***",
     "/home/oryx/.config/etr-kiosk-chromium/***",
+    "/home/oryx/EtR-core/.git/***",
+    "/home/oryx/EtR-core/**/__pycache__/***",
     "/var/lib/etr-core/***",
     "/var/cache/apt/archives/***",
     "/var/cache/man/***",
@@ -60,29 +67,7 @@ def _publish_rsync_progress(line: str) -> None:
     )
 
 
-def optimized_rsync_copy(
-    source: str,
-    destination: str,
-    excludes: list[str] | None = None,
-) -> None:
-    patterns = list(excludes or [])
-    if source == "/":
-        for pattern in ROOT_COPY_EXCLUDES:
-            if pattern not in patterns:
-                patterns.append(pattern)
-
-    command = [
-        "/usr/bin/rsync",
-        "-aHAXx",
-        "--numeric-ids",
-        "--no-inc-recursive",
-        "--whole-file",
-        "--info=progress2",
-    ]
-    for pattern in patterns:
-        command.extend(["--exclude", pattern])
-    command.extend([source, destination])
-
+def _stream_rsync(command: list[str]) -> None:
     environment = dict(os.environ)
     environment["LC_ALL"] = "C"
     process = subprocess.Popen(
@@ -122,6 +107,100 @@ def optimized_rsync_copy(
     if code:
         detail = " | ".join(tail[-3:]) or f"rsync a retourné le code {code}"
         raise core.FactoryError("Copie du système interrompue : " + detail)
+
+
+def _repository_snapshot() -> Path:
+    """Clone le commit installé afin qu'un git pull concurrent ne mélange pas les versions."""
+    SNAPSHOT_ROOT.mkdir(parents=True, exist_ok=True)
+    directory = Path(tempfile.mkdtemp(prefix="repo-snapshot-", dir=SNAPSHOT_ROOT))
+    snapshot = directory / "EtR-core"
+    try:
+        revision = subprocess.run(
+            ["/usr/bin/git", "-C", str(REPOSITORY), "rev-parse", "HEAD"],
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=20,
+        ).stdout.strip()
+        subprocess.run(
+            [
+                "/usr/bin/git",
+                "clone",
+                "--local",
+                "--no-hardlinks",
+                "--no-checkout",
+                str(REPOSITORY),
+                str(snapshot),
+            ],
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=120,
+        )
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(snapshot), "checkout", "--force", revision],
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=120,
+        )
+        return snapshot
+    except Exception:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
+
+
+def _overlay_repository(snapshot: Path, destination: str) -> None:
+    if _CURRENT_CALLBACK is not None:
+        _CURRENT_CALLBACK("Configuration : installation de la version EtR figée pour cette carte…")
+    target = Path(destination) / "home/oryx/EtR-core"
+    target.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "/usr/bin/rsync",
+            "-aHAX",
+            "--numeric-ids",
+            "--whole-file",
+            f"{snapshot}/",
+            f"{target}/",
+        ],
+        check=True,
+        timeout=300,
+    )
+
+
+def optimized_rsync_copy(
+    source: str,
+    destination: str,
+    excludes: list[str] | None = None,
+) -> None:
+    patterns = list(excludes or [])
+    snapshot: Path | None = None
+    if source == "/":
+        for pattern in ROOT_COPY_EXCLUDES:
+            if pattern not in patterns:
+                patterns.append(pattern)
+        snapshot = _repository_snapshot()
+
+    command = [
+        "/usr/bin/rsync",
+        "-aHAXx",
+        "--numeric-ids",
+        "--no-inc-recursive",
+        "--whole-file",
+        "--info=progress2",
+    ]
+    for pattern in patterns:
+        command.extend(["--exclude", pattern])
+    command.extend([source, destination])
+
+    try:
+        _stream_rsync(command)
+        if snapshot is not None:
+            _overlay_repository(snapshot, destination)
+    finally:
+        if snapshot is not None:
+            shutil.rmtree(snapshot.parent, ignore_errors=True)
 
 
 # prepare_card résout ces fonctions dans le module core au moment de l'appel.
