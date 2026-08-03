@@ -1,6 +1,6 @@
 name: Réparer immédiatement l'écran distant EtR
 
-# Relance explicite après publication de la révision viewer OIDC 00019.
+# Relance explicite après blocage viewer constaté le 2026-08-03 à 10:18 UTC.
 on:
   workflow_dispatch:
   push:
