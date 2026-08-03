@@ -100,14 +100,20 @@ def _disk_size(disk: str) -> int:
 
 
 def inspect_target(destination: str) -> TargetIdentity:
-    """Capture les identifiants stables du support actuellement monté."""
-    mountpoint = str(Path(destination).resolve())
+    """Capture les identifiants stables et le vrai point de montage cible."""
+    requested_path = str(Path(destination).resolve())
+    mountpoint = _output(
+        ["/usr/bin/findmnt", "-n", "-o", "TARGET", "--target", requested_path]
+    )
     partition = _output(
-        ["/usr/bin/findmnt", "-n", "-o", "SOURCE", "--target", mountpoint]
+        ["/usr/bin/findmnt", "-n", "-o", "SOURCE", "--target", requested_path]
     )
     filesystem = _output(
-        ["/usr/bin/findmnt", "-n", "-o", "FSTYPE", "--target", mountpoint]
+        ["/usr/bin/findmnt", "-n", "-o", "FSTYPE", "--target", requested_path]
     )
+    if not mountpoint.startswith("/"):
+        raise UsbRecoveryError(f"Point de montage cible introuvable pour {requested_path}")
+    mountpoint = str(Path(mountpoint).resolve())
     if not partition.startswith("/dev/"):
         raise UsbRecoveryError(f"Partition cible introuvable pour {mountpoint}")
     partition = os.path.realpath(partition)
@@ -273,7 +279,7 @@ def _unmount_source(partition: str) -> None:
             _run(["/usr/bin/umount", target], timeout=15)
         except (OSError, subprocess.SubprocessError):
             pass
-        if _output(["/usr/bin/findmnt", "-rn", "-T", target], timeout=5):
+        if _output(["/usr/bin/findmnt", "-rn", "-M", target], timeout=5):
             try:
                 _run(["/usr/bin/umount", "-l", target], timeout=15)
             except (OSError, subprocess.SubprocessError):
@@ -281,7 +287,7 @@ def _unmount_source(partition: str) -> None:
 
 
 def _detach_stale_mount(mountpoint: str) -> None:
-    if not _output(["/usr/bin/findmnt", "-rn", "-T", mountpoint], timeout=5):
+    if not _output(["/usr/bin/findmnt", "-rn", "-M", mountpoint], timeout=5):
         return
     try:
         _run(["/usr/bin/umount", "-l", mountpoint], timeout=15)
