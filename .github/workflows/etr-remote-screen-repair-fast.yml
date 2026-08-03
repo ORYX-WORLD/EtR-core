@@ -1,6 +1,6 @@
 name: Réparer immédiatement l'écran distant EtR
 
-# Relance explicite après blocage viewer constaté le 2026-08-03 à 10:18 UTC.
+# Relance explicite après déploiement de la révision Cloud Run 00029.
 on:
   workflow_dispatch:
   push:
