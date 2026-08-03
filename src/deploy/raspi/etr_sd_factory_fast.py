@@ -36,6 +36,12 @@ RSYNC_LOG = core.STATE_DIR / "sd-factory-rsync.log"
 RETRYABLE_CODES = {23, 24}
 MAX_RSYNC_ATTEMPTS = 3
 
+# Le dépôt installé appartient à l'utilisateur oryx alors que le moteur de
+# fabrication doit être root pour partitionner la carte. On autorise uniquement
+# ce chemin connu au niveau de chaque commande Git, sans modifier la configuration
+# globale de root ni élargir la confiance à d'autres dépôts.
+GIT_SAFE_OPTIONS = ["-c", f"safe.directory={REPOSITORY}"]
+
 # Ces chemins sont supprimés après la copie par scrub_clone, sont des montages
 # de session ou changent en permanence. Les exclure dès le départ évite les
 # écritures inutiles et les faux échecs d'une copie du système vivant.
@@ -154,7 +160,14 @@ def _repository_snapshot() -> Path:
     snapshot = directory / "EtR-core"
     try:
         revision = subprocess.run(
-            ["/usr/bin/git", "-C", str(REPOSITORY), "rev-parse", "HEAD"],
+            [
+                "/usr/bin/git",
+                *GIT_SAFE_OPTIONS,
+                "-C",
+                str(REPOSITORY),
+                "rev-parse",
+                "HEAD",
+            ],
             check=True,
             text=True,
             capture_output=True,
@@ -163,6 +176,7 @@ def _repository_snapshot() -> Path:
         subprocess.run(
             [
                 "/usr/bin/git",
+                *GIT_SAFE_OPTIONS,
                 "clone",
                 "--local",
                 "--no-hardlinks",
