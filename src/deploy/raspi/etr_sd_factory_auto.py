@@ -8,15 +8,18 @@ import threading
 from tkinter import messagebox
 
 try:
+    # L'import applique la copie rsync optimisée au moteur partagé avant le lancement.
+    from src.deploy.raspi import etr_sd_factory_fast as _fast  # noqa: F401
     from src.deploy.raspi.etr_sd_factory import FactoryApp, MOUNT_ROOT, Tk
 except ModuleNotFoundError:
+    import etr_sd_factory_fast as _fast  # noqa: F401
     from etr_sd_factory import FactoryApp, MOUNT_ROOT, Tk
 
 
 class AutoFactoryApp(FactoryApp):
     def __init__(self, root: Tk):
         super().__init__(root)
-        self.status.set("Relance automatique de la fabrication en préparation…")
+        self.status.set("Relance optimisée de la fabrication en préparation…")
         self.root.after(1200, self.auto_start)
 
     def auto_start(self) -> None:
@@ -34,8 +37,11 @@ class AutoFactoryApp(FactoryApp):
         self.busy = True
         self.create_button.state(["disabled"])
         self.close_button.state(["disabled"])
+        self.progress.configure(mode="indeterminate", maximum=100, value=0)
         self.progress.start(12)
-        self.status.set("Relance complète : effacement, formatage et copie du système EtR…")
+        self.status.set(
+            "Relance optimisée : effacement, formatage et copie sans caches inutiles…"
+        )
         threading.Thread(target=self.worker, args=(disk,), daemon=True).start()
 
 
