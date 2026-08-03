@@ -1,0 +1,84 @@
+name: Diagnostiquer la fabrique microSD EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-sd-factory-diagnostic.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: etr-sd-factory-diagnostic
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Inspecter le lecteur sans écrire
+        shell: bash
+        run: |
+          set +e
+          mkdir -p /tmp/etr-sd-diag
+          {
+            echo '=== date ==='
+            date -Is
+            echo '=== hostname ==='
+            hostname
+            echo '=== lsblk ==='
+            lsblk -J -b -o NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,PARTUUID,RO,RM,TRAN,MOUNTPOINTS,MODEL /dev/sda 2>&1
+            echo '=== findmnt ==='
+            findmnt -rn -S '/dev/sda*' -o SOURCE,TARGET,FSTYPE,OPTIONS 2>&1
+            echo '=== blockdev ==='
+            for dev in /dev/sda /dev/sda1 /dev/sda2; do
+              [ -b "$dev" ] || continue
+              printf '%s ro=' "$dev"
+              sudo blockdev --getro "$dev" 2>&1
+              printf '%s size=' "$dev"
+              sudo blockdev --getsize64 "$dev" 2>&1
+            done
+            echo '=== udev ==='
+            udevadm info --query=property --name=/dev/sda 2>&1 | grep -E '^(ID_|DEV|MAJOR|MINOR)' || true
+            echo '=== processes ==='
+            sudo fuser -vm /dev/sda /dev/sda1 /dev/sda2 2>&1 || true
+            echo '=== kernel recent ==='
+            sudo dmesg --ctime 2>&1 | tail -n 160
+          } > /tmp/etr-sd-diag/report.txt
+          cat /tmp/etr-sd-diag/report.txt
+
+      - name: Publier le rapport
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          python3 - <<'PY' > /tmp/etr-sd-factory-diagnostic-last.json
+          import json, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          report = Path('/tmp/etr-sd-diag/report.txt').read_text(encoding='utf-8', errors='replace') if Path('/tmp/etr-sd-diag/report.txt').exists() else ''
+          print(json.dumps({
+            'checkedAt': datetime.now(timezone.utc).isoformat(),
+            'host': subprocess.run(['hostname'], capture_output=True, text=True).stdout.strip(),
+            'report': report[-24000:],
+          }, ensure_ascii=False, indent=2))
+          PY
+          git fetch origin main
+          git checkout -B sd-factory-diag-report origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-sd-factory-diagnostic-last.json .github/deployment/etr-sd-factory-diagnostic-last.json
+          git config user.name 'EtR SD factory diagnostic'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/deployment/etr-sd-factory-diagnostic-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR SD factory diagnostic [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
