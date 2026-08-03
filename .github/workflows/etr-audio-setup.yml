@@ -1,0 +1,191 @@
+name: Configurer l'audio EtR et la JBL
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-audio-setup.yml
+      - src/audio_monitor.py
+      - src/app.py
+      - src/deploy/raspi/etr-jbl-connect.sh
+      - src/deploy/raspi/etr-jbl-connect.service
+      - src/deploy/raspi/etr-audio-monitor.service
+      - tests/test_audio_contract.py
+
+concurrency:
+  group: etr-audio-setup
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  configure:
+    name: Connecter la JBL et activer le microphone
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 25
+
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Actualiser le dépôt installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          sudo -u oryx -H git -C "$install_dir" remote set-url origin https://github.com/ORYX-WORLD/EtR-core.git
+          if [ -n "$(sudo -u oryx -H git -C "$install_dir" status --porcelain)" ]; then
+            sudo -u oryx -H git -C "$install_dir" stash push --include-untracked -m "Sauvegarde avant configuration audio $(date -u +%Y%m%dT%H%M%SZ)"
+          fi
+          sudo -u oryx -H git -C "$install_dir" fetch origin main
+          sudo -u oryx -H git -C "$install_dir" checkout main
+          sudo -u oryx -H git -C "$install_dir" pull --ff-only origin main
+
+      - name: Installer la pile Bluetooth et PipeWire
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            bluez pipewire pipewire-audio pipewire-pulse wireplumber \
+            libspa-0.2-bluetooth pulseaudio-utils alsa-utils
+          sudo systemctl enable --now bluetooth.service
+          sudo loginctl enable-linger oryx
+          sudo systemctl start user@1000.service
+          sleep 2
+          audio_env=(env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus)
+          sudo -u oryx "${audio_env[@]}" systemctl --user unmask pipewire.service pipewire.socket pipewire-pulse.service pipewire-pulse.socket wireplumber.service || true
+          sudo -u oryx "${audio_env[@]}" systemctl --user enable pipewire.socket pipewire-pulse.socket wireplumber.service
+          sudo -u oryx "${audio_env[@]}" systemctl --user restart pipewire.service pipewire-pulse.service wireplumber.service
+          sleep 4
+          sudo -u oryx "${audio_env[@]}" systemctl --user --no-pager status pipewire.service pipewire-pulse.service wireplumber.service || true
+
+      - name: Installer les services EtR audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo install -d -m 700 -o oryx -g oryx /var/lib/etr-core
+          sudo install -d -m 700 -o oryx -g oryx /run/etr-core
+          sudo install -m 755 /home/oryx/EtR-core/src/deploy/raspi/etr-jbl-connect.sh /usr/local/bin/etr-jbl-connect
+          sudo install -m 644 /home/oryx/EtR-core/src/deploy/raspi/etr-jbl-connect.service /etc/systemd/system/etr-jbl-connect.service
+          sudo install -m 644 /home/oryx/EtR-core/src/deploy/raspi/etr-audio-monitor.service /etc/systemd/system/etr-audio-monitor.service
+          sudo systemctl daemon-reload
+          sudo systemctl enable etr-jbl-connect.service etr-audio-monitor.service
+          systemd-analyze verify /etc/systemd/system/etr-jbl-connect.service /etc/systemd/system/etr-audio-monitor.service
+
+      - name: Associer et connecter la JBL Go 3
+        id: jbl
+        shell: bash
+        run: |
+          set +e
+          sudo bluetoothctl power on
+          sudo bluetoothctl agent on
+          sudo bluetoothctl default-agent
+          timeout 12 sudo bluetoothctl scan on >/tmp/etr-bluetooth-scan.txt 2>&1
+          sudo /usr/local/bin/etr-jbl-connect --once
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          sudo systemctl restart etr-jbl-connect.service
+          sudo bluetoothctl info 40:C1:F6:70:C0:1A > /tmp/etr-jbl-info.txt 2>&1 || true
+          cat /tmp/etr-jbl-info.txt
+          test -f /var/lib/etr-core/audio-output.json && sudo cat /var/lib/etr-core/audio-output.json || true
+
+      - name: Activer la capture microphone EtR
+        id: microphone
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl restart etr-audio-monitor.service
+          microphone_online=false
+          for attempt in $(seq 1 45); do
+            if sudo test -s /var/lib/etr-core/audio-status.json; then
+              sudo cp /var/lib/etr-core/audio-status.json /tmp/etr-audio-status.json
+              if python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-audio-status.json', encoding='utf-8'))
+          raise SystemExit(0 if data.get('online') is True else 1)
+          PY
+              then
+                microphone_online=true
+                break
+              fi
+            fi
+            sleep 2
+          done
+          echo "online=$microphone_online" >> "$GITHUB_OUTPUT"
+          sudo -u oryx env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus pactl list short cards > /tmp/etr-audio-cards.txt || true
+          sudo -u oryx env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus pactl list short sinks > /tmp/etr-audio-sinks.txt || true
+          sudo -u oryx env XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus pactl list short sources > /tmp/etr-audio-sources.txt || true
+          sudo systemctl status etr-audio-monitor.service --no-pager -l > /tmp/etr-audio-monitor-service.txt 2>&1 || true
+          sudo journalctl -u etr-audio-monitor.service -n 80 --no-pager > /tmp/etr-audio-monitor-journal.txt 2>&1 || true
+          sudo cat /var/lib/etr-core/audio-status.json || true
+          cat /tmp/etr-audio-sources.txt
+
+      - name: Redémarrer l'API EtR et vérifier le contrat audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl restart etr.service
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/api/v1/audio > /tmp/etr-audio-api.json; then break; fi
+            sleep 2
+          done
+          test -s /tmp/etr-audio-api.json
+          python3 -m json.tool /tmp/etr-audio-api.json
+
+      - name: Publier le diagnostic audio
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+          JBL_EXIT_CODE: ${{ steps.jbl.outputs.exit_code }}
+          MICROPHONE_ONLINE: ${{ steps.microphone.outputs.online }}
+        run: |
+          set -euo pipefail
+          sudo cp /var/lib/etr-core/audio-output.json /tmp/etr-audio-output.json 2>/dev/null || printf '{}' > /tmp/etr-audio-output.json
+          sudo cp /var/lib/etr-core/audio-status.json /tmp/etr-audio-status.json 2>/dev/null || printf '{}' > /tmp/etr-audio-status.json
+          python3 - <<'PY' > /tmp/etr-audio-last.json
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          def text(path):
+              try:return Path(path).read_text(encoding='utf-8',errors='replace')[-12000:]
+              except OSError:return ''
+          def data(path):
+              try:return json.loads(Path(path).read_text(encoding='utf-8'))
+              except Exception:return {}
+          report={
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'jobStatus':os.getenv('JOB_STATUS'),
+              'jblExitCode':int(os.getenv('JBL_EXIT_CODE') or 999),
+              'microphoneOnline':os.getenv('MICROPHONE_ONLINE') == 'true',
+              'jbl':data('/tmp/etr-audio-output.json'),
+              'microphone':data('/tmp/etr-audio-status.json'),
+              'bluetoothInfo':text('/tmp/etr-jbl-info.txt'),
+              'cards':text('/tmp/etr-audio-cards.txt'),
+              'sinks':text('/tmp/etr-audio-sinks.txt'),
+              'sources':text('/tmp/etr-audio-sources.txt'),
+              'monitorService':text('/tmp/etr-audio-monitor-service.txt'),
+              'monitorJournal':text('/tmp/etr-audio-monitor-journal.txt'),
+              'api':data('/tmp/etr-audio-api.json'),
+          }
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-audio-last.json
+          git fetch origin main
+          git checkout -B etr-audio-report origin/main
+          mkdir -p .github/deployment
+          cp /tmp/etr-audio-last.json .github/deployment/etr-audio-last.json
+          git config user.name "EtR audio setup"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/deployment/etr-audio-last.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'chore: record EtR audio setup [skip ci]'
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
