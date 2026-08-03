@@ -25,6 +25,9 @@ RUNNING_STATUSES = {
     "mounting",
     "copying_root",
     "copying_boot",
+    "paused_usb",
+    "checking_filesystem",
+    "resuming_copy",
     "configuring",
     "verifying",
     "syncing",
@@ -40,6 +43,9 @@ _STAGE_PROGRESS = {
     "mounting": 22.0,
     "copying_root": 25.0,
     "copying_boot": 82.0,
+    "paused_usb": 25.0,
+    "checking_filesystem": 25.0,
+    "resuming_copy": 25.0,
     "configuring": 90.0,
     "verifying": 95.0,
     "syncing": 98.0,
@@ -55,6 +61,8 @@ _COPY_RE = re.compile(
     r"(?P<speed>\S+)\s*[—-]\s*reste\s*(?P<eta>\S+)",
     re.IGNORECASE,
 )
+_USB_ATTEMPT_RE = re.compile(r"tentative\s+(?P<attempt>\d+)\s*/\s*(?P<maximum>\d+)", re.IGNORECASE)
+_USB_REMAINING_RE = re.compile(r"reste\s+(?P<seconds>\d+)\s*s", re.IGNORECASE)
 
 
 def utc_now() -> str:
@@ -123,10 +131,23 @@ def initial_state(*, job_id: str, device: str, disk_label: str, copy_wifi: bool)
         "copy_wifi": bool(copy_wifi),
         "speed": None,
         "eta": None,
+        "usb_recovery_attempt": 0,
+        "usb_recovery_max": None,
+        "resume_count": 0,
         "started_at": now,
         "updated_at": now,
         "finished_at": None,
         "error": None,
+    }
+
+
+def _usb_attempt_fields(text: str) -> dict[str, Any]:
+    match = _USB_ATTEMPT_RE.search(text)
+    if not match:
+        return {}
+    return {
+        "usb_recovery_attempt": int(match.group("attempt")),
+        "usb_recovery_max": int(match.group("maximum")),
     }
 
 
@@ -154,13 +175,47 @@ def progress_from_message(message: str) -> dict[str, Any]:
         }
 
     lowered = text.lower()
+    if lowered.startswith("pause usb"):
+        remaining = _USB_REMAINING_RE.search(text)
+        return {
+            "status": "paused_usb",
+            "stage": "Pause USB — attente de reconnexion",
+            "message": text,
+            "speed": None,
+            "eta": f"{remaining.group('seconds')} s" if remaining else "reconnexion",
+            "_preserve_progress": True,
+            **_usb_attempt_fields(text),
+        }
+    if lowered.startswith("contrôle du système de fichiers"):
+        return {
+            "status": "checking_filesystem",
+            "stage": "Contrôle d'intégrité après reconnexion",
+            "message": text,
+            "speed": None,
+            "eta": "contrôle en cours",
+            "_preserve_progress": True,
+            **_usb_attempt_fields(text),
+        }
+    if lowered.startswith("reprise de la copie"):
+        fields = _usb_attempt_fields(text)
+        return {
+            "status": "resuming_copy",
+            "stage": "Reprise progressive de la copie",
+            "message": text,
+            "speed": None,
+            "eta": "recalcul en cours",
+            "resume_count": fields.get("usb_recovery_attempt", 0),
+            "_preserve_progress": True,
+            **fields,
+        }
+
     mapping = (
         (("ticket", "autorisation de fabrication"), "ticket", "Autorisation de fabrication"),
         (("démontage",), "unmounting", "Démontage du support"),
         (("effacement", "partitionnement"), "partitioning", "Effacement et partitionnement"),
         (("formatage", "création du système de fichiers"), "formatting", "Formatage de la microSD"),
         (("montage",), "mounting", "Montage des partitions"),
-        (("copie du système",), "copying_root", "Copie du système EtR"),
+        (("copie résiliente", "copie du système"), "copying_root", "Copie du système EtR"),
         (("copie de la partition", "copie du démarrage"), "copying_boot", "Copie du démarrage"),
         (("configuration", "nettoyage", "identité", "wi-fi"), "configuring", "Configuration du nouvel EtR"),
         (("vérification",), "verifying", "Vérification de la carte"),
