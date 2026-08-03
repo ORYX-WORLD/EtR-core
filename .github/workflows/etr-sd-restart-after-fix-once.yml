@@ -1,0 +1,243 @@
+name: Relancer une fois la microSD après correction Git
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-sd-restart-after-fix-once.yml
+
+concurrency:
+  group: etr-sd-restart-after-fix-once
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  restart:
+    name: Valider le snapshot puis lancer le moteur persistant
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 18
+    steps:
+      - name: Actualiser le dépôt installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=/home/oryx/EtR-core
+          sudo -u oryx -H git -C "$repo" remote set-url origin https://github.com/ORYX-WORLD/EtR-core.git
+          if [ -n "$(sudo -u oryx -H git -C "$repo" status --porcelain)" ]; then
+            sudo -u oryx -H git -C "$repo" stash push --include-untracked -m "Sauvegarde avant relance propre SD $(date -u +%Y%m%dT%H%M%SZ)"
+          fi
+          sudo -u oryx -H git -C "$repo" fetch origin main
+          sudo -u oryx -H git -C "$repo" checkout main
+          sudo -u oryx -H git -C "$repo" pull --ff-only origin main
+          sudo -u oryx -H git -C "$repo" rev-parse HEAD | tee /tmp/etr-sd-restart-fixed-commit.txt
+
+      - name: Valider le snapshot Git root sans toucher à la carte
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /home/oryx/EtR-core
+          sudo .venv/bin/python -u - <<'PY' > /tmp/etr-sd-snapshot-preflight.txt 2>&1
+          import shutil
+          from src.deploy.raspi import etr_sd_factory_fast as fast
+          snapshot=fast._repository_snapshot()
+          try:
+              assert (snapshot/'src/deploy/raspi/etr_sd_factory_worker.py').is_file()
+              assert (snapshot/'src/deploy/raspi/etr_sd_factory_fast.py').is_file()
+              print('snapshot=ok')
+              print('path=', snapshot)
+          finally:
+              shutil.rmtree(snapshot.parent, ignore_errors=True)
+          PY
+          cat /tmp/etr-sd-snapshot-preflight.txt
+
+      - name: Installer idempotemment les deux services
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=/home/oryx/EtR-core
+          sudo install -m 755 "$repo/src/deploy/raspi/etr-sd-factory-cleanup.sh" /usr/local/bin/etr-sd-factory-cleanup
+          sudo install -m 644 "$repo/src/deploy/raspi/etr-sd-factory-worker.service" /etc/systemd/system/etr-sd-factory-worker.service
+          sudo install -m 644 "$repo/src/deploy/raspi/etr-sd-factory.service" /etc/systemd/system/etr-sd-factory.service
+          sudo install -m 755 "$repo/src/deploy/raspi/etr-sd-factory-launch.sh" /usr/local/bin/etr-sd-factory-launch.sh
+          sudo systemctl disable --now etr-sd-factory-auto.service 2>/dev/null || true
+          sudo systemctl daemon-reload
+          sudo systemctl reset-failed etr-sd-factory-worker.service etr-sd-factory.service 2>/dev/null || true
+          systemd-analyze verify /etc/systemd/system/etr-sd-factory-worker.service /etc/systemd/system/etr-sd-factory.service
+
+      - name: Nettoyer seulement l'essai incomplet précédent
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl stop etr-sd-factory-worker.service etr-sd-factory.service 2>/dev/null || true
+          sudo sync
+          findmnt -rn -o TARGET | awk '/^\/run\/etr-sd-factory\/job-[^/]+\/(root|boot)$/ {print length($0),$0}' | sort -rn | cut -d' ' -f2- | while read -r target; do
+            sudo umount "$target" 2>/dev/null || sudo umount -l "$target" 2>/dev/null || true
+          done
+          for device in /dev/sda1 /dev/sda2; do
+            if [ -b "$device" ] && findmnt -rn -S "$device" >/dev/null; then
+              sudo umount "$device" 2>/dev/null || sudo umount -l "$device" 2>/dev/null || true
+            fi
+          done
+          sudo rm -rf /run/etr-sd-factory/job-* /run/etr-sd-factory/repo-snapshot-*
+          sudo rm -f /var/lib/etr-core/sd-factory-request.json /var/lib/etr-core/sd-factory-state.json /var/lib/etr-core/sd-factory-rsync.log
+          ! findmnt -rn -S /dev/sda1 >/dev/null
+          ! findmnt -rn -S /dev/sda2 >/dev/null
+
+      - name: Écrire une demande unique et contrôlée
+        id: request
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /home/oryx/EtR-core
+          sudo .venv/bin/python - <<'PY' > /tmp/etr-sd-restart-fixed-request.json
+          import json, uuid
+          from src.deploy.raspi import etr_sd_factory_core as core
+          from src.deploy.raspi.etr_sd_factory_state import write_request
+          devices=core.lsblk_data()
+          source=core.source_disk(devices)
+          candidates=core.candidate_disks(devices, source)
+          if len(candidates) != 1:
+              raise SystemExit(f'Une seule carte USB est requise: {[d.path for d in candidates]}')
+          disk=candidates[0]
+          expected_path='/dev/sda'
+          expected_size=31268536320
+          if disk.path != expected_path or disk.size != expected_size:
+              raise SystemExit(f'Cible inattendue: path={disk.path}, size={disk.size}')
+          request={
+              'job_id':str(uuid.uuid4()),
+              'device':disk.path,
+              'disk_label':disk.label,
+              'size_bytes':disk.size,
+              'copy_wifi':bool(core.active_wifi_profile()),
+          }
+          write_request(request)
+          print(json.dumps(request,ensure_ascii=False,indent=2))
+          PY
+          sudo cat /tmp/etr-sd-restart-fixed-request.json
+          job_id=$(python3 -c 'import json; print(json.load(open("/tmp/etr-sd-restart-fixed-request.json"))["job_id"])')
+          echo "job_id=$job_id" >> "$GITHUB_OUTPUT"
+
+      - name: Démarrer le moteur sans bloquer et ouvrir le suivi
+        id: start
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl start --no-block etr-sd-factory-worker.service
+          sudo systemctl restart etr-sd-factory.service
+          accepted=false
+          terminal_failure=false
+          for attempt in $(seq 1 120); do
+            if sudo test -s /var/lib/etr-core/sd-factory-state.json; then
+              sudo cat /var/lib/etr-core/sd-factory-state.json > /tmp/etr-sd-restart-fixed-state.json
+              result=$(python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-sd-restart-fixed-state.json',encoding='utf-8'))
+          status=str(data.get('status') or '')
+          if status in {'failed','cancelled','interrupted'}:
+              print('failure')
+          elif status in {'ticket','unmounting','partitioning','formatting','mounting','copying_root','copying_boot','configuring','verifying','syncing','finalizing','ready'}:
+              print('accepted')
+          else:
+              print('waiting')
+          PY
+              )
+              if [ "$result" = accepted ]; then
+                accepted=true
+                break
+              fi
+              if [ "$result" = failure ]; then
+                terminal_failure=true
+                break
+              fi
+            fi
+            sleep 1
+          done
+          echo "accepted=$accepted" >> "$GITHUB_OUTPUT"
+          echo "terminal_failure=$terminal_failure" >> "$GITHUB_OUTPUT"
+          sudo cat /var/lib/etr-core/sd-factory-state.json 2>/dev/null || true
+          sudo systemctl status etr-sd-factory-worker.service --no-pager -l || true
+          if [ "$terminal_failure" = true ] || [ "$accepted" != true ]; then
+            sudo journalctl -u etr-sd-factory-worker.service -n 160 --no-pager || true
+            exit 1
+          fi
+
+      - name: Vérifier la persistance pendant une minute
+        id: persistence
+        shell: bash
+        run: |
+          set -euo pipefail
+          start_status=$(sudo python3 -c 'import json; print(json.load(open("/var/lib/etr-core/sd-factory-state.json"))["status"])')
+          sleep 60
+          sudo cat /var/lib/etr-core/sd-factory-state.json > /tmp/etr-sd-restart-fixed-state-after.json
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-sd-restart-fixed-state-after.json',encoding='utf-8'))
+          status=str(data.get('status') or '')
+          assert status not in {'failed','cancelled','interrupted'}, data
+          assert data.get('job_id'), data
+          print(json.dumps(data,ensure_ascii=False,indent=2))
+          PY
+          echo "start_status=$start_status" >> "$GITHUB_OUTPUT"
+          echo "end_status=$(python3 -c 'import json; print(json.load(open("/tmp/etr-sd-restart-fixed-state-after.json"))["status"])')" >> "$GITHUB_OUTPUT"
+
+      - name: Publier la preuve et retirer le workflow ponctuel
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+          JOB_ID: ${{ steps.request.outputs.job_id }}
+          ACCEPTED: ${{ steps.start.outputs.accepted }}
+          TERMINAL_FAILURE: ${{ steps.start.outputs.terminal_failure }}
+          START_STATUS: ${{ steps.persistence.outputs.start_status }}
+          END_STATUS: ${{ steps.persistence.outputs.end_status }}
+        run: |
+          set -euo pipefail
+          sudo cat /var/lib/etr-core/sd-factory-state.json > /tmp/etr-sd-restart-fixed-final-state.json 2>/dev/null || printf '{}\n' > /tmp/etr-sd-restart-fixed-final-state.json
+          sudo cat /var/lib/etr-core/sd-factory-rsync.log > /tmp/etr-sd-restart-fixed-rsync.log 2>/dev/null || : > /tmp/etr-sd-restart-fixed-rsync.log
+          sudo systemctl status etr-sd-factory-worker.service --no-pager -l > /tmp/etr-sd-restart-fixed-worker.txt 2>&1 || true
+          sudo journalctl -u etr-sd-factory-worker.service -n 160 --no-pager > /tmp/etr-sd-restart-fixed-journal.txt 2>&1 || true
+          lsblk -b -o NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS,TRAN,RM,MODEL > /tmp/etr-sd-restart-fixed-lsblk.txt
+          python3 - <<'PY' > /tmp/etr-sd-restart-after-fix.json
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          def data(path):
+              try:return json.loads(Path(path).read_text(encoding='utf-8'))
+              except Exception:return {}
+          def text(path,limit=24000):
+              try:return Path(path).read_text(encoding='utf-8',errors='replace')[-limit:]
+              except OSError:return ''
+          print(json.dumps({
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'jobStatus':os.getenv('JOB_STATUS'),
+              'jobId':os.getenv('JOB_ID') or None,
+              'accepted':os.getenv('ACCEPTED') == 'true',
+              'terminalFailure':os.getenv('TERMINAL_FAILURE') == 'true',
+              'startStatus':os.getenv('START_STATUS') or None,
+              'endStatus':os.getenv('END_STATUS') or None,
+              'installedCommit':Path('/tmp/etr-sd-restart-fixed-commit.txt').read_text().strip() if Path('/tmp/etr-sd-restart-fixed-commit.txt').exists() else None,
+              'snapshotPreflight':text('/tmp/etr-sd-snapshot-preflight.txt'),
+              'state':data('/tmp/etr-sd-restart-fixed-final-state.json'),
+              'rsyncLogTail':text('/tmp/etr-sd-restart-fixed-rsync.log'),
+              'worker':text('/tmp/etr-sd-restart-fixed-worker.txt'),
+              'journal':text('/tmp/etr-sd-restart-fixed-journal.txt'),
+              'lsblk':text('/tmp/etr-sd-restart-fixed-lsblk.txt'),
+          },ensure_ascii=False,indent=2))
+          PY
+          cat /tmp/etr-sd-restart-after-fix.json
+          rm -rf /tmp/etr-sd-restart-after-fix-repo
+          git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/etr-sd-restart-after-fix-repo
+          cd /tmp/etr-sd-restart-after-fix-repo
+          mkdir -p .github/deployment
+          cp /tmp/etr-sd-restart-after-fix.json .github/deployment/etr-sd-restart-after-fix.json
+          rm -f .github/workflows/etr-sd-restart-after-fix-once.yml
+          git config user.name 'EtR SD restart after fix'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/deployment/etr-sd-restart-after-fix.json .github/workflows/etr-sd-restart-after-fix-once.yml
+          git commit -m 'chore: record SD restart after fix and remove one-shot workflow [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
