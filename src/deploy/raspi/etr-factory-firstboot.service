@@ -1,0 +1,20 @@
+[Unit]
+Description=Premier démarrage d'une carte EtR fabriquée
+Wants=network-online.target NetworkManager-wait-online.service
+After=NetworkManager-wait-online.service network-online.target
+Before=etr-firebase-bridge.service
+ConditionPathExists=/var/lib/etr-core/factory-ticket.json
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/home/oryx/EtR-core
+ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/deploy/raspi/etr_factory_firstboot.py
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=90
+
+[Install]
+WantedBy=multi-user.target
