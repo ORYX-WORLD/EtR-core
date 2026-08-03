@@ -1,0 +1,57 @@
+{
+  "checkedAt": "2026-08-03T12:41:03.827547+00:00",
+  "active": true,
+  "sampleSeconds": 13.6,
+  "processRates": [
+    {
+      "pid": 62747,
+      "elapsedSeconds": 939,
+      "writeBytesPerSecond": 0,
+      "readBytesPerSecond": 0,
+      "command": "/usr/bin/rsync -aHAXx --numeric-ids --delete-delay --info=progress2 --exclude /boot/*** --exclude /dev/*** --exclude /proc/*** --exclude /sys/*** --exclude /run/*** --exclude /tmp/*** --exclude /mnt/*** --exclude /media/*** --exclude /lost+found --exclude /swapfile / /run/etr-sd-factory/job-62692-1785759921/root/"
+    },
+    {
+      "pid": 62748,
+      "elapsedSeconds": 939,
+      "writeBytesPerSecond": 0,
+      "readBytesPerSecond": 0,
+      "command": "/usr/bin/rsync -aHAXx --numeric-ids --delete-delay --info=progress2 --exclude /boot/*** --exclude /dev/*** --exclude /proc/*** --exclude /sys/*** --exclude /run/*** --exclude /tmp/*** --exclude /mnt/*** --exclude /media/*** --exclude /lost+found --exclude /swapfile / /run/etr-sd-factory/job-62692-1785759921/root/"
+    },
+    {
+      "pid": 62749,
+      "elapsedSeconds": 939,
+      "writeBytesPerSecond": 0,
+      "readBytesPerSecond": 0,
+      "command": "/usr/bin/rsync -aHAXx --numeric-ids --delete-delay --info=progress2 --exclude /boot/*** --exclude /dev/*** --exclude /proc/*** --exclude /sys/*** --exclude /run/*** --exclude /tmp/*** --exclude /mnt/*** --exclude /media/*** --exclude /lost+found --exclude /swapfile / /run/etr-sd-factory/job-62692-1785759921/root/"
+    }
+  ],
+  "mountGrowth": [
+    {
+      "path": "/run/etr-sd-factory/job-62079-1785759496/root",
+      "source": null,
+      "bytesPresent": 0,
+      "growthBytesPerSecond": 0
+    },
+    {
+      "path": "/run/etr-sd-factory/job-62079-1785759496/boot",
+      "source": null,
+      "bytesPresent": 0,
+      "growthBytesPerSecond": 0
+    },
+    {
+      "path": "/run/etr-sd-factory/job-62692-1785759921/root",
+      "source": "/dev/sda2",
+      "bytesPresent": 6599983104,
+      "growthBytesPerSecond": 4402416.270152973
+    },
+    {
+      "path": "/run/etr-sd-factory/job-62692-1785759921/boot",
+      "source": "/dev/sda1",
+      "bytesPresent": 4096,
+      "growthBytesPerSecond": 0
+    }
+  ],
+  "service": "● etr-sd-factory.service - Fabrique tactile de cartes microSD EtR\n     Loaded: loaded (/etc/systemd/system/etr-sd-factory.service; disabled; preset: enabled)\n     Active: active (running) since Mon 2026-08-03 14:24:46 CEST; 16min ago\n Invocation: 6ef77badfd6f4181a97102756db126e4\n   Main PID: 62692 (python)\n      Tasks: 6 (limit: 4455)\n        CPU: 2min 9.850s\n     CGroup: /system.slice/etr-sd-factory.service\n             ├─62692 /home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/deploy/raspi/etr_sd_factory.py\n             ├─62747 /usr/bin/rsync -aHAXx --numeric-ids --delete-delay --info=progress2 --exclude \"/boot/***\" --exclude \"/dev/***\" --exclude \"/proc/***\" --exclude \"/sys/***\" --exclude \"/run/***\" --exclude \"/tmp/***\" --exclude \"/mnt/***\" --exclude \"/media/***\" --exclude /lost+found --exclude /swapfile / /run/etr-sd-factory/job-62692-1785759921/root/\n             ├─62748 /usr/bin/rsync -aHAXx --numeric-ids --delete-delay --info=progress2 --exclude \"/boot/***\" --exclude \"/dev/***\" --exclude \"/proc/***\" --exclude \"/sys/***\" --exclude \"/run/***\" --exclude \"/tmp/***\" --exclude \"/mnt/***\" --exclude \"/media/***\" --exclude /lost+found --exclude /swapfile / /run/etr-sd-factory/job-62692-1785759921/root/\n             └─62749 /usr/bin/rsync -aHAXx --numeric-ids --delete-delay --info=progress2 --exclude \"/boot/***\" --exclude \"/dev/***\" --exclude \"/proc/***\" --exclude \"/sys/***\" --exclude \"/run/***\" --exclude \"/tmp/***\" --exclude \"/mnt/***\" --exclude \"/media/***\" --exclude /lost+found --exclude /swapfile / /run/etr-sd-factory/job-62692-1785759921/root/\n\nAug 03 14:24:46 etr-core systemd[1]: Started etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\n",
+  "journal": "Aug 03 11:17:33 etr-core systemd[1]: Started etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 11:24:12 etr-core systemd[1]: Stopping etr-sd-factory.service - Fabrique tactile de cartes microSD EtR...\nAug 03 11:24:12 etr-core systemd[1]: etr-sd-factory.service: Deactivated successfully.\nAug 03 11:24:12 etr-core systemd[1]: Stopped etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 11:24:12 etr-core systemd[1]: etr-sd-factory.service: Consumed 1.456s CPU time.\nAug 03 11:24:15 etr-core systemd[1]: Started etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 12:26:13 etr-core systemd[1]: etr-sd-factory.service: Deactivated successfully.\nAug 03 12:26:13 etr-core systemd[1]: etr-sd-factory.service: Consumed 1.875s CPU time.\nAug 03 12:26:20 etr-core systemd[1]: Started etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 12:26:36 etr-core systemd[1]: etr-sd-factory.service: Deactivated successfully.\nAug 03 12:26:36 etr-core systemd[1]: etr-sd-factory.service: Consumed 1.073s CPU time.\nAug 03 12:31:11 etr-core systemd[1]: Started etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 12:32:22 etr-core systemd[1]: etr-sd-factory.service: Deactivated successfully.\nAug 03 12:32:22 etr-core systemd[1]: etr-sd-factory.service: Consumed 1.075s CPU time.\nAug 03 12:48:38 etr-core systemd[1]: Started etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 12:53:50 etr-core systemd[1]: etr-sd-factory.service: Deactivated successfully.\nAug 03 12:53:50 etr-core systemd[1]: etr-sd-factory.service: Consumed 1.082s CPU time.\nAug 03 12:53:54 etr-core systemd[1]: Started etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 12:56:50 etr-core systemd[1]: etr-sd-factory.service: Deactivated successfully.\nAug 03 12:56:50 etr-core systemd[1]: etr-sd-factory.service: Consumed 2.043s CPU time.\nAug 03 13:56:16 etr-core systemd[1]: Started etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 14:01:41 etr-core systemd[1]: Stopping etr-sd-factory.service - Fabrique tactile de cartes microSD EtR...\nAug 03 14:01:41 etr-core systemd[1]: etr-sd-factory.service: Deactivated successfully.\nAug 03 14:01:41 etr-core systemd[1]: Stopped etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 14:01:42 etr-core systemd[1]: etr-sd-factory.service: Consumed 2.502s CPU time.\nAug 03 14:01:43 etr-core systemd[1]: Started etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 14:02:44 etr-core systemd[1]: Stopping etr-sd-factory.service - Fabrique tactile de cartes microSD EtR...\nAug 03 14:02:44 etr-core systemd[1]: etr-sd-factory.service: Deactivated successfully.\nAug 03 14:02:44 etr-core systemd[1]: Stopped etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 14:02:48 etr-core systemd[1]: Started etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 14:08:49 etr-core systemd[1]: etr-sd-factory.service: Deactivated successfully.\nAug 03 14:08:49 etr-core systemd[1]: etr-sd-factory.service: Consumed 5.452s CPU time.\nAug 03 14:13:15 etr-core systemd[1]: Started etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 14:24:46 etr-core systemd[1]: Stopping etr-sd-factory.service - Fabrique tactile de cartes microSD EtR...\nAug 03 14:24:46 etr-core systemd[1]: etr-sd-factory.service: Deactivated successfully.\nAug 03 14:24:46 etr-core systemd[1]: Stopped etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\nAug 03 14:24:46 etr-core systemd[1]: etr-sd-factory.service: Consumed 1min 24.776s CPU time.\nAug 03 14:24:46 etr-core systemd[1]: Started etr-sd-factory.service - Fabrique tactile de cartes microSD EtR.\n",
+  "lsblk": "NAME        PATH                  SIZE TYPE FSTYPE LABEL  MOUNTPOINTS                                   TRAN RM MODEL\nloop0       /dev/loop0      2147483648 loop swap                                                              0 \nsda         /dev/sda       31268536320 disk                                                             usb   1 Storage Device\n├─sda1      /dev/sda1        536870912 part vfat   bootfs /run/etr-sd-factory/job-62692-1785759921/boot       1 \n└─sda2      /dev/sda2      30727471104 part ext4   rootfs /run/etr-sd-factory/job-62692-1785759921/root       1 \nmmcblk0     /dev/mmcblk0   31268536320 disk                                                             mmc   0 \n├─mmcblk0p1 /dev/mmcblk0p1   536870912 part vfat   bootfs /boot/firmware                                mmc   0 \n└─mmcblk0p2 /dev/mmcblk0p2 30723276800 part ext4   rootfs /                                             mmc   0 \nzram0       /dev/zram0      2147483648 disk swap   zram0  [SWAP]                                              0 \n"
+}
