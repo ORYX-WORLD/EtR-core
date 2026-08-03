@@ -29,8 +29,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/etr-sd-rsync-diagnostic /run/etr-sd-diagnostic/root
-          pgrep -af 'etr_sd_factory|/usr/bin/rsync.*?/run/etr-sd-factory/' > /tmp/etr-sd-rsync-diagnostic/processes.txt || true
-          if pgrep -af '/usr/bin/rsync.*?/run/etr-sd-factory/' >/dev/null; then
+          pgrep -af 'etr_sd_factory|[r]sync.*?/run/etr-sd-factory/' > /tmp/etr-sd-rsync-diagnostic/processes.txt || true
+          if pgrep -af '[r]sync.*?/run/etr-sd-factory/' >/dev/null; then
             echo '::error::Une copie rsync est encore active; diagnostic annulé sans toucher à la carte.'
             exit 1
           fi
