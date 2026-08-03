@@ -1,0 +1,12 @@
+{
+  "checkedAt": "2026-08-03T16:55:22.306093+00:00",
+  "jobStatus": "failure",
+  "direct": {},
+  "sandbox": {},
+  "devpath": null,
+  "sysfsDevice": null,
+  "udevProperties": "",
+  "lsusb": "",
+  "lsusbTree": "",
+  "lsblk": ""
+}
