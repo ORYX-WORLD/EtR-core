@@ -1,0 +1,14 @@
+{
+  "checkedAt": "2026-08-03T13:35:21.796948+00:00",
+  "jobStatus": "failure",
+  "rsyncExitCode": 999,
+  "rsyncErrors": "",
+  "rsyncTail": "",
+  "transientSourceChange": false,
+  "attributeFailure": false,
+  "storageFailure": false,
+  "processes": "",
+  "lsblk": "",
+  "journal": "",
+  "dmesgTail": ""
+}
