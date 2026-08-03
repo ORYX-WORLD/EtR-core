@@ -23,6 +23,7 @@ try:
         inspect_physical_target,
         kernel_indicates_transport_loss,
         recover_physical_target,
+        target_capacity_matches,
     )
     from src.deploy.raspi.etr_sd_factory_state import (
         LOCK_PATH,
@@ -43,6 +44,7 @@ except ModuleNotFoundError:
         inspect_physical_target,
         kernel_indicates_transport_loss,
         recover_physical_target,
+        target_capacity_matches,
     )
     from etr_sd_factory_state import (
         LOCK_PATH,
@@ -97,16 +99,43 @@ def _candidate_disks() -> list[core.Disk]:
 
 
 def _find_requested_disk(request: dict[str, Any]) -> core.Disk:
+    """Retrouve la cible, y compris si sa capacité vient de tomber à zéro."""
     device = str(request.get("device") or "").strip()
     if not device.startswith("/dev/"):
         raise core.FactoryError("Le périphérique demandé est invalide")
     expected_size = int(request.get("size_bytes") or 0)
-    for disk in _candidate_disks():
+
+    devices = core.lsblk_data()
+    source = core.source_disk(devices)
+    for disk in core.candidate_disks(devices, source):
         if disk.path != device:
             continue
         if expected_size and disk.size != expected_size:
             raise core.FactoryError("La carte détectée ne correspond plus à la carte sélectionnée")
         return disk
+
+    # Lors d'un décrochage, lsblk peut conserver le disque USB avec SIZE=0.
+    # La demande a été créée après une sélection explicite et contient la taille
+    # validée. On conserve cette référence uniquement si le même /dev reste un
+    # disque USB/amovible distinct du disque système.
+    if expected_size >= core.MIN_TARGET_BYTES and device != source:
+        for item in devices:
+            if str(item.get("type") or "") != "disk":
+                continue
+            if str(item.get("path") or "") != device:
+                continue
+            transport = str(item.get("tran") or "").lower()
+            removable = str(item.get("rm") or "0") in {"1", "true", "True"}
+            if transport != "usb" and not removable:
+                break
+            return core.Disk(
+                path=device,
+                size=expected_size,
+                model=str(item.get("model") or "").strip(),
+                transport=transport,
+                removable=removable,
+            )
+
     raise core.FactoryError("La microSD sélectionnée n'est plus présente dans le lecteur USB")
 
 
@@ -235,7 +264,10 @@ def main() -> int:
 
     try:
         disk = _find_requested_disk(request)
-        physical_identity = inspect_physical_target(disk.path)
+        physical_identity = inspect_physical_target(
+            disk.path,
+            expected_size=disk.size,
+        )
         state.update(
             {
                 "device": disk.path,
@@ -247,6 +279,39 @@ def main() -> int:
         write_state(state)
 
         precopy_recoveries = 0
+
+        # Le lecteur peut déjà être énuméré mais répondre avec une capacité nulle
+        # au moment où le worker démarre. On lance alors la même récupération
+        # bornée avant d'envoyer la première commande destructive.
+        if not target_capacity_matches(physical_identity, disk.path):
+            if MAX_PRECOPY_USB_RECOVERIES <= 0:
+                raise core.FactoryError("Le lecteur USB est hors ligne avant la préparation")
+            precopy_recoveries = 1
+            recovered_path = recover_physical_target(
+                physical_identity,
+                progress=publish,
+                attempt=precopy_recoveries,
+                maximum=MAX_PRECOPY_USB_RECOVERIES,
+                timeout_seconds=PRECOPY_RECOVERY_TIMEOUT_SECONDS,
+                stable_seconds=PRECOPY_STABLE_SECONDS,
+            )
+            disk = _find_recovered_disk(
+                recovered_path,
+                physical_identity.disk_size,
+            )
+            device = disk.path
+            state.update(
+                {
+                    "device": disk.path,
+                    "disk_label": disk.label,
+                    "size_bytes": disk.size,
+                    "precopy_recovery_attempt": precopy_recoveries,
+                    "precopy_recovery_max": MAX_PRECOPY_USB_RECOVERIES,
+                    "last_preparation_error": "capacity_unavailable_before_preparation",
+                }
+            )
+            write_state(state)
+
         while True:
             configure_conservative_transport(disk.path)
             attempt_started = max(0, int(time.time()) - 1)
