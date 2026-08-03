@@ -7,6 +7,7 @@ import fcntl
 import os
 import signal
 import subprocess
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,13 @@ try:
     from src.deploy.raspi import etr_sd_factory_fast as _fast  # noqa: F401
     from src.deploy.raspi import etr_sd_factory_core as core
     from src.deploy.raspi.etr_sd_factory_diagnostics import explain_creation_error
+    from src.deploy.raspi.etr_sd_factory_preparation_recovery import (
+        PreparationRecoveryError,
+        configure_conservative_transport,
+        inspect_physical_target,
+        kernel_indicates_transport_loss,
+        recover_physical_target,
+    )
     from src.deploy.raspi.etr_sd_factory_state import (
         LOCK_PATH,
         REQUEST_PATH,
@@ -29,6 +37,13 @@ except ModuleNotFoundError:
     import etr_sd_factory_fast as _fast  # noqa: F401
     import etr_sd_factory_core as core
     from etr_sd_factory_diagnostics import explain_creation_error
+    from etr_sd_factory_preparation_recovery import (
+        PreparationRecoveryError,
+        configure_conservative_transport,
+        inspect_physical_target,
+        kernel_indicates_transport_loss,
+        recover_physical_target,
+    )
     from etr_sd_factory_state import (
         LOCK_PATH,
         REQUEST_PATH,
@@ -45,6 +60,28 @@ class FactoryCancelled(RuntimeError):
 
 
 _cancel_requested = False
+MAX_PRECOPY_USB_RECOVERIES = max(
+    0,
+    min(4, int(os.getenv("ETR_SD_MAX_PRECOPY_USB_RECOVERIES", "2"))),
+)
+PRECOPY_RECOVERY_TIMEOUT_SECONDS = max(
+    20,
+    min(300, int(os.getenv("ETR_SD_PRECOPY_RECOVERY_TIMEOUT_SECONDS", "90"))),
+)
+PRECOPY_STABLE_SECONDS = max(
+    3,
+    min(15, int(os.getenv("ETR_SD_PRECOPY_STABLE_SECONDS", "5"))),
+)
+PRECOPY_STATUSES = {
+    "validating",
+    "ticket",
+    "unmounting",
+    "partitioning",
+    "formatting",
+    "mounting",
+    "paused_usb_setup",
+    "restarting_preparation",
+}
 
 
 def _handle_cancel(_signum: int, _frame: object) -> None:
@@ -53,20 +90,38 @@ def _handle_cancel(_signum: int, _frame: object) -> None:
     raise FactoryCancelled("Annulation demandée par l'utilisateur")
 
 
+def _candidate_disks() -> list[core.Disk]:
+    devices = core.lsblk_data()
+    source = core.source_disk(devices)
+    return core.candidate_disks(devices, source)
+
+
 def _find_requested_disk(request: dict[str, Any]) -> core.Disk:
     device = str(request.get("device") or "").strip()
     if not device.startswith("/dev/"):
         raise core.FactoryError("Le périphérique demandé est invalide")
-    devices = core.lsblk_data()
-    source = core.source_disk(devices)
-    candidates = core.candidate_disks(devices, source)
-    for disk in candidates:
-        if disk.path == device:
-            expected_size = int(request.get("size_bytes") or 0)
-            if expected_size and disk.size != expected_size:
-                raise core.FactoryError("La carte détectée ne correspond plus à la carte sélectionnée")
-            return disk
+    expected_size = int(request.get("size_bytes") or 0)
+    for disk in _candidate_disks():
+        if disk.path != device:
+            continue
+        if expected_size and disk.size != expected_size:
+            raise core.FactoryError("La carte détectée ne correspond plus à la carte sélectionnée")
+        return disk
     raise core.FactoryError("La microSD sélectionnée n'est plus présente dans le lecteur USB")
+
+
+def _find_recovered_disk(path: str, expected_size: int) -> core.Disk:
+    real = os.path.realpath(path)
+    matches = [
+        disk
+        for disk in _candidate_disks()
+        if os.path.realpath(disk.path) == real and disk.size == expected_size
+    ]
+    if len(matches) != 1:
+        raise core.FactoryError(
+            "Le lecteur est revenu, mais la microSD ne peut pas être identifiée de façon sûre"
+        )
+    return matches[0]
 
 
 def _remaining_mounts(device: str) -> list[str]:
@@ -169,8 +224,8 @@ def main() -> int:
         if preserve_progress:
             update["progress_percent"] = current_progress
         elif "progress_percent" in update:
-            # Une relance rsync repart de 0 au niveau de son propre compteur. La
-            # progression globale présentée à l'utilisateur reste monotone.
+            # Une relance rsync ou une reprise de préparation repart de zéro au
+            # niveau local. La progression globale affichée reste monotone.
             update["progress_percent"] = max(
                 current_progress,
                 float(update.get("progress_percent") or 0),
@@ -180,9 +235,74 @@ def main() -> int:
 
     try:
         disk = _find_requested_disk(request)
-        state.update({"device": disk.path, "disk_label": disk.label, "size_bytes": disk.size})
+        physical_identity = inspect_physical_target(disk.path)
+        state.update(
+            {
+                "device": disk.path,
+                "disk_label": disk.label,
+                "size_bytes": disk.size,
+                "precopy_recovery_max": MAX_PRECOPY_USB_RECOVERIES,
+            }
+        )
         write_state(state)
-        core.prepare_card(disk, copy_wifi=copy_wifi, progress=publish)
+
+        precopy_recoveries = 0
+        while True:
+            configure_conservative_transport(disk.path)
+            attempt_started = max(0, int(time.time()) - 1)
+            try:
+                core.prepare_card(disk, copy_wifi=copy_wifi, progress=publish)
+                break
+            except FactoryCancelled:
+                raise
+            except Exception as exc:
+                status = str(state.get("status") or "")
+                recoverable = (
+                    status in PRECOPY_STATUSES
+                    and precopy_recoveries < MAX_PRECOPY_USB_RECOVERIES
+                    and kernel_indicates_transport_loss(
+                        disk.path,
+                        since_epoch=attempt_started,
+                    )
+                )
+                if not recoverable:
+                    raise
+
+                precopy_recoveries += 1
+                try:
+                    recovered_path = recover_physical_target(
+                        physical_identity,
+                        progress=publish,
+                        attempt=precopy_recoveries,
+                        maximum=MAX_PRECOPY_USB_RECOVERIES,
+                        timeout_seconds=PRECOPY_RECOVERY_TIMEOUT_SECONDS,
+                        stable_seconds=PRECOPY_STABLE_SECONDS,
+                    )
+                except PreparationRecoveryError as recovery_error:
+                    raise core.FactoryError(
+                        f"Récupération USB avant copie impossible : {recovery_error}"
+                    ) from exc
+
+                disk = _find_recovered_disk(
+                    recovered_path,
+                    physical_identity.disk_size,
+                )
+                device = disk.path
+                state.update(
+                    {
+                        "device": disk.path,
+                        "disk_label": disk.label,
+                        "size_bytes": disk.size,
+                        "precopy_recovery_attempt": precopy_recoveries,
+                        "precopy_recovery_max": MAX_PRECOPY_USB_RECOVERIES,
+                        "last_preparation_error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+                write_state(state)
+                # La préparation est volontairement relancée depuis l'effacement :
+                # aucune partition n'est considérée fiable avant la phase rsync.
+                continue
+
     except FactoryCancelled as exc:
         remaining = _cleanup_mounts(device)
         cleanup_completed = True
