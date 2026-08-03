@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -22,18 +23,30 @@ _PROGRESS_PATTERN = re.compile(
     r"(?P<bytes>[0-9,]+)\s+(?P<percent>[0-9]{1,3})%\s+"
     r"(?P<speed>\S+/s)\s+(?P<remaining>[0-9]+:[0-9]{2}:[0-9]{2})"
 )
+_ERROR_PATTERN = re.compile(
+    r"rsync:|permission denied|operation not permitted|operation not supported|"
+    r"no such file|vanished|input/output|no space left",
+    re.IGNORECASE,
+)
 _CURRENT_CALLBACK: Callable[[str], None] | None = None
 _CURRENT_STAGE = "système EtR"
 REPOSITORY = Path("/home/oryx/EtR-core")
 SNAPSHOT_ROOT = Path("/run/etr-sd-factory")
+RSYNC_LOG = core.STATE_DIR / "sd-factory-rsync.log"
+RETRYABLE_CODES = {23, 24}
+MAX_RSYNC_ATTEMPTS = 3
 
-# Ces chemins sont supprimés après la copie par scrub_clone. Les exclure dès le
-# départ évite plusieurs gigaoctets d'écritures inutiles et réduit l'usure SD.
+# Ces chemins sont supprimés après la copie par scrub_clone, sont des montages
+# de session ou changent en permanence. Les exclure dès le départ évite les
+# écritures inutiles et les faux échecs d'une copie du système vivant.
 ROOT_COPY_EXCLUDES = (
     "/home/oryx/actions-runner/***",
     "/home/oryx/.cache/***",
     "/home/oryx/.config/chromium/***",
     "/home/oryx/.config/etr-kiosk-chromium/***",
+    "/home/oryx/.gvfs",
+    "/home/oryx/.gvfs/***",
+    "/home/oryx/.local/share/gvfs-metadata/***",
     "/home/oryx/EtR-core/.git/***",
     "/home/oryx/EtR-core/**/__pycache__/***",
     "/var/lib/etr-core/***",
@@ -67,9 +80,17 @@ def _publish_rsync_progress(line: str) -> None:
     )
 
 
-def _stream_rsync(command: list[str]) -> None:
+def _append_log(text: str) -> None:
+    RSYNC_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with RSYNC_LOG.open("a", encoding="utf-8") as stream:
+        stream.write(text.rstrip("\n") + "\n")
+    os.chmod(RSYNC_LOG, 0o600)
+
+
+def _stream_rsync(command: list[str], *, attempt: int) -> tuple[int, list[str]]:
     environment = dict(os.environ)
     environment["LC_ALL"] = "C"
+    _append_log(f"\n=== tentative rsync {attempt}/{MAX_RSYNC_ATTEMPTS} ===")
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -79,34 +100,51 @@ def _stream_rsync(command: list[str]) -> None:
     )
     assert process.stdout is not None
 
-    tail: list[str] = []
+    error_lines: list[str] = []
     pending = bytearray()
+
+    def consume(raw: bytes) -> None:
+        line = raw.decode("utf-8", errors="replace").strip()
+        if not line:
+            return
+        _append_log(line)
+        _publish_rsync_progress(line)
+        if _ERROR_PATTERN.search(line):
+            error_lines.append(line)
+            del error_lines[:-30]
+
     while True:
         chunk = process.stdout.read(4096)
         if not chunk:
             break
         for value in chunk:
             if value in (10, 13):
-                if not pending:
-                    continue
-                line = pending.decode("utf-8", errors="replace").strip()
-                pending.clear()
-                if line:
-                    tail.append(line)
-                    tail = tail[-20:]
-                    _publish_rsync_progress(line)
+                if pending:
+                    consume(bytes(pending))
+                    pending.clear()
             else:
                 pending.append(value)
     if pending:
-        line = pending.decode("utf-8", errors="replace").strip()
-        if line:
-            tail.append(line)
-            _publish_rsync_progress(line)
+        consume(bytes(pending))
 
     code = process.wait()
-    if code:
-        detail = " | ".join(tail[-3:]) or f"rsync a retourné le code {code}"
-        raise core.FactoryError("Copie du système interrompue : " + detail)
+    _append_log(f"=== fin tentative {attempt}: code {code} ===")
+    return code, error_lines
+
+
+def _concise_rsync_error(code: int, lines: list[str]) -> str:
+    relevant = [
+        line
+        for line in lines
+        if not line.lower().startswith("rsync error:")
+        and "some files/attrs were not transferred" not in line.lower()
+    ]
+    detail = relevant[0] if relevant else f"rsync a retourné le code {code}"
+    detail = detail.replace("rsync: [sender] ", "").replace("rsync: [receiver] ", "")
+    return (
+        f"Copie incomplète (code rsync {code}) : {detail}. "
+        f"Le diagnostic complet est conservé dans {RSYNC_LOG}."
+    )
 
 
 def _repository_snapshot() -> Path:
@@ -155,7 +193,7 @@ def _overlay_repository(snapshot: Path, destination: str) -> None:
         _CURRENT_CALLBACK("Configuration : installation de la version EtR figée pour cette carte…")
     target = Path(destination) / "home/oryx/EtR-core"
     target.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
+    completed = subprocess.run(
         [
             "/usr/bin/rsync",
             "-aHAX",
@@ -164,9 +202,16 @@ def _overlay_repository(snapshot: Path, destination: str) -> None:
             f"{snapshot}/",
             f"{target}/",
         ],
-        check=True,
+        text=True,
+        capture_output=True,
         timeout=300,
     )
+    if completed.returncode:
+        detail = (completed.stderr or completed.stdout or "").strip().splitlines()
+        raise core.FactoryError(
+            "Installation de la version EtR figée impossible : "
+            + (detail[0] if detail else f"code {completed.returncode}")
+        )
 
 
 def optimized_rsync_copy(
@@ -181,6 +226,7 @@ def optimized_rsync_copy(
             if pattern not in patterns:
                 patterns.append(pattern)
         snapshot = _repository_snapshot()
+        RSYNC_LOG.unlink(missing_ok=True)
 
     command = [
         "/usr/bin/rsync",
@@ -188,6 +234,7 @@ def optimized_rsync_copy(
         "--numeric-ids",
         "--no-inc-recursive",
         "--whole-file",
+        "--delete-delay",
         "--info=progress2",
     ]
     for pattern in patterns:
@@ -195,7 +242,20 @@ def optimized_rsync_copy(
     command.extend([source, destination])
 
     try:
-        _stream_rsync(command)
+        last_code = 0
+        last_errors: list[str] = []
+        for attempt in range(1, MAX_RSYNC_ATTEMPTS + 1):
+            if attempt > 1 and _CURRENT_CALLBACK is not None:
+                _CURRENT_CALLBACK(
+                    f"Synchronisation finale : reprise automatique {attempt}/{MAX_RSYNC_ATTEMPTS}…"
+                )
+            last_code, last_errors = _stream_rsync(command, attempt=attempt)
+            if last_code == 0:
+                break
+            if last_code not in RETRYABLE_CODES or attempt == MAX_RSYNC_ATTEMPTS:
+                raise core.FactoryError(_concise_rsync_error(last_code, last_errors))
+            time.sleep(2)
+
         if snapshot is not None:
             _overlay_repository(snapshot, destination)
     finally:
