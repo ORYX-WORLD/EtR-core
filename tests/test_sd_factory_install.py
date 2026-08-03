@@ -71,10 +71,13 @@ class SdFactoryInstallContractTests(unittest.TestCase):
             "MAX_RSYNC_ATTEMPTS = 3",
             "Synchronisation finale : reprise automatique",
             "sd-factory-rsync.log",
+            "GIT_SAFE_OPTIONS",
+            "safe.directory=",
         ]:
             self.assertIn(marker, copy_engine)
         self.assertIn("--delete-delay", copy_engine)
         self.assertIn("_concise_rsync_error", copy_engine)
+        self.assertNotIn("git config --global", copy_engine)
 
     def test_gateway_exposes_one_time_factory_provisioning_contract(self):
         bootstrap = (ROOT / "gateway/device-bootstrap.mjs").read_text(encoding="utf-8")
