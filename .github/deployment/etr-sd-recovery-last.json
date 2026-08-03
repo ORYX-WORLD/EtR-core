@@ -1,0 +1,25 @@
+{
+  "checkedAt": "2026-08-03T12:13:15.625256+00:00",
+  "jobStatus": "success",
+  "serviceExitCode": 1,
+  "result": {
+    "checkedAt": "2026-08-03T12:13:14Z",
+    "status": "failure",
+    "code": "medium_error_persistent",
+    "message": "La mémoire flash reste illisible autour du secteur 22290432. Carte non fiable à remplacer.",
+    "device": "/dev/sda",
+    "size": 15548284928,
+    "model": "Storage Device",
+    "serial": "121220160204",
+    "kernelErrors": [
+      "Aug 03 13:56:48 etr-core kernel: critical medium error, dev sda, sector 22290432 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 2",
+      "Aug 03 13:56:51 etr-core kernel: critical medium error, dev sda, sector 22290432 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 2",
+      "Aug 03 14:04:02 etr-core kernel: critical medium error, dev sda, sector 22290432 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 2",
+      "Aug 03 14:04:04 etr-core kernel: critical medium error, dev sda, sector 22290432 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 2",
+      "Aug 03 14:08:08 etr-core kernel: critical medium error, dev sda, sector 22290432 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 2",
+      "Aug 03 14:08:11 etr-core kernel: critical medium error, dev sda, sector 22290432 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 2",
+      "Aug 03 14:13:14 etr-core kernel: critical medium error, dev sda, sector 22224960 op 0x0:(READ) flags 0x0 phys_seg 1 prio class 2"
+    ]
+  },
+  "journalTail": "Aug 03 14:13:11 etr-core systemd[1]: Starting etr-sd-recovery.service - Diagnostic et récupération contrôlée d'une microSD EtR...\nAug 03 14:13:11 etr-core etr-sd-recovery[61990]: /usr/local/sbin/etr-sd-recovery: line 74: [: : integer expression expected\nAug 03 14:13:12 etr-core etr-sd-recovery[61990]: Tentative de remappage contrôlé autour du secteur 22290432...\nAug 03 14:13:14 etr-core etr-sd-recovery[62038]: dd: error writing '/dev/sda': Input/output error\nAug 03 14:13:15 etr-core etr-sd-recovery[61990]: ERREUR: La mémoire flash reste illisible autour du secteur 22290432. Carte non fiable à remplacer.\nAug 03 14:13:15 etr-core systemd[1]: etr-sd-recovery.service: Main process exited, code=exited, status=1/FAILURE\nAug 03 14:13:15 etr-core systemd[1]: etr-sd-recovery.service: Failed with result 'exit-code'.\nAug 03 14:13:15 etr-core systemd[1]: Failed to start etr-sd-recovery.service - Diagnostic et récupération contrôlée d'une microSD EtR.\n"
+}
