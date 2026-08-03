@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import os
-import pwd
 import re
 import shutil
 import subprocess
@@ -36,8 +35,6 @@ SNAPSHOT_ROOT = Path("/run/etr-sd-factory")
 RSYNC_LOG = core.STATE_DIR / "sd-factory-rsync.log"
 RETRYABLE_CODES = {23, 24}
 MAX_RSYNC_ATTEMPTS = 3
-GIT_OWNER = "oryx"
-RUNUSER = Path("/usr/sbin/runuser")
 
 # Ces chemins sont supprimés après la copie par scrub_clone, sont des montages
 # de session ou changent en permanence. Les exclure dès le départ évite les
@@ -150,49 +147,73 @@ def _concise_rsync_error(code: int, lines: list[str]) -> str:
     )
 
 
-def _git_as_owner(*arguments: str) -> list[str]:
-    if not RUNUSER.is_file():
-        raise core.FactoryError(f"Commande système absente : {RUNUSER}")
-    return [str(RUNUSER), "-u", GIT_OWNER, "--", "/usr/bin/git", *arguments]
+def _git_from_repository(*arguments: str) -> list[str]:
+    """Exécute Git en root avec une autorisation limitée à ce dépôt précis."""
+    return [
+        "/usr/bin/git",
+        "-c",
+        f"safe.directory={REPOSITORY}",
+        "-C",
+        str(REPOSITORY),
+        *arguments,
+    ]
 
 
 def _repository_snapshot() -> Path:
-    """Clone le commit installé sous l'identité qui possède réellement le dépôt."""
+    """Extrait le commit installé sans setuid, clone local ni accès réseau."""
     SNAPSHOT_ROOT.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="repo-snapshot-", dir=SNAPSHOT_ROOT))
     snapshot = directory / "EtR-core"
+    archive = directory / "EtR-core.tar"
     try:
-        owner = pwd.getpwnam(GIT_OWNER)
-        os.chown(directory, owner.pw_uid, owner.pw_gid)
-        os.chmod(directory, 0o700)
+        snapshot.mkdir(mode=0o700)
         revision = subprocess.run(
-            _git_as_owner("-C", str(REPOSITORY), "rev-parse", "HEAD"),
+            _git_from_repository("rev-parse", "HEAD"),
             check=True,
             text=True,
             capture_output=True,
             timeout=20,
         ).stdout.strip()
-        subprocess.run(
-            _git_as_owner(
-                "clone",
-                "--local",
-                "--no-hardlinks",
-                "--no-checkout",
-                str(REPOSITORY),
+        if not re.fullmatch(r"[0-9a-f]{40}", revision):
+            raise core.FactoryError("Révision Git du banc invalide")
+
+        with archive.open("wb") as output:
+            completed = subprocess.run(
+                _git_from_repository("archive", "--format=tar", revision),
+                stdout=output,
+                stderr=subprocess.PIPE,
+                timeout=120,
+            )
+        if completed.returncode:
+            detail = completed.stderr.decode("utf-8", errors="replace").strip().splitlines()
+            raise core.FactoryError(
+                "Création de l'archive EtR impossible : "
+                + (detail[0] if detail else f"code {completed.returncode}")
+            )
+
+        extracted = subprocess.run(
+            [
+                "/usr/bin/tar",
+                "--extract",
+                "--file",
+                str(archive),
+                "--directory",
                 str(snapshot),
-            ),
-            check=True,
+                "--no-same-owner",
+            ],
             text=True,
             capture_output=True,
             timeout=120,
         )
-        subprocess.run(
-            _git_as_owner("-C", str(snapshot), "checkout", "--force", revision),
-            check=True,
-            text=True,
-            capture_output=True,
-            timeout=120,
-        )
+        if extracted.returncode:
+            detail = (extracted.stderr or extracted.stdout or "").strip().splitlines()
+            raise core.FactoryError(
+                "Extraction de la version EtR impossible : "
+                + (detail[0] if detail else f"code {extracted.returncode}")
+            )
+
+        archive.unlink(missing_ok=True)
+        (snapshot / ".etr-source-revision").write_text(revision + "\n", encoding="ascii")
         return snapshot
     except Exception:
         shutil.rmtree(directory, ignore_errors=True)
