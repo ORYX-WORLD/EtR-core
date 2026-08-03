@@ -1,0 +1,37 @@
+name: Consigner le point de montage de reprise USB
+
+on:
+  push:
+    branches:
+      - fix/sd-resume-mount-root
+    paths:
+      - .github/workflows/append-tracker-sd-mount-root-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/sd-resume-mount-root
+          fetch-depth: 0
+
+      - name: Mettre à jour le suivi et retirer ce workflow ponctuel
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker='| ETR-042 | Point de montage de reprise USB |'
+          if ! grep -Fq "$marker" docs/PROJECT_TRACKER.md; then
+            cat >> docs/PROJECT_TRACKER.md <<'EOF'
+          | ETR-042 | Point de montage de reprise USB | Une copie complémentaire dans un sous-répertoire pouvait mémoriser ce sous-répertoire comme cible de remontage au lieu de la racine réelle du système de fichiers | P0 | Correctif en PR | La reprise d'une copie du dépôt EtR doit remonter `rootfs` sur le point de montage `/run/.../root`, jamais dans `/home/oryx/EtR-core` | `inspect_target` lit désormais le champ TARGET réel de `findmnt`; les contrôles et démontages utilisent une correspondance exacte de point de montage avec `findmnt -M` | Valider la CI puis intégrer ce correctif avant tout essai physique de déconnexion USB |
+          EOF
+          fi
+          rm -f .github/workflows/append-tracker-sd-mount-root-once.yml
+          git config user.name 'EtR tracker automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add docs/PROJECT_TRACKER.md .github/workflows/append-tracker-sd-mount-root-once.yml
+          git commit -m 'docs: consigner le vrai point de montage de reprise USB'
+          git push origin HEAD:fix/sd-resume-mount-root
