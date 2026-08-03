@@ -42,10 +42,14 @@ function safeError(res, error) {
     code: error?.code || "",
     message: String(error?.message || error || "unknown").slice(0, 400)
   });
-  return res.status(Number(error?.status) >= 400 && Number(error?.status) < 600 ? Number(error.status) : 500).json({
-    error: "Erreur d’activation EtR",
-    code: String(error?.code || "enrollment_error")
-  });
+  const explicitStatus = Number(error?.status);
+  if (explicitStatus >= 400 && explicitStatus < 600) {
+    return res.status(explicitStatus).json({
+      error: "Erreur d’activation EtR",
+      code: String(error?.code || "enrollment_error")
+    });
+  }
+  return res.status(500).json({ error: "Erreur d’activation EtR", code: "enrollment_error" });
 }
 
 function enrollmentAuthAdapter(auth, issuer) {
