@@ -71,15 +71,26 @@ class SdFactoryInstallContractTests(unittest.TestCase):
             "MAX_RSYNC_ATTEMPTS = 3",
             "Synchronisation finale : reprise automatique",
             "sd-factory-rsync.log",
-            "GIT_OWNER = \"oryx\"",
-            "RUNUSER = Path(\"/usr/sbin/runuser\")",
-            "_git_as_owner",
         ]:
             self.assertIn(marker, copy_engine)
         self.assertIn("--delete-delay", copy_engine)
         self.assertIn("_concise_rsync_error", copy_engine)
+
+    def test_repository_snapshot_uses_archive_without_identity_switch(self):
+        copy_engine = (ROOT / "src/deploy/raspi/etr_sd_factory_fast.py").read_text(encoding="utf-8")
+        for marker in [
+            "_git_from_repository",
+            "safe.directory=",
+            '"archive", "--format=tar"',
+            '"--no-same-owner"',
+            '".etr-source-revision"',
+            "sans setuid, clone local ni accès réseau",
+        ]:
+            self.assertIn(marker, copy_engine)
+        self.assertNotIn("runuser", copy_engine.lower())
+        self.assertNotIn("setuid(", copy_engine)
         self.assertNotIn("git config --global", copy_engine)
-        self.assertNotIn("safe.directory=*", copy_engine)
+        self.assertNotIn('"clone", "--local"', copy_engine)
 
     def test_ready_state_requires_confirmed_unmount(self):
         worker = (ROOT / "src/deploy/raspi/etr_sd_factory_worker.py").read_text(encoding="utf-8")
