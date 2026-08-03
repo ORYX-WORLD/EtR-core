@@ -1,0 +1,119 @@
+name: Arrêter seulement l'ancienne interface microSD
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-sd-stop-old-ui-once.yml
+
+concurrency:
+  group: etr-sd-stop-old-ui-once
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  stop-ui:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 5
+    steps:
+      - name: Vérifier que le moteur copie réellement
+        id: before
+        shell: bash
+        run: |
+          set -euo pipefail
+          active_state=$(sudo systemctl show etr-sd-factory-worker.service -p ActiveState --value)
+          main_pid=$(sudo systemctl show etr-sd-factory-worker.service -p MainPID --value)
+          case "$active_state" in
+            active|activating|reloading|deactivating) ;;
+            *) echo "::error::Le moteur n'est pas en cours: $active_state"; exit 1 ;;
+          esac
+          [ "${main_pid:-0}" -gt 0 ]
+          sudo cat /var/lib/etr-core/sd-factory-state.json > /tmp/etr-sd-ui-before.json
+          python3 - <<'PY'
+          import json
+          data=json.load(open('/tmp/etr-sd-ui-before.json', encoding='utf-8'))
+          assert data.get('active') is True, data
+          assert data.get('status') in {
+              'validating','ticket','unmounting','partitioning','formatting','mounting',
+              'copying_root','copying_boot','configuring','verifying','syncing','finalizing'
+          }, data
+          print(data.get('job_id'), data.get('status'), data.get('updated_at'))
+          PY
+          echo "main_pid=$main_pid" >> "$GITHUB_OUTPUT"
+
+      - name: Fermer uniquement la fenêtre de suivi obsolète
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl stop etr-sd-factory.service
+          ! sudo systemctl is-active --quiet etr-sd-factory.service
+
+      - name: Prouver que la copie continue
+        shell: bash
+        env:
+          EXPECTED_PID: ${{ steps.before.outputs.main_pid }}
+        run: |
+          set -euo pipefail
+          sleep 12
+          current_pid=$(sudo systemctl show etr-sd-factory-worker.service -p MainPID --value)
+          active_state=$(sudo systemctl show etr-sd-factory-worker.service -p ActiveState --value)
+          [ "$current_pid" = "$EXPECTED_PID" ]
+          case "$active_state" in
+            active|activating|reloading|deactivating) ;;
+            *) echo "::error::Le moteur s'est arrêté après fermeture de l'interface: $active_state"; exit 1 ;;
+          esac
+          sudo cat /var/lib/etr-core/sd-factory-state.json > /tmp/etr-sd-ui-after.json
+          python3 - <<'PY'
+          import json
+          before=json.load(open('/tmp/etr-sd-ui-before.json', encoding='utf-8'))
+          after=json.load(open('/tmp/etr-sd-ui-after.json', encoding='utf-8'))
+          assert after.get('job_id') == before.get('job_id'), (before, after)
+          assert after.get('active') is True, after
+          assert after.get('updated_at') != before.get('updated_at'), (before, after)
+          print(json.dumps(after, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Publier la preuve et retirer le workflow ponctuel
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          sudo systemctl show etr-sd-factory-worker.service -p ActiveState -p SubState -p MainPID -p Result > /tmp/etr-sd-ui-worker.txt 2>&1 || true
+          sudo systemctl show etr-sd-factory.service -p ActiveState -p SubState -p MainPID -p Result > /tmp/etr-sd-ui-gui.txt 2>&1 || true
+          sudo cat /var/lib/etr-core/sd-factory-state.json > /tmp/etr-sd-ui-state.json 2>/dev/null || printf '{}\n' > /tmp/etr-sd-ui-state.json
+          python3 - <<'PY' > /tmp/etr-sd-old-ui-stopped.json
+          import json, os
+          from datetime import datetime, timezone
+          from pathlib import Path
+          def data(path):
+              try:return json.loads(Path(path).read_text(encoding='utf-8'))
+              except Exception:return {}
+          def text(path):
+              try:return Path(path).read_text(encoding='utf-8',errors='replace')
+              except OSError:return ''
+          print(json.dumps({
+              'checkedAt':datetime.now(timezone.utc).isoformat(),
+              'jobStatus':os.getenv('JOB_STATUS'),
+              'state':data('/tmp/etr-sd-ui-state.json'),
+              'worker':text('/tmp/etr-sd-ui-worker.txt'),
+              'gui':text('/tmp/etr-sd-ui-gui.txt'),
+          },ensure_ascii=False,indent=2))
+          PY
+          rm -rf /tmp/etr-sd-ui-stop-report-repo
+          git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/etr-sd-ui-stop-report-repo
+          cd /tmp/etr-sd-ui-stop-report-repo
+          mkdir -p .github/deployment
+          cp /tmp/etr-sd-old-ui-stopped.json .github/deployment/etr-sd-old-ui-stopped.json
+          rm -f .github/workflows/etr-sd-stop-old-ui-once.yml
+          git config user.name 'EtR SD stop old UI'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/deployment/etr-sd-old-ui-stopped.json .github/workflows/etr-sd-stop-old-ui-once.yml
+          git commit -m 'chore: record old SD UI stop and remove one-shot workflow [skip ci]'
+          git pull --rebase origin main
+          git push origin HEAD:main
