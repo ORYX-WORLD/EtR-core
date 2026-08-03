@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import pwd
 import re
 import shutil
 import subprocess
@@ -35,12 +36,8 @@ SNAPSHOT_ROOT = Path("/run/etr-sd-factory")
 RSYNC_LOG = core.STATE_DIR / "sd-factory-rsync.log"
 RETRYABLE_CODES = {23, 24}
 MAX_RSYNC_ATTEMPTS = 3
-
-# Le dépôt installé appartient à l'utilisateur oryx alors que le moteur de
-# fabrication doit être root pour partitionner la carte. On autorise uniquement
-# ce chemin connu au niveau de chaque commande Git, sans modifier la configuration
-# globale de root ni élargir la confiance à d'autres dépôts.
-GIT_SAFE_OPTIONS = ["-c", f"safe.directory={REPOSITORY}"]
+GIT_OWNER = "oryx"
+RUNUSER = Path("/usr/sbin/runuser")
 
 # Ces chemins sont supprimés après la copie par scrub_clone, sont des montages
 # de session ou changent en permanence. Les exclure dès le départ évite les
@@ -153,44 +150,44 @@ def _concise_rsync_error(code: int, lines: list[str]) -> str:
     )
 
 
+def _git_as_owner(*arguments: str) -> list[str]:
+    if not RUNUSER.is_file():
+        raise core.FactoryError(f"Commande système absente : {RUNUSER}")
+    return [str(RUNUSER), "-u", GIT_OWNER, "--", "/usr/bin/git", *arguments]
+
+
 def _repository_snapshot() -> Path:
-    """Clone le commit installé afin qu'un git pull concurrent ne mélange pas les versions."""
+    """Clone le commit installé sous l'identité qui possède réellement le dépôt."""
     SNAPSHOT_ROOT.mkdir(parents=True, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix="repo-snapshot-", dir=SNAPSHOT_ROOT))
     snapshot = directory / "EtR-core"
     try:
+        owner = pwd.getpwnam(GIT_OWNER)
+        os.chown(directory, owner.pw_uid, owner.pw_gid)
+        os.chmod(directory, 0o700)
         revision = subprocess.run(
-            [
-                "/usr/bin/git",
-                *GIT_SAFE_OPTIONS,
-                "-C",
-                str(REPOSITORY),
-                "rev-parse",
-                "HEAD",
-            ],
+            _git_as_owner("-C", str(REPOSITORY), "rev-parse", "HEAD"),
             check=True,
             text=True,
             capture_output=True,
             timeout=20,
         ).stdout.strip()
         subprocess.run(
-            [
-                "/usr/bin/git",
-                *GIT_SAFE_OPTIONS,
+            _git_as_owner(
                 "clone",
                 "--local",
                 "--no-hardlinks",
                 "--no-checkout",
                 str(REPOSITORY),
                 str(snapshot),
-            ],
+            ),
             check=True,
             text=True,
             capture_output=True,
             timeout=120,
         )
         subprocess.run(
-            ["/usr/bin/git", "-C", str(snapshot), "checkout", "--force", revision],
+            _git_as_owner("-C", str(snapshot), "checkout", "--force", revision),
             check=True,
             text=True,
             capture_output=True,
