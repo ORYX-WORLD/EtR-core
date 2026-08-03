@@ -164,17 +164,30 @@ export function createDeviceBootstrapService({
     };
   }
 
-  function verifyFactoryPrincipal(decodedUser) {
-    const installationId = String(decodedUser?.installationId || "").trim().toLowerCase();
+  async function verifyFactoryPrincipal(decodedUser) {
     const uid = String(decodedUser?.uid || decodedUser?.sub || "").trim();
-    if (decodedUser?.etrDevice !== true || !uid || !allowedFactoryInstallations.has(installationId)) {
+    let installationId = String(decodedUser?.installationId || "").trim().toLowerCase();
+    if (!uid) {
+      throw clientError(403, "factory_device_refused", "Cet EtR n’est pas autorisé à fabriquer des cartes");
+    }
+
+    // Le banc historique utilise un compte Firebase créé avant l'ajout du claim
+    // etrDevice. Dans ce cas, deviceAccess reste la source d'autorité : seule une
+    // liaison serveur vers un identifiant de banc explicitement autorisé permet
+    // d'émettre un ticket de fabrication.
+    if (decodedUser?.etrDevice !== true) {
+      const boundInstallation = (await db.ref(`deviceAccess/${uid}`).get()).val();
+      installationId = String(boundInstallation || "").trim().toLowerCase();
+    }
+
+    if (!allowedFactoryInstallations.has(installationId)) {
       throw clientError(403, "factory_device_refused", "Cet EtR n’est pas autorisé à fabriquer des cartes");
     }
     return { installationId, uid };
   }
 
   async function issueFactoryTicket({ decodedUser, expiresIn } = {}) {
-    const factory = verifyFactoryPrincipal(decodedUser);
+    const factory = await verifyFactoryPrincipal(decodedUser);
     const requestedTtl = Number(expiresIn || FACTORY_TICKET_DEFAULT_SECONDS);
     const ttlSeconds = Math.max(
       FACTORY_TICKET_MIN_SECONDS,
