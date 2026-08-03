@@ -1,5 +1,6 @@
 name: Mesurer la copie microSD en cours
 
+# Contrôle relancé après activation de la copie optimisée le 2026-08-03.
 on:
   workflow_dispatch:
   push:
@@ -93,8 +94,8 @@ jobs:
                           mounts.append({'path':str(path),'source':source or None,'duBytes':int(used or 0)})
           print(json.dumps({'sampledAtEpoch':time.time(),'processes':processes,'mounts':mounts},indent=2))
           PY
-          sudo systemctl status etr-sd-factory.service --no-pager -l > /tmp/etr-sd-copy-monitor/service.txt 2>&1 || true
-          sudo journalctl -u etr-sd-factory.service -n 80 --no-pager > /tmp/etr-sd-copy-monitor/journal.txt 2>&1 || true
+          sudo systemctl status etr-sd-factory-auto.service --no-pager -l > /tmp/etr-sd-copy-monitor/service.txt 2>&1 || sudo systemctl status etr-sd-factory.service --no-pager -l > /tmp/etr-sd-copy-monitor/service.txt 2>&1 || true
+          sudo journalctl -u etr-sd-factory-auto.service -u etr-sd-factory.service -n 100 --no-pager > /tmp/etr-sd-copy-monitor/journal.txt 2>&1 || true
           lsblk -b -o NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS,TRAN,RM,MODEL > /tmp/etr-sd-copy-monitor/lsblk.txt
 
       - name: Publier le diagnostic
@@ -127,7 +128,7 @@ jobs:
               delta=m2.get('duBytes',0)-before.get('duBytes',0)
               growth.append({'path':m2['path'],'source':m2.get('source'),'bytesPresent':m2.get('duBytes',0),'growthBytesPerSecond':max(0,delta/dt)})
           def text(name):
-              try:return Path('/tmp/etr-sd-copy-monitor/'+name).read_text(encoding='utf-8',errors='replace')[-10000:]
+              try:return Path('/tmp/etr-sd-copy-monitor/'+name).read_text(encoding='utf-8',errors='replace')[-12000:]
               except OSError:return ''
           report={
               'checkedAt':datetime.now(timezone.utc).isoformat(),
