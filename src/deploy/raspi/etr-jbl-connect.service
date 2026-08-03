@@ -1,0 +1,24 @@
+[Unit]
+Description=Connexion automatique de l'enceinte JBL EtR
+After=bluetooth.service user@1000.service
+Wants=bluetooth.service user@1000.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=ETR_JBL_MAC=40:C1:F6:70:C0:1A
+Environment=ETR_JBL_NAME=JBL Go 3
+ExecStart=/usr/local/bin/etr-jbl-connect
+Restart=always
+RestartSec=10
+TimeoutStartSec=90
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/etr-core /tmp
+RestrictAddressFamilies=AF_UNIX AF_BLUETOOTH AF_NETLINK AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
