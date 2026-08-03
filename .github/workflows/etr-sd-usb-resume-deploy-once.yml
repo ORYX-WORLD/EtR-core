@@ -1,0 +1,378 @@
+name: Déployer et valider la reprise USB microSD
+
+on:
+  push:
+    branches:
+      - ops/deploy-sd-usb-resume
+    paths:
+      - .github/workflows/etr-sd-usb-resume-deploy-once.yml
+
+concurrency:
+  group: etr-sd-usb-resume-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  deploy-and-start:
+    name: Installer la reprise USB puis relancer la fabrication
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 90
+    env:
+      REPO: /home/oryx/EtR-core
+      REPORT_BRANCH: ops/deploy-sd-usb-resume
+      EXPECTED_SIZE: "31268536320"
+      EXPECTED_READER_USB_ID: "14cd:1212"
+
+    steps:
+      - name: Préparer le diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-sd-usb-resume
+          date +%s > /tmp/etr-sd-usb-resume/start-epoch
+          lsusb > /tmp/etr-sd-usb-resume/lsusb-before.txt || true
+          lsusb -t > /tmp/etr-sd-usb-resume/lsusb-tree-before.txt || true
+          lsblk -b -o NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS,TRAN,RM,MODEL \
+            > /tmp/etr-sd-usb-resume/lsblk-before.txt
+
+      - name: Vérifier qu'aucune fabrication n'est active
+        shell: bash
+        run: |
+          set -euo pipefail
+          state=$(sudo systemctl show -p ActiveState --value etr-sd-factory-worker.service 2>/dev/null || echo inactive)
+          if [[ "$state" =~ ^(active|activating|reloading|deactivating)$ ]]; then
+            echo "::error::Une fabrication microSD est déjà en cours ($state). Déploiement annulé sans l'interrompre."
+            exit 1
+          fi
+          sudo systemctl stop etr-sd-factory.service 2>/dev/null || true
+          sudo systemctl reset-failed etr-sd-factory-worker.service etr-sd-factory.service 2>/dev/null || true
+
+      - name: Actualiser le dépôt installé sur main
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u oryx -H git -C "$REPO" remote set-url origin https://github.com/ORYX-WORLD/EtR-core.git
+          if [ -n "$(sudo -u oryx -H git -C "$REPO" status --porcelain)" ]; then
+            sudo -u oryx -H git -C "$REPO" stash push --include-untracked \
+              -m "Sauvegarde avant reprise USB microSD $(date -u +%Y%m%dT%H%M%SZ)"
+          fi
+          sudo -u oryx -H git -C "$REPO" fetch origin main
+          sudo -u oryx -H git -C "$REPO" checkout main
+          sudo -u oryx -H git -C "$REPO" reset --hard origin/main
+          sudo -u oryx -H git -C "$REPO" rev-parse HEAD \
+            | tee /tmp/etr-sd-usb-resume/installed-commit.txt
+
+      - name: Vérifier le code et les tests de reprise
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$REPO"
+          python3 -m py_compile \
+            src/deploy/raspi/etr_sd_factory_fast.py \
+            src/deploy/raspi/etr_sd_factory_state.py \
+            src/deploy/raspi/etr_sd_factory_usb_resume.py \
+            src/deploy/raspi/etr_sd_factory_worker.py
+          .venv/bin/python -m unittest discover -s tests -p 'test_sd_factory*.py' -v \
+            2>&1 | tee /tmp/etr-sd-usb-resume/tests.txt
+
+      - name: Valider la reprise sur un disque virtuel isolé
+        shell: bash
+        run: |
+          set -euo pipefail
+          work=/tmp/etr-sd-usb-resume/loop-test
+          image=$work/card.img
+          mount_root=$work/root
+          rm -rf "$work"
+          mkdir -p "$mount_root"
+          truncate -s 256M "$image"
+          printf 'label: dos\nunit: sectors\n\nstart=2048, type=83\n' \
+            | sudo sfdisk "$image" >/tmp/etr-sd-usb-resume/loop-sfdisk.txt
+          loop=$(sudo losetup --find --show --partscan "$image")
+          printf '%s\n' "$loop" > "$work/initial-loop"
+          partition="${loop}p1"
+          for attempt in $(seq 1 30); do
+            [ -b "$partition" ] && break
+            sleep 0.2
+          done
+          test -b "$partition"
+          sudo mkfs.ext4 -F -L etr_resume_test "$partition" \
+            > /tmp/etr-sd-usb-resume/loop-mkfs.txt 2>&1
+          sudo mount "$partition" "$mount_root"
+          sudo mkdir -p "$mount_root/home/oryx/EtR-core"
+          printf 'partial-data\n' | sudo tee "$mount_root/home/oryx/EtR-core/probe.txt" >/dev/null
+
+          sudo env PYTHONPATH="$REPO" \
+            ETR_RESUME_TEST_IMAGE="$image" \
+            ETR_RESUME_TEST_INITIAL_LOOP="$loop" \
+            ETR_RESUME_TEST_ROOT="$mount_root" \
+            "$REPO/.venv/bin/python" - <<'PY' \
+            | tee /tmp/etr-sd-usb-resume/loop-recovery.txt
+          import json
+          import os
+          import subprocess
+          import threading
+          import time
+          from pathlib import Path
+
+          from src.deploy.raspi.etr_sd_factory_usb_resume import (
+              inspect_target,
+              recover_target_mount,
+          )
+
+          image = os.environ['ETR_RESUME_TEST_IMAGE']
+          initial_loop = os.environ['ETR_RESUME_TEST_INITIAL_LOOP']
+          root = Path(os.environ['ETR_RESUME_TEST_ROOT']).resolve()
+          deep = root / 'home/oryx/EtR-core'
+          identity = inspect_target(str(deep))
+          assert Path(identity.mountpoint) == root, (identity.mountpoint, root)
+          assert identity.filesystem == 'ext4', identity
+
+          subprocess.run(['/usr/bin/umount', str(root)], check=True)
+          subprocess.run(['/usr/sbin/losetup', '-d', initial_loop], check=True)
+
+          holder: dict[str, str] = {}
+          def reconnect() -> None:
+              time.sleep(3)
+              completed = subprocess.run(
+                  ['/usr/sbin/losetup', '--find', '--show', '--partscan', image],
+                  check=True,
+                  text=True,
+                  capture_output=True,
+              )
+              holder['loop'] = completed.stdout.strip()
+              subprocess.run(['/usr/bin/udevadm', 'settle'], check=False)
+
+          thread = threading.Thread(target=reconnect, daemon=True)
+          thread.start()
+          messages: list[str] = []
+          recovered = recover_target_mount(
+              identity,
+              progress=lambda value: (messages.append(value), print(value)),
+              attempt=1,
+              maximum=2,
+              timeout_seconds=30,
+              stable_seconds=2,
+          )
+          thread.join(timeout=10)
+          assert Path(recovered.mountpoint) == root, recovered
+          assert (deep / 'probe.txt').read_text().strip() == 'partial-data'
+          target = subprocess.run(
+              ['/usr/bin/findmnt', '-n', '-o', 'TARGET', '--target', str(deep)],
+              check=True,
+              text=True,
+              capture_output=True,
+          ).stdout.strip()
+          assert Path(target).resolve() == root, (target, root)
+          assert any(value.startswith('Pause USB') for value in messages)
+          assert any(value.startswith('Contrôle du système de fichiers') for value in messages)
+          assert any(value.startswith('Reprise de la copie') for value in messages)
+          print(json.dumps({'status':'success','mountpoint':str(root),'newLoop':holder.get('loop')}, indent=2))
+          PY
+
+          sudo umount "$mount_root" 2>/dev/null || true
+          while read -r device; do
+            [ -n "$device" ] || continue
+            sudo losetup -d "$device" 2>/dev/null || true
+          done < <(sudo losetup -j "$image" | cut -d: -f1)
+          rm -rf "$work"
+
+      - name: Installer les services de fabrique sans redémarrer le banc
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo install -m 755 "$REPO/src/deploy/raspi/etr-sd-factory-cleanup.sh" \
+            /usr/local/bin/etr-sd-factory-cleanup
+          sudo install -m 755 "$REPO/src/deploy/raspi/etr-sd-factory-launch.sh" \
+            /usr/local/bin/etr-sd-factory-launch.sh
+          sudo install -m 644 "$REPO/src/deploy/raspi/etr-sd-factory-worker.service" \
+            /etc/systemd/system/etr-sd-factory-worker.service
+          sudo install -m 644 "$REPO/src/deploy/raspi/etr-sd-factory.service" \
+            /etc/systemd/system/etr-sd-factory.service
+          sudo systemctl daemon-reload
+          sudo systemctl reset-failed etr-sd-factory-worker.service etr-sd-factory.service 2>/dev/null || true
+          systemd-analyze verify \
+            /etc/systemd/system/etr-sd-factory-worker.service \
+            /etc/systemd/system/etr-sd-factory.service
+          sudo systemctl restart etr-sd-factory.service
+
+      - name: Détecter la microSD réelle et lancer une nouvelle fabrication
+        id: manufacture
+        shell: bash
+        run: |
+          set -euo pipefail
+          lsusb -d "$EXPECTED_READER_USB_ID" \
+            | tee /tmp/etr-sd-usb-resume/reader.txt
+          cd "$REPO"
+          sudo .venv/bin/python - <<'PY' > /tmp/etr-sd-usb-resume/request.json
+          import json
+          import uuid
+          from src.deploy.raspi import etr_sd_factory_core as core
+          from src.deploy.raspi.etr_sd_factory_state import write_request
+
+          expected_size = 31268536320
+          devices = core.lsblk_data()
+          source = core.source_disk(devices)
+          candidates = core.candidate_disks(devices, source)
+          matches = [
+              disk for disk in candidates
+              if disk.size == expected_size and disk.path != source
+          ]
+          if len(matches) != 1:
+              raise SystemExit(
+                  'Une unique microSD USB de 31,3 Go est requise : '
+                  + repr([(d.path, d.size, d.transport, d.removable) for d in candidates])
+              )
+          disk = matches[0]
+          request = {
+              'job_id': str(uuid.uuid4()),
+              'device': disk.path,
+              'disk_label': disk.label,
+              'size_bytes': disk.size,
+              'copy_wifi': bool(core.active_wifi_profile()),
+          }
+          write_request(request)
+          print(json.dumps(request, ensure_ascii=False, indent=2))
+          PY
+          job_id=$(python3 -c 'import json; print(json.load(open("/tmp/etr-sd-usb-resume/request.json"))["job_id"])')
+          target=$(python3 -c 'import json; print(json.load(open("/tmp/etr-sd-usb-resume/request.json"))["device"])')
+          echo "job_id=$job_id" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          sudo systemctl start --no-block etr-sd-factory-worker.service
+
+      - name: Confirmer l'entrée en phase d'écriture
+        id: live
+        shell: bash
+        run: |
+          set -euo pipefail
+          reached=false
+          terminal=false
+          observed=""
+          : > /tmp/etr-sd-usb-resume/status-history.txt
+          for attempt in $(seq 1 600); do
+            if sudo test -s /var/lib/etr-core/sd-factory-state.json; then
+              sudo cat /var/lib/etr-core/sd-factory-state.json \
+                > /tmp/etr-sd-usb-resume/live-state.json
+              observed=$(python3 -c 'import json; print(json.load(open("/tmp/etr-sd-usb-resume/live-state.json")).get("status", ""))')
+              printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$observed" \
+                >> /tmp/etr-sd-usb-resume/status-history.txt
+              case "$observed" in
+                copying_root|copying_boot|paused_usb|checking_filesystem|resuming_copy|configuring|verifying|syncing|finalizing|ready)
+                  reached=true
+                  break
+                  ;;
+                failed|cancelled|interrupted)
+                  terminal=true
+                  break
+                  ;;
+              esac
+            fi
+            sleep 1
+          done
+          echo "reached=$reached" >> "$GITHUB_OUTPUT"
+          echo "terminal=$terminal" >> "$GITHUB_OUTPUT"
+          echo "observed=$observed" >> "$GITHUB_OUTPUT"
+          sudo cat /var/lib/etr-core/sd-factory-state.json 2>/dev/null || true
+          [ "$reached" = true ] || exit 1
+
+      - name: Publier la preuve et retirer le workflow ponctuel
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          JOB_STATUS: ${{ job.status }}
+          JOB_ID: ${{ steps.manufacture.outputs.job_id }}
+          TARGET: ${{ steps.manufacture.outputs.target }}
+          WRITE_REACHED: ${{ steps.live.outputs.reached }}
+          TERMINAL: ${{ steps.live.outputs.terminal }}
+          OBSERVED_STATUS: ${{ steps.live.outputs.observed }}
+        run: |
+          set -euo pipefail
+          start_epoch=$(cat /tmp/etr-sd-usb-resume/start-epoch 2>/dev/null || echo 0)
+          sudo cat /var/lib/etr-core/sd-factory-state.json \
+            > /tmp/etr-sd-usb-resume/state.json 2>/dev/null || printf '{}\n' \
+            > /tmp/etr-sd-usb-resume/state.json
+          sudo cat /var/lib/etr-core/sd-factory-rsync.log \
+            > /tmp/etr-sd-usb-resume/rsync.log 2>/dev/null || : \
+            > /tmp/etr-sd-usb-resume/rsync.log
+          sudo systemctl show etr-sd-factory-worker.service \
+            -p MainPID -p ActiveState -p SubState -p Result \
+            > /tmp/etr-sd-usb-resume/worker.txt 2>&1 || true
+          sudo journalctl -u etr-sd-factory-worker.service --since "@${start_epoch}" --no-pager \
+            > /tmp/etr-sd-usb-resume/journal.txt 2>&1 || true
+          sudo journalctl -k --since "@${start_epoch}" --no-pager \
+            > /tmp/etr-sd-usb-resume/kernel.txt 2>&1 || true
+          lsusb > /tmp/etr-sd-usb-resume/lsusb-after.txt || true
+          lsusb -t > /tmp/etr-sd-usb-resume/lsusb-tree-after.txt || true
+          lsblk -b -o NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS,TRAN,RM,MODEL \
+            > /tmp/etr-sd-usb-resume/lsblk-after.txt
+
+          python3 - <<'PY' > /tmp/etr-sd-usb-resume-deploy.json
+          import json
+          import os
+          import re
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          base = Path('/tmp/etr-sd-usb-resume')
+          def data(name):
+              try:
+                  return json.loads((base / name).read_text(encoding='utf-8'))
+              except Exception:
+                  return {}
+          def text(name, limit=30000):
+              try:
+                  return (base / name).read_text(encoding='utf-8', errors='replace')[-limit:]
+              except OSError:
+                  return ''
+
+          kernel = text('kernel.txt')
+          state = data('state.json')
+          report = {
+              'checkedAt': datetime.now(timezone.utc).isoformat(),
+              'jobStatus': os.getenv('JOB_STATUS'),
+              'installedCommit': text('installed-commit.txt').strip() or None,
+              'loopRecoveryTestPassed': '"status": "success"' in text('loop-recovery.txt'),
+              'jobId': os.getenv('JOB_ID') or None,
+              'target': os.getenv('TARGET') or None,
+              'writePhaseReached': os.getenv('WRITE_REACHED') == 'true',
+              'terminalBeforeWrite': os.getenv('TERMINAL') == 'true',
+              'observedStatus': os.getenv('OBSERVED_STATUS') or state.get('status'),
+              'state': state,
+              'capacityResetDetected': bool(re.search(r'capacity change from .* to 0|access beyond end of device', kernel, re.I)),
+              'ioErrorDetected': bool(re.search(r'I/O error|Input/output error|Buffer I/O error', kernel, re.I)),
+              'tests': text('tests.txt'),
+              'loopRecovery': text('loop-recovery.txt'),
+              'statusHistory': text('status-history.txt'),
+              'reader': text('reader.txt'),
+              'worker': text('worker.txt'),
+              'journal': text('journal.txt'),
+              'kernel': kernel,
+              'rsyncLogTail': text('rsync.log'),
+              'lsusbBefore': text('lsusb-before.txt'),
+              'lsusbAfter': text('lsusb-after.txt'),
+              'lsusbTreeAfter': text('lsusb-tree-after.txt'),
+              'lsblkBefore': text('lsblk-before.txt'),
+              'lsblkAfter': text('lsblk-after.txt'),
+          }
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+          cat /tmp/etr-sd-usb-resume-deploy.json
+
+          rm -rf /tmp/etr-sd-usb-resume-report
+          git clone --depth 1 --branch "$REPORT_BRANCH" \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            /tmp/etr-sd-usb-resume-report
+          cd /tmp/etr-sd-usb-resume-report
+          mkdir -p .github/deployment
+          cp /tmp/etr-sd-usb-resume-deploy.json \
+            .github/deployment/etr-sd-usb-resume-deploy.json
+          rm -f .github/workflows/etr-sd-usb-resume-deploy-once.yml
+          git config user.name 'EtR SD USB resume deployment'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/deployment/etr-sd-usb-resume-deploy.json \
+                  .github/workflows/etr-sd-usb-resume-deploy-once.yml
+          git commit -m 'chore: record SD USB resume deployment and remove one-shot workflow [skip ci]'
+          git pull --rebase origin "$REPORT_BRANCH"
+          git push origin HEAD:"$REPORT_BRANCH"
