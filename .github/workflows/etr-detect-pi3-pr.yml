@@ -1,0 +1,99 @@
+name: Diagnostic immédiat Raspberry Pi 3
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: etr-detect-pi3-now
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 6
+    steps:
+      - name: Scanner le réseau local et la passerelle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/etr-pi3-pr-scan
+          ip -j -4 address show scope global > /tmp/etr-pi3-pr-scan/addresses.json
+          ip route show
+          ip neigh show || true
+          python3 - <<'PY'
+          import concurrent.futures
+          import ipaddress
+          import json
+          import socket
+          import subprocess
+          import urllib.request
+          from pathlib import Path
+
+          addresses=json.loads(Path('/tmp/etr-pi3-pr-scan/addresses.json').read_text())
+          local=set()
+          networks=[]
+          for interface in addresses:
+              for value in interface.get('addr_info',[]):
+                  ip=str(value.get('local') or '')
+                  if not ip or ':' in ip: continue
+                  local.add(ip)
+                  network=ipaddress.ip_network(f'{ip}/24',strict=False)
+                  if network not in networks: networks.append(network)
+
+          def ping(ip):
+              try:
+                  result=subprocess.run(['/usr/bin/ping','-n','-c','1','-W','1',ip],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=2)
+                  return ip if result.returncode == 0 else None
+              except Exception:
+                  return None
+
+          targets=[str(ip) for network in networks[:3] for ip in network.hosts() if str(ip) not in local]
+          alive=[]
+          with concurrent.futures.ThreadPoolExecutor(max_workers=64) as pool:
+              alive=[ip for ip in pool.map(ping,targets) if ip]
+
+          arp={}
+          try:
+              lines=Path('/proc/net/arp').read_text().splitlines()[1:]
+          except OSError:
+              lines=[]
+          for line in lines:
+              fields=line.split()
+              if len(fields)>=6 and fields[3] != '00:00:00:00:00:00':
+                  arp[fields[0]]={'mac':fields[3].lower(),'interface':fields[5]}
+                  if fields[0] not in alive: alive.append(fields[0])
+
+          ports=[22,80,8000,8080,8090,5901]
+          raspberry_ouis={'b8:27:eb','dc:a6:32','e4:5f:01','d8:3a:dd','2c:cf:67','28:cd:c1','90:9d:7d'}
+          def port_open(ip,port):
+              try:
+                  with socket.create_connection((ip,port),timeout=.7): return True
+              except OSError: return False
+          def name(ip):
+              try:return socket.gethostbyaddr(ip)[0]
+              except OSError:return None
+          def etr(ip):
+              try:
+                  with urllib.request.urlopen(f'http://{ip}:8080/api/v1/status',timeout=1.5) as response:
+                      data=json.loads(response.read(8192))
+                      return data if data.get('service') == 'EtR' or 'enrollment' in data else None
+              except Exception:return None
+          devices=[]
+          for ip in sorted(set(alive),key=ipaddress.ip_address):
+              mac=arp.get(ip,{}).get('mac')
+              hostname=name(ip)
+              status=etr(ip)
+              opened=[port for port in ports if port_open(ip,port)]
+              candidate=bool(status) or bool(mac and mac[:8] in raspberry_ouis) or bool(hostname and ('raspberry' in hostname.lower() or hostname.lower().startswith('etr-')))
+              devices.append({'ip':ip,'hostname':hostname,'mac':mac,'open_ports':opened,'etr':status,'pi_candidate':candidate})
+          report={'local_ips':sorted(local),'networks':[str(v) for v in networks],'devices':devices,'candidates':[v for v in devices if v['pi_candidate']]}
+          print('PI3_DISCOVERY_JSON='+json.dumps(report,ensure_ascii=False,separators=(',',':')))
+          PY
+          echo 'GATEWAY_HEALTH_BEGIN'
+          curl -sS --max-time 10 https://etr-remote-gateway-7n72m5gopq-ew.a.run.app/api/health || true
+          echo
+          echo 'GATEWAY_HEALTH_END'
