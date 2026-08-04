@@ -14,9 +14,9 @@ permissions:
 jobs:
   scan:
     runs-on: [self-hosted, Linux, ARM64]
-    timeout-minutes: 6
+    timeout-minutes: 7
     steps:
-      - name: Scanner le réseau local et la passerelle
+      - name: Scanner le réseau local, le Wi-Fi et la passerelle
         shell: bash
         run: |
           set -euo pipefail
@@ -93,6 +93,28 @@ jobs:
           report={'local_ips':sorted(local),'networks':[str(v) for v in networks],'devices':devices,'candidates':[v for v in devices if v['pi_candidate']]}
           print('PI3_DISCOVERY_JSON='+json.dumps(report,ensure_ascii=False,separators=(',',':')))
           PY
+
+          echo 'MDNS_BEGIN'
+          getent hosts raspberrypi.local || true
+          getent hosts etr.local || true
+          if command -v avahi-browse >/dev/null 2>&1; then
+            timeout 15 avahi-browse -art 2>/dev/null | grep -Ei 'etr|raspberry|_ssh\._tcp|_http\._tcp' || true
+          fi
+          echo 'MDNS_END'
+
+          echo 'WIFI_SCAN_BEGIN'
+          if command -v nmcli >/dev/null 2>&1; then
+            nmcli -t -f SSID,BSSID,SIGNAL,SECURITY device wifi list --rescan yes 2>/dev/null \
+              | sed '/^:/d' | sort -u || true
+          fi
+          echo 'WIFI_SCAN_END'
+
+          echo 'TAILSCALE_BEGIN'
+          if command -v tailscale >/dev/null 2>&1; then
+            tailscale status 2>/dev/null || true
+          fi
+          echo 'TAILSCALE_END'
+
           echo 'GATEWAY_HEALTH_BEGIN'
           curl -sS --max-time 10 https://etr-remote-gateway-7n72m5gopq-ew.a.run.app/api/health || true
           echo
