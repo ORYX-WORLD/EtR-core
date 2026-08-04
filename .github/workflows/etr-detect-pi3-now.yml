@@ -1,0 +1,332 @@
+name: Rechercher immédiatement le Raspberry Pi 3
+
+on:
+  push:
+    branches:
+      - ops/detect-pi3-now
+    paths:
+      - .github/workflows/etr-detect-pi3-now.yml
+
+concurrency:
+  group: etr-detect-pi3-now
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  discover:
+    name: Scanner le réseau local et la passerelle EtR
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 9
+    env:
+      REPORT_BRANCH: ops/detect-pi3-now
+      GATEWAY_URL: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
+
+    steps:
+      - name: Observer le démarrage pendant trois minutes
+        shell: bash
+        run: |
+          set -euo pipefail
+          work=/tmp/etr-pi3-discovery
+          rm -rf "$work"
+          mkdir -p "$work"
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$work/started-at.txt"
+
+          for round in 1 2 3; do
+            printf '=== ROUND %s %s ===\n' "$round" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$work/system.txt"
+            hostnamectl 2>/dev/null >> "$work/system.txt" || hostname >> "$work/system.txt"
+            ip -j -4 address show scope global > "$work/ip-address-round-${round}.json" || printf '[]\n' > "$work/ip-address-round-${round}.json"
+            ip -j route show > "$work/ip-route-round-${round}.json" || printf '[]\n' > "$work/ip-route-round-${round}.json"
+            ip neigh show > "$work/ip-neigh-before-round-${round}.txt" || true
+
+            ROUND="$round" WORK="$work" python3 - <<'PY'
+          import concurrent.futures
+          import ipaddress
+          import json
+          import os
+          import re
+          import socket
+          import subprocess
+          import urllib.error
+          import urllib.request
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          work = Path(os.environ['WORK'])
+          round_no = int(os.environ['ROUND'])
+          addresses = json.loads((work / f'ip-address-round-{round_no}.json').read_text(encoding='utf-8'))
+          local_ips = set()
+          networks = []
+          for interface in addresses:
+              for info in interface.get('addr_info', []):
+                  local = str(info.get('local') or '')
+                  prefix = int(info.get('prefixlen') or 0)
+                  if not local or ':' in local:
+                      continue
+                  local_ips.add(local)
+                  try:
+                      interface_network = ipaddress.ip_interface(f'{local}/{prefix}').network
+                  except ValueError:
+                      continue
+                  # Le scan reste volontairement borné au /24 contenant le banc.
+                  network = ipaddress.ip_network(f'{local}/24', strict=False)
+                  if network not in networks:
+                      networks.append(network)
+
+          def ping(ip: str) -> str | None:
+              result = subprocess.run(
+                  ['/usr/bin/ping', '-n', '-c', '1', '-W', '1', ip],
+                  stdout=subprocess.DEVNULL,
+                  stderr=subprocess.DEVNULL,
+                  check=False,
+                  timeout=2,
+              )
+              return ip if result.returncode == 0 else None
+
+          candidates = []
+          for network in networks[:3]:
+              candidates.extend(str(ip) for ip in network.hosts() if str(ip) not in local_ips)
+          alive = []
+          with concurrent.futures.ThreadPoolExecutor(max_workers=64) as pool:
+              for value in pool.map(ping, candidates):
+                  if value:
+                      alive.append(value)
+
+          # Une lecture ARP après le balayage donne aussi les appareils qui filtrent ICMP.
+          try:
+              arp_text = Path('/proc/net/arp').read_text(encoding='utf-8', errors='replace')
+          except OSError:
+              arp_text = ''
+          arp_map = {}
+          for line in arp_text.splitlines()[1:]:
+              fields = line.split()
+              if len(fields) >= 6:
+                  arp_map[fields[0]] = {'mac': fields[3].lower(), 'interface': fields[5]}
+                  if fields[0] not in alive and fields[3] != '00:00:00:00:00:00':
+                      alive.append(fields[0])
+
+          raspberry_ouis = {
+              'b8:27:eb', 'dc:a6:32', 'e4:5f:01', 'd8:3a:dd', '2c:cf:67',
+              '28:cd:c1', '90:9d:7d', '00:1a:11',
+          }
+          ports = [22, 80, 443, 8000, 8080, 8090, 5900, 5901]
+
+          def open_port(ip: str, port: int) -> bool:
+              try:
+                  with socket.create_connection((ip, port), timeout=0.7):
+                      return True
+              except OSError:
+                  return False
+
+          def reverse_name(ip: str) -> str | None:
+              try:
+                  return socket.gethostbyaddr(ip)[0]
+              except OSError:
+                  return None
+
+          def ssh_banner(ip: str) -> str | None:
+              try:
+                  with socket.create_connection((ip, 22), timeout=1.2) as stream:
+                      stream.settimeout(1.2)
+                      value = stream.recv(256).decode('utf-8', errors='replace').strip()
+                      return value or None
+              except OSError:
+                  return None
+
+          def http_probe(ip: str, port: int, path: str) -> dict | None:
+              url = f'http://{ip}:{port}{path}'
+              try:
+                  request = urllib.request.Request(url, headers={'User-Agent': 'EtR-local-discovery/1.0'})
+                  with urllib.request.urlopen(request, timeout=1.5) as response:
+                      body = response.read(4096).decode('utf-8', errors='replace')
+                      parsed = None
+                      try:
+                          parsed = json.loads(body)
+                      except Exception:
+                          pass
+                      return {
+                          'url': url,
+                          'status': response.status,
+                          'content_type': response.headers.get('content-type'),
+                          'json': parsed,
+                          'body_prefix': None if parsed is not None else re.sub(r'\s+', ' ', body)[:300],
+                      }
+              except urllib.error.HTTPError as error:
+                  return {'url': url, 'status': error.code, 'error': 'http_error'}
+              except Exception:
+                  return None
+
+          def inspect(ip: str) -> dict:
+              opened = [port for port in ports if open_port(ip, port)]
+              probes = []
+              for port, path in ((8080, '/api/v1/status'), (8080, '/healthz'), (8090, '/'), (8000, '/'), (80, '/')):
+                  if port in opened:
+                      result = http_probe(ip, port, path)
+                      if result:
+                          probes.append(result)
+              arp = arp_map.get(ip, {})
+              mac = str(arp.get('mac') or '').lower()
+              oui = mac[:8]
+              hostname = reverse_name(ip)
+              etr_json = None
+              for probe in probes:
+                  data = probe.get('json')
+                  if isinstance(data, dict) and (
+                      data.get('service') == 'EtR'
+                      or isinstance(data.get('enrollment'), dict)
+                      or isinstance(data.get('telemetry'), dict)
+                  ):
+                      etr_json = data
+                      break
+              return {
+                  'ip': ip,
+                  'hostname': hostname,
+                  'mac': mac or None,
+                  'interface': arp.get('interface'),
+                  'raspberry_pi_oui': oui in raspberry_ouis,
+                  'open_ports': opened,
+                  'ssh_banner': ssh_banner(ip) if 22 in opened else None,
+                  'http_probes': probes,
+                  'etr_detected': etr_json is not None,
+                  'etr_status': etr_json,
+              }
+
+          devices = []
+          with concurrent.futures.ThreadPoolExecutor(max_workers=24) as pool:
+              for item in pool.map(inspect, sorted(set(alive), key=ipaddress.ip_address)):
+                  devices.append(item)
+
+          result = {
+              'round': round_no,
+              'checked_at': datetime.now(timezone.utc).isoformat(),
+              'local_ips': sorted(local_ips),
+              'networks_scanned': [str(network) for network in networks[:3]],
+              'alive_count': len(devices),
+              'devices': devices,
+              'pi3_candidates': [
+                  item for item in devices
+                  if item['etr_detected']
+                  or item['raspberry_pi_oui']
+                  or (item.get('hostname') and ('raspberry' in item['hostname'].lower() or item['hostname'].lower().startswith('etr-')))
+              ],
+          }
+          (work / f'scan-round-{round_no}.json').write_text(
+              json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8'
+          )
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          PY
+
+            ip neigh show > "$work/ip-neigh-after-round-${round}.txt" || true
+            if command -v avahi-browse >/dev/null 2>&1; then
+              timeout 15 avahi-browse -art > "$work/avahi-round-${round}.txt" 2>&1 || true
+            fi
+            curl -sS --max-time 10 "$GATEWAY_URL/api/health" > "$work/gateway-health-round-${round}.json" 2> "$work/gateway-health-round-${round}.err" || true
+
+            if [ "$round" -lt 3 ]; then
+              sleep 60
+            fi
+          done
+
+      - name: Consolider le diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          work=/tmp/etr-pi3-discovery
+          python3 - <<'PY' > /tmp/etr-pi3-discovery.json
+          import json
+          import re
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          work = Path('/tmp/etr-pi3-discovery')
+          rounds = []
+          gateway = []
+          for number in (1, 2, 3):
+              try:
+                  rounds.append(json.loads((work / f'scan-round-{number}.json').read_text(encoding='utf-8')))
+              except Exception:
+                  rounds.append({'round': number, 'devices': [], 'pi3_candidates': [], 'error': 'scan_missing'})
+              try:
+                  gateway.append(json.loads((work / f'gateway-health-round-{number}.json').read_text(encoding='utf-8')))
+              except Exception:
+                  gateway.append({})
+
+          merged = {}
+          for scan in rounds:
+              for item in scan.get('devices', []):
+                  key = item.get('mac') or item.get('ip')
+                  if not key:
+                      continue
+                  record = merged.setdefault(key, {'observations': [], 'latest': item})
+                  record['observations'].append({'round': scan.get('round'), 'ip': item.get('ip'), 'hostname': item.get('hostname')})
+                  record['latest'] = item
+
+          candidates = []
+          for record in merged.values():
+              item = record['latest']
+              if item.get('etr_detected') or item.get('raspberry_pi_oui') or (
+                  item.get('hostname') and re.search(r'raspberry|^etr-', item['hostname'], re.I)
+              ):
+                  candidates.append({**item, 'observations': record['observations']})
+
+          gateway_device_counts = []
+          for data in gateway:
+              try:
+                  gateway_device_counts.append(int(data.get('devices')))
+              except Exception:
+                  pass
+
+          etr_candidates = [item for item in candidates if item.get('etr_detected')]
+          new_remote_device_possible = any(value >= 2 for value in gateway_device_counts)
+          visible = bool(candidates) or new_remote_device_possible
+          conclusion = 'pi3_visible' if visible else 'pi3_not_detected'
+
+          report = {
+              'checked_at': datetime.now(timezone.utc).isoformat(),
+              'started_at': (work / 'started-at.txt').read_text(encoding='utf-8').strip(),
+              'conclusion': conclusion,
+              'pi3_visible': visible,
+              'etr_device_detected_on_lan': bool(etr_candidates),
+              'remote_gateway_device_counts': gateway_device_counts,
+              'remote_gateway_shows_additional_device': new_remote_device_possible,
+              'candidates': candidates,
+              'rounds': rounds,
+              'gateway_health': gateway,
+              'system': (work / 'system.txt').read_text(encoding='utf-8', errors='replace')[-12000:],
+              'avahi': {
+                  str(number): (work / f'avahi-round-{number}.txt').read_text(encoding='utf-8', errors='replace')[-12000:]
+                  if (work / f'avahi-round-{number}.txt').exists() else ''
+                  for number in (1, 2, 3)
+              },
+              'neighbours': {
+                  str(number): (work / f'ip-neigh-after-round-{number}.txt').read_text(encoding='utf-8', errors='replace')[-12000:]
+                  if (work / f'ip-neigh-after-round-{number}.txt').exists() else ''
+                  for number in (1, 2, 3)
+              },
+          }
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+          cat /tmp/etr-pi3-discovery.json
+
+      - name: Enregistrer le résultat et retirer le workflow ponctuel
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/etr-pi3-discovery-repo
+          git clone --depth 1 --branch "$REPORT_BRANCH" \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            /tmp/etr-pi3-discovery-repo
+          cd /tmp/etr-pi3-discovery-repo
+          mkdir -p .github/deployment
+          cp /tmp/etr-pi3-discovery.json .github/deployment/etr-pi3-discovery.json
+          rm -f .github/workflows/etr-detect-pi3-now.yml
+          git config user.name 'EtR Pi3 discovery'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/deployment/etr-pi3-discovery.json .github/workflows/etr-detect-pi3-now.yml
+          git commit -m 'chore: record Pi3 discovery and remove one-shot workflow [skip ci]'
+          git pull --rebase origin "$REPORT_BRANCH"
+          git push origin HEAD:"$REPORT_BRANCH"
