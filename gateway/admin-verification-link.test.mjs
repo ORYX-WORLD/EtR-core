@@ -90,7 +90,7 @@ test("direct self verification marks only the connected ORYX admin account verif
   });
 });
 
-test("rejects stale authentication", async () => {
+test("allows a stale admin session to generate its own verification link", async () => {
   const decoded = {
     uid: "admin-uid",
     email: "amotard.oryx@gmail.com",
@@ -99,6 +99,26 @@ test("rejects stale authentication", async () => {
   };
   await withServer({ decoded, account: { uid: decoded.uid, email: decoded.email, emailVerified: false } }, async origin => {
     const response = await fetch(`${origin}/api/admin/self-email-verification-link`, {
+      method: "POST",
+      headers: { authorization: "Bearer valid-token", "content-type": "application/json" },
+      body: "{}"
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.ok, true);
+    assert.match(payload.verificationUrl, /oobCode=abc/);
+  });
+});
+
+test("still rejects stale authentication for direct server-side verification", async () => {
+  const decoded = {
+    uid: "admin-uid",
+    email: "amotard.oryx@gmail.com",
+    oryxAdmin: true,
+    auth_time: Math.floor(NOW / 1000) - 3600
+  };
+  await withServer({ decoded, account: { uid: decoded.uid, email: decoded.email, emailVerified: false } }, async origin => {
+    const response = await fetch(`${origin}/api/admin/self-email-verify`, {
       method: "POST",
       headers: { authorization: "Bearer valid-token", "content-type": "application/json" },
       body: "{}"
