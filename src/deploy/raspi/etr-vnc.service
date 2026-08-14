@@ -1,13 +1,13 @@
 [Unit]
-Description=EtR local VNC screen source
-After=spi-desktop.service
-Wants=spi-desktop.service
+Description=EtR local VNC source for the 1280x720 remote desktop
+After=etr-remote-desktop.service
+Wants=etr-remote-desktop.service
 
 [Service]
 Type=simple
-Environment=DISPLAY=:1
+Environment=DISPLAY=:2
 Environment=XAUTHORITY=/home/oryx/.Xauthority
-ExecStart=/usr/bin/x11vnc -display :1 -auth /home/oryx/.Xauthority -localhost -forever -shared -nopw -rfbport 5901 -noxdamage
+ExecStart=/usr/bin/x11vnc -display :2 -auth /home/oryx/.Xauthority -localhost -forever -shared -nopw -rfbport 5901 -noxdamage
 Restart=always
 RestartSec=3
 User=oryx
