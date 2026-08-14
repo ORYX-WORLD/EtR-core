@@ -107,6 +107,10 @@ class TouchDesktopRepositoryContractTests(unittest.TestCase):
         self.assertIn("Revenir-a-EtR.desktop", desktop_start)
         self.assertIn("Name=Revenir à EtR", launcher)
         self.assertIn("/api/local-ui/dashboard", reopen)
+        self.assertIn('display="${DISPLAY:-}"', reopen)
+        self.assertIn('etr-remote-chromium', reopen)
+        self.assertIn('--app="$ETR_URL"', reopen)
+        self.assertIn('--start-maximized', reopen)
         for marker in [
             "/api/local-ui/desktop",
             "/api/local-ui/dashboard",
