@@ -133,7 +133,7 @@ def ntc_sample(channel: dict[str, Any], ratio: float, reference_voltage: float) 
     if ratio >= float(channel.get("high_ratio_fault", 0.97)):
         result.update(
             status="reference_resistor_missing_or_probe_open",
-            message="En attente de la résistance 10 kΩ, ou circuit de sonde ouvert",
+            message="Tension brute consultable ; température indisponible sans résistance 10 kΩ",
         )
         return result
     if ratio <= float(channel.get("low_ratio_fault", 0.01)):

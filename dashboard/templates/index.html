@@ -60,6 +60,30 @@
       </div>
     </section>
 
+    <section class="refrigeration-cycle" aria-labelledby="cycle-title">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Circuit frigorifique</p>
+          <h2 id="cycle-title">Cycle frigorifique schématique</h2>
+        </div>
+        <span class="badge">Sens de circulation →</span>
+      </div>
+      <div class="cycle-diagram" role="img" aria-label="Cycle frigorifique : compresseur, condenseur, détendeur et évaporateur">
+        <div class="cycle-component compressor"><span>1</span><strong>Compresseur</strong><small>Compression du gaz</small></div>
+        <div class="cycle-line hot top"><b>Gaz HP chaud</b></div>
+        <div class="cycle-component condenser"><span>2</span><strong>Condenseur</strong><small>Rejet de chaleur</small></div>
+        <div class="cycle-line hot right"><b>Liquide HP</b></div>
+        <div class="cycle-component expansion"><span>3</span><strong>Détendeur</strong><small>Chute de pression</small></div>
+        <div class="cycle-line cold bottom"><b>Mélange BP froid</b></div>
+        <div class="cycle-component evaporator"><span>4</span><strong>Évaporateur</strong><small>Absorption de chaleur</small></div>
+        <div class="cycle-line cold left"><b>Gaz BP</b></div>
+        <div class="cycle-center">
+          <strong>Fluide frigorigène</strong>
+          <small>HP : haute pression · BP : basse pression</small>
+        </div>
+      </div>
+    </section>
+
     <section class="lab-note" aria-labelledby="wiring-title">
       <div>
         <p class="eyebrow">Câblage laboratoire</p>
@@ -71,7 +95,7 @@
         <span><b>AIN2</b> Sonde AKO 1</span>
         <span><b>AIN3</b> Sonde AKO 2</span>
       </div>
-      <p><strong>Montage provisoire :</strong> les fils bleus qui remplacent les résistances sont détectés comme un pont NTC non valide. Aucune température ne doit être calculée avant la pose d’une résistance fixe de 10 kΩ par sonde.</p>
+      <p><strong>Montage provisoire :</strong> la tension brute des sondes reste consultable. Aucune température ne doit être calculée avant la pose d’une résistance fixe de 10 kΩ par sonde.</p>
     </section>
 
     <section class="metrics" aria-label="État du Raspberry Pi">

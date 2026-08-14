@@ -71,7 +71,7 @@
     ok: 'Opérationnel',
     signal_low: 'Signal trop bas',
     signal_high: 'Signal trop haut',
-    reference_resistor_missing_or_probe_open: 'Résistance 10 kΩ absente',
+    reference_resistor_missing_or_probe_open: 'Lecture brute disponible',
     short_circuit: 'Court-circuit à contrôler',
     curve_required: 'Courbe NTC à valider',
     out_of_range: 'Hors plage',
@@ -110,10 +110,14 @@
 
       const value = document.createElement('div'); value.className = 'sensor-value';
       const primary = document.createElement('strong');
-      primary.textContent = sensor.value == null ? '—' : `${formatValue(sensor.value)} ${sensor.unit || ''}`.trim();
+      const rawProbeReading = sensor.kind === 'temperature' && sensor.value == null && sensor.signal_v != null;
+      primary.textContent = rawProbeReading
+        ? `${formatValue(sensor.signal_v)} V brute`
+        : sensor.value == null ? '—' : `${formatValue(sensor.value)} ${sensor.unit || ''}`.trim();
       const signal = document.createElement('span');
       const details = [];
-      if (sensor.signal_v != null) details.push(`${formatValue(sensor.signal_v)} V`);
+      if (sensor.signal_v != null && !rawProbeReading) details.push(`${formatValue(sensor.signal_v)} V`);
+      if (rawProbeReading) details.push('Température non calculée');
       if (sensor.resistance_ohm != null) details.push(`${formatValue(sensor.resistance_ohm)} Ω`);
       signal.textContent = details.join(' · ') || 'Aucune valeur exploitable';
       value.append(primary, signal);

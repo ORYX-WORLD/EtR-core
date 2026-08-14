@@ -66,6 +66,8 @@ class SensorConversionTests(unittest.TestCase):
         self.assertEqual(sample["status"], "reference_resistor_missing_or_probe_open")
         self.assertIsNone(sample["value"])
         self.assertIsNone(sample["resistance_ohm"])
+        self.assertEqual(sample["signal_v"], 4.975)
+        self.assertIn("Tension brute consultable", sample["message"])
 
     def test_ntc_resistance_is_exposed_without_inventing_temperature_curve(self):
         sample = ntc_sample(CONFIG["channels"][1], 0.5, 5.0)
