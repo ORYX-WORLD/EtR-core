@@ -1,18 +1,18 @@
 {
-  "checkedAt": "2026-08-14T20:57:11.838592+00:00",
-  "commit": "dc5b95ad0d9322730ed7e9ee40774b3c1b4bd6f7",
+  "checkedAt": "2026-08-14T21:00:24.756872+00:00",
+  "commit": "1f8df3465038c8a9b589be5a36c05a0ae8e9b8f1",
   "status": "failure",
   "project": "oryx-froid-industriel",
   "region": "europe-west1",
   "service": "etr-remote-gateway",
-  "url": null,
-  "revision": null,
-  "trafficPercent": 0,
-  "version": null,
+  "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
+  "revision": "etr-remote-gateway-00034-fq5",
+  "trafficPercent": 100,
+  "version": "1.1.1",
   "enrollment": "v1",
   "admin": "v1",
   "deviceAuthorization": "firebase-id-token-plus-deviceAccess",
-  "adminRouteVerified": false,
+  "adminRouteVerified": true,
   "adminBootstrap": "verified-email-allowlist",
   "deviceBootstrap": "github-oidc-ed25519",
   "deviceSessionIssuance": false,
@@ -20,11 +20,44 @@
   "customTokenSigning": false,
   "firebaseConfigSource": "firebase-hosting-reserved-url",
   "outcomes": {
-    "authentication": "skipped",
-    "firebaseConfig": "skipped",
-    "deploy": "skipped",
-    "verify": "skipped",
-    "firebaseSession": "skipped"
+    "authentication": "success",
+    "firebaseConfig": "success",
+    "deploy": "success",
+    "verify": "success",
+    "firebaseSession": "failure"
   },
-  "verification": null
+  "verification": {
+    "url": "https://etr-remote-gateway-7n72m5gopq-ew.a.run.app",
+    "revision": "etr-remote-gateway-00034-fq5",
+    "serviceVerifiedBy": "api-health-enrollment-and-admin-routes",
+    "healthStatus": 200,
+    "apiHealthEndpointSupported": true,
+    "requestStatus": 400,
+    "bootstrapStatus": 401,
+    "adminStatus": 401,
+    "healthBody": {
+      "ok": true,
+      "service": "etr-remote-gateway",
+      "version": "1.1.1",
+      "revision": "etr-remote-gateway-00034-fq5",
+      "devices": 0,
+      "viewers": 0,
+      "readyViewers": 0,
+      "enrollment": "v1",
+      "admin": "v1",
+      "liveViewerDiagnostic": "github-oidc"
+    },
+    "requestBody": {
+      "error": "Numéro de série invalide",
+      "code": "invalid_serial"
+    },
+    "bootstrapBody": {
+      "error": "Jeton de déploiement manquant",
+      "code": "github_oidc_missing"
+    },
+    "adminBody": {
+      "error": "Jeton manquant",
+      "code": "auth/id-token-missing"
+    }
+  }
 }
