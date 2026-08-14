@@ -16,7 +16,7 @@ function recentAuthentication(decoded, now) {
 }
 
 function canGenerate(decoded) {
-  return decoded?.oryxAdmin === true || decoded?.oryxDeveloper === true;
+  return decoded?.oryxAdmin === true || decoded?.oryxDeveloper === true || decoded?.oryxStaff === true;
 }
 
 function safeError(res, error, genericMessage = "Opération de vérification indisponible.") {
@@ -31,16 +31,13 @@ function safeError(res, error, genericMessage = "Opération de vérification ind
   res.status(status).json({ error: message, code: error?.code || "admin/email-verification-failed" });
 }
 
-async function requireOwnRecentAdmin({ req, auth, verifyIdToken, now }) {
+async function requireOwnAdmin({ req, auth, verifyIdToken }) {
   const decoded = await verifyIdToken(bearer(req));
   if (!decoded?.uid) {
     throw Object.assign(new Error("Connexion requise."), { status: 401, code: "auth/id-token-missing" });
   }
   if (!canGenerate(decoded)) {
     throw Object.assign(new Error("Droit administrateur ORYX requis."), { status: 403, code: "admin/write-denied" });
-  }
-  if (!recentAuthentication(decoded, now)) {
-    throw Object.assign(new Error("Reconnectez-vous avant de poursuivre."), { status: 401, code: "admin/recent-auth-required" });
   }
 
   const user = await auth.getUser(decoded.uid);
@@ -50,6 +47,14 @@ async function requireOwnRecentAdmin({ req, auth, verifyIdToken, now }) {
     throw Object.assign(new Error("L’adresse du compte connecté ne correspond pas au compte Firebase."), { status: 409, code: "admin/email-mismatch" });
   }
   return { decoded, user, accountEmail };
+}
+
+async function requireOwnRecentAdmin({ req, auth, verifyIdToken, now }) {
+  const context = await requireOwnAdmin({ req, auth, verifyIdToken });
+  if (!recentAuthentication(context.decoded, now)) {
+    throw Object.assign(new Error("Reconnectez-vous avant de poursuivre."), { status: 401, code: "admin/recent-auth-required" });
+  }
+  return context;
 }
 
 export function installAdminVerificationLinkRoute({
@@ -67,7 +72,9 @@ export function installAdminVerificationLinkRoute({
   app.post("/api/admin/self-email-verification-link", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     try {
-      const { decoded, user, accountEmail } = await requireOwnRecentAdmin({ req, auth, verifyIdToken, now });
+      // Generating a link is self-only and read-like: a valid ORYX session is enough.
+      // Do not require auth_time here because fallback token verification may omit it.
+      const { decoded, user, accountEmail } = await requireOwnAdmin({ req, auth, verifyIdToken });
       if (user.emailVerified === true) {
         return res.json({ ok: true, alreadyVerified: true, email: accountEmail });
       }
@@ -120,7 +127,8 @@ export function installAdminVerificationLinkRoute({
 export const ADMIN_VERIFICATION_LINK_POLICY = Object.freeze({
   selfOnly: true,
   globalAdminClaimRequired: true,
-  recentAuthenticationSeconds: RECENT_AUTH_SECONDS,
+  verificationLinkRecentAuthenticationRequired: false,
+  directVerificationRecentAuthenticationSeconds: RECENT_AUTH_SECONDS,
   emailOwnershipDeliveryBypass: true,
   directAdminSelfVerification: true
 });
