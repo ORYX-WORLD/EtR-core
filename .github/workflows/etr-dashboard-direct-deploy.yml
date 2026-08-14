@@ -1,0 +1,67 @@
+name: Déployer directement le dashboard capteurs EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-dashboard-direct-deploy.yml
+
+concurrency:
+  group: etr-dashboard-direct-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Actualiser le dashboard sans workspace Actions
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 12
+    steps:
+      - name: Actualiser le dépôt installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_dir=/home/oryx/EtR-core
+          test -d "$install_dir/.git"
+          if [ -n "$(sudo -u oryx -H git -C "$install_dir" status --porcelain)" ]; then
+            sudo -u oryx -H git -C "$install_dir" stash push --include-untracked -m "Sauvegarde avant dashboard direct $(date -u +%Y%m%dT%H%M%SZ)"
+          fi
+          sudo -u oryx -H git -C "$install_dir" fetch origin main
+          sudo -u oryx -H git -C "$install_dir" checkout main
+          sudo -u oryx -H git -C "$install_dir" merge --ff-only origin/main
+
+      - name: Installer et redémarrer les services concernés
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -u oryx -H bash /home/oryx/EtR-core/src/deploy/raspi/setup_etr.sh
+          sudo systemctl restart etr-sensor-acquisition.service etr-dashboard.service
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/healthz >/dev/null; then break; fi
+            sleep 2
+          done
+          sudo systemctl is-active --quiet etr-sensor-acquisition.service
+          sudo systemctl is-active --quiet etr-dashboard.service
+
+      - name: Vérifier les sondes et la nouvelle interface
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime=$(curl -fsS http://127.0.0.1:8000/static/dashboard.js)
+          grep -Fq "V brute" <<<"$runtime"
+          grep -Fq "Alarmes température" <<<"$runtime"
+          curl -fsS http://127.0.0.1:8080/api/v1/telemetry > /tmp/etr-direct-telemetry.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path('/tmp/etr-direct-telemetry.json').read_text())
+          telemetry = payload.get('telemetry', payload)
+          sensors = {item.get('ain'): item for item in telemetry.get('sensors', [])}
+          for ain in (2, 3):
+              assert ain in sensors, f'AIN{ain} absente'
+              assert sensors[ain].get('signal_v') is not None, f'AIN{ain} sans tension brute'
+              print(f"AIN{ain}={sensors[ain]['signal_v']} V")
+          PY
