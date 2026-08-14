@@ -29,6 +29,13 @@ class RemoteDesktopContractTests(unittest.TestCase):
         self.assertIn("DISPLAY=:2 xdpyinfo", setup)
         self.assertIn("dimensions:.*1280x720", setup)
 
+    def test_remote_lxde_session_does_not_launch_lxpolkit(self):
+        script = (ROOT / 'src/deploy/raspi/start_remote_desktop.sh').read_text(encoding='utf-8')
+        self.assertIn('REMOTE_CONFIG_HOME=', script)
+        self.assertIn("sed 's/^polkit\\/command=.*/polkit\\/command=/'", script)
+        self.assertIn('XDG_CONFIG_HOME="$REMOTE_CONFIG_HOME"', script)
+        self.assertIn('NO_AT_BRIDGE=1', script)
+
 
 if __name__ == '__main__':
     unittest.main()
