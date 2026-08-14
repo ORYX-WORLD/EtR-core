@@ -1,0 +1,17 @@
+[Unit]
+Description=EtR virtual desktop for remote administration
+After=network-online.target systemd-user-sessions.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment=DISPLAY=:2
+Environment=XAUTHORITY=/home/oryx/.Xauthority
+Environment=ETR_REMOTE_DESKTOP_GEOMETRY=1280x720x24
+ExecStart=/usr/local/bin/start_remote_desktop.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
