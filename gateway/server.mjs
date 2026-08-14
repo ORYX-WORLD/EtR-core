@@ -9,6 +9,7 @@ import { createDeviceConnectionAuthorizer } from "./device-authorization.mjs";
 import { createDeviceBootstrapService } from "./device-bootstrap.mjs";
 import { installEnrollmentRoutes } from "./enrollment-http.mjs";
 import { installAdminRoutes } from "./admin.mjs";
+import { installAdminVerificationLinkRoute } from "./admin-verification-link.mjs";
 import { installGatewayHealthRoutes } from "./health.mjs";
 import { installRemoteScreenDiagnosticRoute } from "./remote-screen-diagnostic.mjs";
 import { WebSocketServer, WebSocket } from "ws";
@@ -139,6 +140,12 @@ installAdminRoutes({
   auth: admin.auth(),
   verifyIdToken,
   getConnectedInstallations: () => [...devices.keys()]
+});
+
+installAdminVerificationLinkRoute({
+  app,
+  auth: admin.auth(),
+  verifyIdToken
 });
 
 installGatewayHealthRoutes({ app, devices });
