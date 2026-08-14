@@ -1,0 +1,25 @@
+name: Diagnostic session LXDE distante EtR
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-lxde-session-diagnostic.yml
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Linux, ARM64]
+    steps:
+      - name: Inspecter la session distante
+        shell: bash
+        run: |
+          set +e
+          echo '=== Autostart LXDE ==='
+          cat /etc/xdg/lxsession/LXDE/autostart 2>/dev/null || true
+          cat /etc/xdg/lxsession/LXDE-pi/autostart 2>/dev/null || true
+          echo '=== Processus session :2 ==='
+          ps -eo pid,ppid,user,args | grep -E '[l]xsession|[l]xpolkit|[p]olkit|[l]xpanel|[p]cmanfm|[X]vfb|[x]11vnc' || true
+          echo '=== loginctl ==='
+          loginctl list-sessions || true
+          loginctl user-status oryx || true
+          echo '=== journaux bureau distant ==='
+          sudo journalctl -u etr-remote-desktop.service -n 120 --no-pager || true
