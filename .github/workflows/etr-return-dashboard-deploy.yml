@@ -1,0 +1,42 @@
+name: Déployer le bouton Revenir à EtR
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-return-dashboard-deploy.yml
+      - src/deploy/raspi/etr-show-dashboard.sh
+      - src/deploy/raspi/etr-dashboard.desktop
+      - tests/test_touch_shell.py
+
+concurrency:
+  group: etr-return-dashboard-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 10
+    steps:
+      - name: Actualiser EtR core
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=/home/oryx/EtR-core
+          sudo -u oryx -H git -C "$repo" fetch origin main
+          sudo -u oryx -H git -C "$repo" checkout main
+          sudo -u oryx -H git -C "$repo" reset --hard origin/main
+          bash -n "$repo/src/deploy/raspi/etr-show-dashboard.sh"
+          chmod +x "$repo/src/deploy/raspi/etr-show-dashboard.sh"
+
+      - name: Vérifier le lanceur distant
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=/home/oryx/EtR-core
+          grep -Fq 'etr-remote-chromium' "$repo/src/deploy/raspi/etr-show-dashboard.sh"
+          grep -Fq -- '--app="$ETR_URL"' "$repo/src/deploy/raspi/etr-show-dashboard.sh"
+          DISPLAY=:2 xdpyinfo | grep -q 'dimensions:.*1280x720'
+          test -S /tmp/.X11-unix/X2
+          echo 'Le bouton Revenir à EtR est prêt sur le bureau distant :2.'
