@@ -130,6 +130,7 @@ class SensorRepositoryContractTests(unittest.TestCase):
         self.assertIn('"device": 2', config)
         self.assertIn('"use_data_ready_gpio": false', config)
         self.assertIn('"use_hardware_reset_gpio": false', config)
+        self.assertEqual(config.count('"beta_k": 3950.0'), 2)
 
     def test_dashboard_exposes_the_sensor_bench_without_unsafe_html(self):
         template = (ROOT / "dashboard/templates/index.html").read_text(encoding="utf-8")
