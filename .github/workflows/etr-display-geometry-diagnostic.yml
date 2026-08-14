@@ -1,0 +1,33 @@
+name: Diagnostic géométrie écran EtR
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-display-geometry-diagnostic.yml
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 8
+    steps:
+      - name: Inspecter l'affichage X :1
+        shell: bash
+        run: |
+          set +e
+          export DISPLAY=:1
+          export XAUTHORITY=/home/oryx/.Xauthority
+          echo '=== xdpyinfo dimensions ==='
+          xdpyinfo 2>&1 | grep -E 'dimensions:|resolution:' || true
+          echo '=== xrandr ==='
+          xrandr --current 2>&1 || true
+          echo '=== root geometry ==='
+          xwininfo -root 2>&1 | sed -n '1,30p' || true
+          echo '=== top-level windows ==='
+          xwininfo -root -tree 2>&1 | head -n 120 || true
+          echo '=== active window ==='
+          xprop -root _NET_ACTIVE_WINDOW 2>&1 || true
+          echo '=== chromium processes ==='
+          ps -eo pid,user,args | grep -E '[c]hromium|[x]11vnc|[X]org' || true
+          echo '=== framebuffer ==='
+          fbset -fb /dev/fb1 2>&1 || true
