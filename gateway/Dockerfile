@@ -22,6 +22,7 @@ COPY device-bootstrap.mjs ./
 COPY firebase-device-session.mjs ./
 COPY factory-device-session.mjs ./
 COPY admin.mjs ./
+COPY admin-verification-link.mjs ./
 
 USER node
 ENV NODE_ENV=production
