@@ -123,6 +123,7 @@ body {
 .sensor-card[data-status="ok"] { border-color: rgba(124, 231, 188, .42); }
 .sensor-card[data-status="reference_resistor_missing_or_probe_open"], .sensor-card[data-status="curve_required"] { border-color: rgba(255, 202, 106, .48); }
 .sensor-card[data-status="signal_low"], .sensor-card[data-status="signal_high"], .sensor-card[data-status="short_circuit"], .sensor-card[data-status="out_of_range"] { border-color: rgba(255, 125, 135, .54); }
+.sensor-card[data-alarm="active"] { border-color: var(--red); box-shadow: 0 0 0 1px rgba(255,125,135,.2), 0 0 28px rgba(255,125,135,.14); }
 .sensor-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .sensor-card-head h3 { margin: 5px 0 2px; font-size: 1.03rem; }
 .sensor-card-head small { display: block; color: var(--muted); font-size: .68rem; }
@@ -133,6 +134,13 @@ body {
 .sensor-value span { color: var(--ice); font-size: .78rem; font-variant-numeric: tabular-nums; }
 .sensor-card > p { min-height: 3em; margin: 0; color: #dbe8ee; font-size: .78rem; }
 .sensor-expected { display: block; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: .66rem; }
+.sensor-alarm-editor { display: grid; gap: 8px; margin-top: 13px; padding-top: 12px; border-top: 1px solid var(--line); }
+.sensor-alarm-editor > strong { color: var(--text); font-size: .72rem; }
+.sensor-alarm-editor > small { color: var(--muted); font-size: .62rem; }
+.sensor-alarm-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sensor-alarm-controls label { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 5px; color: var(--muted); font-size: .65rem; }
+.sensor-alarm-controls input { grid-column: 1; width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: rgba(2,8,18,.65); color: #fff; font: inherit; font-size: .78rem; }
+.sensor-alarm-controls span { grid-column: 2; color: var(--ice); }
 
 .refrigeration-cycle { margin-top: 16px; padding: clamp(20px, 3vw, 32px); border: 1px solid rgba(92, 201, 236, .36); border-radius: var(--radius); background: rgba(7, 24, 39, .94); }
 .cycle-diagram { position: relative; display: grid; grid-template: 150px 150px / minmax(180px, 1fr) minmax(210px, 1.15fr) minmax(180px, 1fr); gap: 42px 70px; align-items: center; margin-top: 24px; padding: 20px; }

@@ -77,9 +77,38 @@
     out_of_range: 'Hors plage',
     offline: 'Hors ligne'
   }[status] || labels(status || 'inconnu'));
+  const alarmKey = (id, side) => `etr.sensor.${String(id)}.alarm.${side}`;
+  const savedAlarm = (id, side) => {
+    const value = localStorage.getItem(alarmKey(id, side));
+    return value == null || value === '' ? null : Number(value);
+  };
+  const alarmEditor = sensor => {
+    const root = document.createElement('div'); root.className = 'sensor-alarm-editor';
+    const title = document.createElement('strong'); title.textContent = 'Alarmes température';
+    const controls = document.createElement('div'); controls.className = 'sensor-alarm-controls';
+    for (const [side, label] of [['low', 'Basse'], ['high', 'Haute']]) {
+      const field = document.createElement('label'); field.textContent = label;
+      const input = document.createElement('input');
+      input.type = 'number'; input.step = '0.5'; input.inputMode = 'decimal'; input.placeholder = '—';
+      const saved = savedAlarm(sensor.id, side);
+      if (Number.isFinite(saved)) input.value = String(saved);
+      input.setAttribute('aria-label', `Alarme ${label.toLowerCase()} en degrés Celsius`);
+      input.addEventListener('input', () => {
+        if (input.value === '') localStorage.removeItem(alarmKey(sensor.id, side));
+        else localStorage.setItem(alarmKey(sensor.id, side), String(Number(input.value)));
+      });
+      const unit = document.createElement('span'); unit.textContent = '°C';
+      field.append(input, unit); controls.append(field);
+    }
+    const note = document.createElement('small');
+    note.textContent = sensor.value == null ? 'Seuils enregistrés · en attente d’une température valide' : 'Seuils actifs sur la température mesurée';
+    root.append(title, controls, note);
+    return root;
+  };
   const renderSensors = telemetry => {
-    if (!fields.sensorGrid) return;
+    if (!fields.sensorGrid) return [];
     fields.sensorGrid.replaceChildren();
+    const sensorAlarms = [];
     const hardware = telemetry.hardware || {};
     const sensors = Array.isArray(telemetry.sensors) ? telemetry.sensors : [];
     const hardwareOnline = hardware.status === 'online';
@@ -92,7 +121,7 @@
       empty.className = 'empty';
       empty.textContent = hardwareOnline ? 'Aucun canal configuré.' : 'Aucune lecture : contrôle SPI/GPIO en cours.';
       fields.sensorGrid.append(empty);
-      return;
+      return sensorAlarms;
     }
     for (const sensor of sensors) {
       const article = document.createElement('article');
@@ -125,8 +154,23 @@
       const message = document.createElement('p'); message.textContent = String(sensor.message || '');
       const expected = document.createElement('small'); expected.className = 'sensor-expected'; expected.textContent = String(sensor.expected || '');
       article.append(head, value, message, expected);
+      if (sensor.kind === 'temperature') {
+        article.append(alarmEditor(sensor));
+        const low = savedAlarm(sensor.id, 'low');
+        const high = savedAlarm(sensor.id, 'high');
+        const measured = Number(sensor.value);
+        if (sensor.value != null && Number.isFinite(measured) && Number.isFinite(low) && measured < low) {
+          article.dataset.alarm = 'active';
+          sensorAlarms.push({ severity: 'warning', message: `${sensor.label} : ${formatValue(measured)} °C sous l’alarme basse ${formatValue(low)} °C` });
+        }
+        if (sensor.value != null && Number.isFinite(measured) && Number.isFinite(high) && measured > high) {
+          article.dataset.alarm = 'active';
+          sensorAlarms.push({ severity: 'warning', message: `${sensor.label} : ${formatValue(measured)} °C au-dessus de l’alarme haute ${formatValue(high)} °C` });
+        }
+      }
       fields.sensorGrid.append(article);
     }
+    return sensorAlarms;
   };
   const renderEnrollment = enrollment => {
     if (!enrollmentPanel) return;
@@ -168,10 +212,10 @@
     setText(fields.uptime, uptime(system.uptime_seconds)); setText(fields.schema, data.schema_version || '—');
     setText(fields.telemetryBadge, telemetry.online ? 'Source connectée' : 'Source en attente');
     renderEnrollment(data.enrollment);
-    renderSensors(telemetry);
+    const sensorAlarms = renderSensors(telemetry) || [];
     renderMap(fields.measurements, telemetry.measurements, 'Aucune mesure instrumentée publiée.');
     renderMap(fields.states, telemetry.states, 'Aucun état métier publié.');
-    renderAlerts(telemetry.alerts);
+    renderAlerts([...(Array.isArray(telemetry.alerts) ? telemetry.alerts : []), ...sensorAlarms]);
   };
 
   const refresh = async () => {
