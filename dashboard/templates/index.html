@@ -69,14 +69,14 @@
         <span class="badge">Sens de circulation →</span>
       </div>
       <div class="cycle-diagram" role="img" aria-label="Cycle frigorifique : compresseur, condenseur, détendeur et évaporateur">
-        <div class="cycle-component compressor"><span>1</span><strong>Compresseur</strong><small>Compression du gaz</small></div>
-        <div class="cycle-line hot top"><b>Gaz HP chaud</b></div>
+        <div class="cycle-component compressor"><span>1</span><strong>Compresseur</strong><small>Compression du gaz</small><em>T° aspiration · AIN2</em></div>
+        <div class="cycle-line hot top"><b>Gaz HP chaud · Pression HP AIN1</b></div>
         <div class="cycle-component condenser"><span>2</span><strong>Condenseur</strong><small>Rejet de chaleur</small></div>
-        <div class="cycle-line hot right"><b>Liquide HP</b></div>
+        <div class="cycle-line hot right"><b>Liquide HP · T° ligne liquide AIN3</b></div>
         <div class="cycle-component expansion"><span>3</span><strong>Détendeur</strong><small>Chute de pression</small></div>
         <div class="cycle-line cold bottom"><b>Mélange BP froid</b></div>
         <div class="cycle-component evaporator"><span>4</span><strong>Évaporateur</strong><small>Absorption de chaleur</small></div>
-        <div class="cycle-line cold left"><b>Gaz BP</b></div>
+        <div class="cycle-line cold left"><b>Gaz BP · Pression BP AIN0</b></div>
         <div class="cycle-center">
           <strong>Fluide frigorigène</strong>
           <small>HP : haute pression · BP : basse pression</small>
@@ -90,10 +90,10 @@
         <h2 id="wiring-title">Repérage des entrées</h2>
       </div>
       <div class="wiring-grid">
-        <span><b>AIN0</b> Pression CAREL 1</span>
-        <span><b>AIN1</b> Pression CAREL 2</span>
-        <span><b>AIN2</b> Sonde AKO 1</span>
-        <span><b>AIN3</b> Sonde AKO 2</span>
+        <span><b>AIN0</b> Pression BP</span>
+        <span><b>AIN1</b> Pression HP</span>
+        <span><b>AIN2</b> T° aspiration compresseur</span>
+        <span><b>AIN3</b> T° ligne liquide sortie condenseur</span>
       </div>
       <p><strong>Montage provisoire :</strong> la tension brute des sondes reste consultable. Aucune température ne doit être calculée avant la pose d’une résistance fixe de 10 kΩ par sonde.</p>
     </section>

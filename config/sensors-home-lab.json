@@ -19,7 +19,7 @@
   "channels": [
     {
       "id": "pressure_1",
-      "label": "Pression CAREL 1",
+      "label": "Pression BP",
       "model": "CAREL SPKT00B6P0",
       "kind": "pressure",
       "ain": 0,
@@ -31,7 +31,7 @@
     },
     {
       "id": "pressure_2",
-      "label": "Pression CAREL 2",
+      "label": "Pression HP",
       "model": "CAREL SPKT00B6P0",
       "kind": "pressure",
       "ain": 1,
@@ -43,7 +43,7 @@
     },
     {
       "id": "temperature_1",
-      "label": "Sonde AKO 1",
+      "label": "T° aspiration compresseur",
       "model": "AKO-14903 NTC 10 kΩ",
       "kind": "ntc",
       "ain": 2,
@@ -58,7 +58,7 @@
     },
     {
       "id": "temperature_2",
-      "label": "Sonde AKO 2",
+      "label": "T° ligne liquide sortie condenseur",
       "model": "AKO-14903 NTC 10 kΩ",
       "kind": "ntc",
       "ain": 3,

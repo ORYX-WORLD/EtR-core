@@ -140,6 +140,7 @@ body {
 .cycle-component span { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; background: rgba(92,201,236,.14); color: var(--ice); font-weight: 900; }
 .cycle-component strong { font-size: 1rem; }
 .cycle-component small, .cycle-center small { color: var(--muted); }
+.cycle-component em { margin-top: 7px; color: var(--ice); font-size: .66rem; font-style: normal; font-weight: 800; }
 .compressor { grid-area: 1 / 1; border-color: rgba(255,125,135,.55); }
 .condenser { grid-area: 1 / 3; border-color: rgba(255,202,106,.55); }
 .expansion { grid-area: 2 / 3; border-color: rgba(92,201,236,.55); }

@@ -134,7 +134,7 @@ class SensorRepositoryContractTests(unittest.TestCase):
     def test_dashboard_exposes_the_sensor_bench_without_unsafe_html(self):
         template = (ROOT / "dashboard/templates/index.html").read_text(encoding="utf-8")
         javascript = (ROOT / "dashboard/static/dashboard.js").read_text(encoding="utf-8")
-        for marker in ["data-sensor-grid", "Banc d’essai capteurs", "AIN0", "AIN1", "AIN2", "AIN3", "10 kΩ", "Cycle frigorifique schématique", "Compresseur", "Condenseur", "Détendeur", "Évaporateur"]:
+        for marker in ["data-sensor-grid", "Banc d’essai capteurs", "AIN0", "AIN1", "AIN2", "AIN3", "10 kΩ", "Cycle frigorifique schématique", "Compresseur", "Condenseur", "Détendeur", "Évaporateur", "Pression BP", "Pression HP", "T° aspiration compresseur", "T° ligne liquide sortie condenseur"]:
             self.assertIn(marker, template)
         for marker in ["renderSensors", "ADS1263 détecté", "Lecture brute disponible", "V brute", "textContent"]:
             self.assertIn(marker, javascript)
