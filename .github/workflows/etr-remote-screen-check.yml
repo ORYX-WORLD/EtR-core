@@ -8,9 +8,12 @@ on:
       - .github/workflows/etr-remote-screen-check.yml
       - src/remote_screen_agent.py
       - src/firebase_bridge.py
+      - src/deploy/raspi/start_remote_desktop.sh
+      - src/deploy/raspi/etr-remote-desktop.service
       - src/deploy/raspi/etr-remote-screen.service
       - src/deploy/raspi/etr-vnc.service
       - tests/test_remote_screen_session.py
+      - tests/test_remote_desktop_contract.py
 
 concurrency:
   group: etr-remote-screen-physical
@@ -50,30 +53,57 @@ jobs:
           fi
           sudo -u oryx -H git -C "$install_dir" rev-parse HEAD
 
+      - name: Installer la dépendance Xvfb
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v Xvfb >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y xvfb
+          fi
+
       - name: Exécuter les tests ciblés
         shell: bash
         run: |
           set -euo pipefail
           cd /home/oryx/EtR-core
-          sudo -u oryx -H ./.venv/bin/python -m unittest -v tests.test_remote_screen_session
+          sudo -u oryx -H ./.venv/bin/python -m unittest -v tests.test_remote_screen_session tests.test_remote_desktop_contract
           ./.venv/bin/python -m py_compile src/remote_screen_agent.py
 
-      - name: Installer et redémarrer le relais écran
+      - name: Installer et redémarrer le bureau distant
         shell: bash
         run: |
           set -euo pipefail
           install_dir=/home/oryx/EtR-core
+          sudo install -m 755 "$install_dir/src/deploy/raspi/start_remote_desktop.sh" /usr/local/bin/start_remote_desktop.sh
+          sudo install -m 644 "$install_dir/src/deploy/raspi/etr-remote-desktop.service" /etc/systemd/system/etr-remote-desktop.service
           sudo install -m 644 "$install_dir/src/deploy/raspi/etr-vnc.service" /etc/systemd/system/etr-vnc.service
           sudo install -m 644 "$install_dir/src/deploy/raspi/etr-remote-screen.service" /etc/systemd/system/etr-remote-screen.service
           sudo systemctl daemon-reload
           sudo test -s /var/lib/etr-core/firebase-auth.json
           sudo chown oryx:oryx /var/lib/etr-core/firebase-auth.json
           sudo chmod 600 /var/lib/etr-core/firebase-auth.json
-          sudo systemctl enable etr-vnc.service etr-remote-screen.service
+          sudo systemctl enable etr-remote-desktop.service etr-vnc.service etr-remote-screen.service
+          sudo systemctl restart etr-remote-desktop.service
+
+          desktop_ready=false
+          for _ in $(seq 1 45); do
+            if DISPLAY=:2 xdpyinfo 2>/dev/null | grep -q 'dimensions:.*1280x720'; then
+              desktop_ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$desktop_ready" != true ]; then
+            sudo systemctl status etr-remote-desktop.service --no-pager -l || true
+            sudo journalctl -u etr-remote-desktop.service -n 120 --no-pager || true
+            exit 1
+          fi
+
           sudo systemctl restart etr-vnc.service
           sudo systemctl restart etr-remote-screen.service
 
-          for service in etr-vnc.service etr-remote-screen.service; do
+          for service in etr-remote-desktop.service etr-vnc.service etr-remote-screen.service; do
             ready=false
             for _ in $(seq 1 45); do
               if sudo systemctl is-active --quiet "$service"; then
@@ -105,22 +135,25 @@ jobs:
           [[ "$gateway_origin" == https://*.run.app ]]
           echo "gateway_origin=$gateway_origin" >> "$GITHUB_OUTPUT"
 
+          DISPLAY=:2 xdpyinfo | grep -q 'dimensions:.*1280x720'
+          DISPLAY=:1 xdpyinfo | grep -q 'dimensions:.*480x320'
+
           sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901'
           if sudo ss -H -ltnp | grep -qE '(0\.0\.0\.0|\[::\]):5901'; then
             echo "::error::VNC ne doit pas écouter sur toutes les interfaces"
             exit 1
           fi
 
+          ps -eo args | grep -q '[x]11vnc -display :2'
+
           set +e
-          timeout 4 bash -c 'exec 3<>/dev/tcp/127.0.0.1/5901; head -c 12 <&3' \
-            > /tmp/etr-remote-screen/vnc-banner.txt 2>/tmp/etr-remote-screen/vnc-banner.err
+          timeout 4 bash -c 'exec 3<>/dev/tcp/127.0.0.1/5901; head -c 12 <&3' > /tmp/etr-remote-screen/vnc-banner.txt 2>/tmp/etr-remote-screen/vnc-banner.err
           set -e
           grep -Eq '^RFB 003\.[0-9]{3}$' /tmp/etr-remote-screen/vnc-banner.txt
 
           connected=false
           for _ in $(seq 1 60); do
-            if curl --retry 2 --retry-delay 1 --retry-all-errors -fsS \
-                "$gateway_origin/healthz" > /tmp/etr-remote-screen/gateway-health.json; then
+            if curl --retry 2 --retry-delay 1 --retry-all-errors -fsS "$gateway_origin/healthz" > /tmp/etr-remote-screen/gateway-health.json; then
               devices=$(python3 -c 'import json; print(int(json.load(open("/tmp/etr-remote-screen/gateway-health.json")).get("devices",0)))')
               if [ "$devices" -ge 1 ]; then
                 connected=true
@@ -135,8 +168,7 @@ jobs:
             exit 1
           }
 
-          sudo journalctl -u etr-remote-screen.service --since '-5 minutes' --no-pager \
-            > /tmp/etr-remote-screen/agent-journal.txt
+          sudo journalctl -u etr-remote-screen.service --since '-5 minutes' --no-pager > /tmp/etr-remote-screen/agent-journal.txt
           grep -Fq 'connected to the remote gateway' /tmp/etr-remote-screen/agent-journal.txt
           if grep -Fq 'awaiting_claim' /tmp/etr-remote-screen/agent-journal.txt; then
             echo "::error::Le relais écran a relancé un enrôlement au lieu de réutiliser la session appareil"
@@ -152,10 +184,9 @@ jobs:
         run: |
           set +e
           mkdir -p /tmp/etr-remote-screen
-          sudo journalctl -u etr-remote-screen.service -n 160 --no-pager \
-            > /tmp/etr-remote-screen/agent-journal-final.txt 2>&1
-          sudo journalctl -u etr-vnc.service -n 80 --no-pager \
-            > /tmp/etr-remote-screen/vnc-journal.txt 2>&1
+          sudo journalctl -u etr-remote-screen.service -n 160 --no-pager > /tmp/etr-remote-screen/agent-journal-final.txt 2>&1
+          sudo journalctl -u etr-vnc.service -n 80 --no-pager > /tmp/etr-remote-screen/vnc-journal.txt 2>&1
+          sudo journalctl -u etr-remote-desktop.service -n 80 --no-pager > /tmp/etr-remote-screen/desktop-journal.txt 2>&1
           if [ -n "${GATEWAY_ORIGIN:-}" ]; then
             curl -fsS "$GATEWAY_ORIGIN/healthz" > /tmp/etr-remote-screen/gateway-health.json 2>/dev/null
           fi
@@ -175,15 +206,13 @@ jobs:
                   data=json.loads((root/name).read_text(encoding='utf-8'))
                   return data if isinstance(data, dict) else {}
               except Exception: return {}
-          def command(args):
-              try: return subprocess.run(args, check=False, capture_output=True, text=True, timeout=8).stdout.strip()
+          def command(args, env=None):
+              try: return subprocess.run(args, check=False, capture_output=True, text=True, timeout=8, env=env).stdout.strip()
               except Exception: return ''
 
-          installation=command([
-              '/home/oryx/EtR-core/.venv/bin/python','-c',
-              'import sys; sys.path.insert(0,"/home/oryx/EtR-core/src"); import firebase_bridge; print(firebase_bridge.INSTALLATION_ID)'
-          ])
+          installation=command(['/home/oryx/EtR-core/.venv/bin/python','-c','import sys; sys.path.insert(0,"/home/oryx/EtR-core/src"); import firebase_bridge; print(firebase_bridge.INSTALLATION_ID)'])
           token_path=Path('/var/lib/etr-core/firebase-auth.json')
+          env2=os.environ.copy(); env2['DISPLAY']=':2'
           report={
               'checkedAt': datetime.now(timezone.utc).isoformat(),
               'jobStatus': os.getenv('JOB_STATUS'),
@@ -193,22 +222,15 @@ jobs:
               'installationId': installation or None,
               'gatewayOrigin': os.getenv('GATEWAY_ORIGIN') or None,
               'gatewayHealth': load('gateway-health.json'),
-              'primaryTokenFile': {
-                  'path': str(token_path),
-                  'exists': token_path.is_file(),
-                  'stat': command(['stat','-c','%U:%G %a',str(token_path)]) or None,
-              },
+              'primaryTokenFile': {'path': str(token_path), 'exists': token_path.is_file(), 'stat': command(['stat','-c','%U:%G %a',str(token_path)]) or None},
               'legacyRemoteTokenFileExists': Path('/var/lib/etr-core/remote-screen-auth.json').exists(),
-              'vnc': {
-                  'service': command(['systemctl','is-active','etr-vnc.service']),
-                  'banner': text('vnc-banner.txt', 200).strip(),
+              'remoteDesktop': {
+                  'service': command(['systemctl','is-active','etr-remote-desktop.service']),
+                  'dimensions': command(['xdpyinfo'], env=env2),
+                  'journal': text('desktop-journal.txt', 4000),
               },
-              'remoteAgent': {
-                  'service': command(['systemctl','is-active','etr-remote-screen.service']),
-                  'unitEnvironment': command(['systemctl','show','etr-remote-screen.service','-p','Environment','--value']),
-                  'journal': text('agent-journal-final.txt'),
-              },
-              'vncJournal': text('vnc-journal.txt', 4000),
+              'vnc': {'service': command(['systemctl','is-active','etr-vnc.service']), 'banner': text('vnc-banner.txt', 200).strip(), 'journal': text('vnc-journal.txt', 4000)},
+              'remoteAgent': {'service': command(['systemctl','is-active','etr-remote-screen.service']), 'journal': text('agent-journal-final.txt')},
           }
           print(json.dumps(report, ensure_ascii=False, indent=2))
           PY
@@ -238,6 +260,8 @@ jobs:
           assert data['primaryTokenFile']['exists'] is True
           assert data['primaryTokenFile']['stat'] == 'oryx:oryx 600'
           assert data['legacyRemoteTokenFileExists'] is False
+          assert data['remoteDesktop']['service'] == 'active'
+          assert '1280x720' in data['remoteDesktop']['dimensions']
           assert data['vnc']['service'] == 'active'
           assert data['vnc']['banner'].startswith('RFB 003.')
           assert data['remoteAgent']['service'] == 'active'
