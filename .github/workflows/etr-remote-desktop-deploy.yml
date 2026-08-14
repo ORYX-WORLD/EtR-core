@@ -1,0 +1,99 @@
+name: Déployer le bureau distant EtR 1280x720
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-remote-desktop-deploy.yml
+      - src/deploy/raspi/start_remote_desktop.sh
+      - src/deploy/raspi/etr-remote-desktop.service
+      - src/deploy/raspi/etr-vnc.service
+      - tests/test_remote_desktop_contract.py
+
+concurrency:
+  group: etr-remote-desktop-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 15
+    steps:
+      - name: Actualiser le dépôt installé
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=/home/oryx/EtR-core
+          sudo -u oryx -H git -C "$repo" remote set-url origin https://github.com/ORYX-WORLD/EtR-core.git
+          if [ -n "$(sudo -u oryx -H git -C "$repo" status --porcelain)" ]; then
+            sudo -u oryx -H git -C "$repo" stash push --include-untracked -m "Sauvegarde auto bureau distant $(date -u +%Y%m%dT%H%M%SZ)"
+          fi
+          sudo -u oryx -H git -C "$repo" fetch origin main
+          sudo -u oryx -H git -C "$repo" checkout main
+          sudo -u oryx -H git -C "$repo" reset --hard origin/main
+          sudo -u oryx -H git -C "$repo" rev-parse HEAD
+
+      - name: Installer Xvfb et valider le contrat
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v Xvfb >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y xvfb
+          fi
+          cd /home/oryx/EtR-core
+          sudo -u oryx -H ./.venv/bin/python -m unittest -v tests.test_remote_desktop_contract
+
+      - name: Installer le bureau virtuel et VNC
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=/home/oryx/EtR-core
+          sudo install -m 755 "$repo/src/deploy/raspi/start_remote_desktop.sh" /usr/local/bin/start_remote_desktop.sh
+          sudo install -m 644 "$repo/src/deploy/raspi/etr-remote-desktop.service" /etc/systemd/system/etr-remote-desktop.service
+          sudo install -m 644 "$repo/src/deploy/raspi/etr-vnc.service" /etc/systemd/system/etr-vnc.service
+          sudo systemctl daemon-reload
+          sudo systemctl enable etr-remote-desktop.service etr-vnc.service etr-remote-screen.service
+          sudo systemctl restart etr-remote-desktop.service
+
+          ok=false
+          for _ in $(seq 1 45); do
+            if DISPLAY=:2 xdpyinfo 2>/dev/null | grep -q 'dimensions:.*1280x720'; then
+              ok=true
+              break
+            fi
+            sleep 2
+          done
+          [ "$ok" = true ] || {
+            sudo systemctl status etr-remote-desktop.service --no-pager -l || true
+            sudo journalctl -u etr-remote-desktop.service -n 160 --no-pager || true
+            exit 1
+          }
+
+          sudo systemctl restart etr-vnc.service
+          sudo systemctl restart etr-remote-screen.service
+          sleep 3
+
+      - name: Vérifier la géométrie réellement publiée
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== Bureau physique ==='
+          DISPLAY=:1 xdpyinfo | grep 'dimensions:'
+          echo '=== Bureau distant ==='
+          DISPLAY=:2 xdpyinfo | grep 'dimensions:'
+          echo '=== VNC ==='
+          ps -eo pid,args | grep '[x]11vnc'
+          DISPLAY=:2 xdpyinfo | grep -q 'dimensions:.*1280x720'
+          ps -eo args | grep -q '[x]11vnc -display :2'
+          sudo systemctl is-active --quiet etr-remote-desktop.service
+          sudo systemctl is-active --quiet etr-vnc.service
+          sudo systemctl is-active --quiet etr-remote-screen.service
+          set +e
+          banner=$(timeout 4 bash -c 'exec 3<>/dev/tcp/127.0.0.1/5901; head -c 12 <&3' 2>/dev/null)
+          rc=$?
+          set -e
+          [ "$rc" -eq 0 ]
+          printf '%s\n' "$banner" | grep -Eq '^RFB 003\.[0-9]{3}$'
+          echo 'Bureau distant EtR 1280x720 actif et publié sur VNC local 5901.'
