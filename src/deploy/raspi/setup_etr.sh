@@ -8,7 +8,7 @@ ENV_FILE="/etc/etr-core/firebase-bridge.env"
 sudo apt update
 sudo apt install -y \
   git curl python3-venv python3-pip python3-tk network-manager psmisc \
-  xserver-xorg xserver-xorg-video-fbdev xinit lxde-core dbus-x11 \
+  xserver-xorg xserver-xorg-video-fbdev xinit xvfb lxde-core dbus-x11 \
   chromium netcat-openbsd x11vnc rsync dosfstools parted fdisk e2fsprogs
 
 # Cloner ou actualiser le dépôt officiel.
@@ -43,12 +43,9 @@ for state_file in \
     sudo chmod 600 "$state_file"
   fi
 done
-# Supprimer l'ancien second état d'authentification : l'écran distant réutilise
-# désormais l'identité technique déjà enrôlée du bridge Firebase principal.
 sudo rm -f /var/lib/etr-core/remote-screen-auth.json /var/lib/etr-core/remote-screen-auth.tmp
 
-# Identité asymétrique persistante du Raspberry. La clé privée ne quitte jamais
-# l'équipement ; seule la clé publique sera enregistrée par le runner GitHub.
+# Identité asymétrique persistante du Raspberry.
 sudo -u oryx -H "$INSTALL_DIR/.venv/bin/python" - <<'PY'
 from pathlib import Path
 from src.device_identity import ensure_device_keypair
@@ -61,8 +58,6 @@ sudo chown oryx:oryx /var/lib/etr-core/bootstrap-private.pem /var/lib/etr-core/b
 sudo chmod 600 /var/lib/etr-core/bootstrap-private.pem
 sudo chmod 644 /var/lib/etr-core/bootstrap-public.pem
 
-# Si la passerelle WSS est déjà configurée, dériver automatiquement l'URL HTTPS
-# d'enrôlement sans stocker une seconde origine manuellement.
 remote_gateway=$(sudo sed -n 's/^ETR_REMOTE_GATEWAY_WSS=//p' "$ENV_FILE" | tail -n 1)
 if [ -n "$remote_gateway" ] && ! sudo grep -q '^FIREBASE_ENROLLMENT_URL=.' "$ENV_FILE"; then
   enrollment_origin=${remote_gateway/wss:\/\//https:\/\/}
@@ -72,18 +67,15 @@ if [ -n "$remote_gateway" ] && ! sudo grep -q '^FIREBASE_ENROLLMENT_URL=.' "$ENV
   printf '%s\n' "FIREBASE_ENROLLMENT_URL=${enrollment_origin}/api/enrollment" | sudo tee -a "$ENV_FILE" >/dev/null
 fi
 
-# NetworkManager gère Ethernet, les profils Wi-Fi et le hotspot temporaire.
 sudo systemctl enable NetworkManager.service
 
-# Services principaux. L'ancienne unité dashboard éventuellement installée sous
-# /opt/etr/dashboard est remplacée par l'unité versionnée dans ce dépôt.
 sudo systemctl stop etr-dashboard.service etr-firebase-bridge.service 2>/dev/null || true
 sudo install -m 644 src/deploy/etr.service /etc/systemd/system/etr.service
 sudo install -m 644 src/deploy/raspi/etr-dashboard.service /etc/systemd/system/etr-dashboard.service
 sudo install -m 644 src/deploy/raspi/etr-firebase-bridge.service /etc/systemd/system/etr-firebase-bridge.service
 sudo install -m 644 src/deploy/raspi/etr-wifi-portal.service /etc/systemd/system/etr-wifi-portal.service
 
-# Affichage SPI et kiosque.
+# Affichage SPI 480x320 local.
 sudo install -m 755 src/deploy/raspi/start_spi_desktop.sh /usr/local/bin/start_spi_desktop.sh
 sudo install -m 755 src/deploy/raspi/etr-kiosk.sh /usr/local/bin/etr-kiosk.sh
 sudo install -m 644 src/deploy/raspi/spi-desktop.service /etc/systemd/system/spi-desktop.service
@@ -92,7 +84,11 @@ sudo install -d -m 755 /etc/systemd/system/spi-desktop.service.d
 sudo install -m 644 src/deploy/raspi/spi-desktop.service.d/blanking.conf /etc/systemd/system/spi-desktop.service.d/blanking.conf
 sudo install -m 644 src/deploy/raspi/etr-kiosk.service /etc/systemd/system/etr-kiosk.service
 
-# Fabrique de cartes microSD, accessible uniquement depuis le bureau Linux.
+# Bureau distant indépendant du framebuffer SPI : 1280x720 sur :2.
+sudo install -m 755 src/deploy/raspi/start_remote_desktop.sh /usr/local/bin/start_remote_desktop.sh
+sudo install -m 644 src/deploy/raspi/etr-remote-desktop.service /etc/systemd/system/etr-remote-desktop.service
+
+# Fabrique de cartes microSD.
 sudo install -m 755 src/deploy/raspi/etr-sd-factory-launch.sh /usr/local/bin/etr-sd-factory-launch.sh
 sudo install -m 644 src/deploy/raspi/etr-sd-factory.service /etc/systemd/system/etr-sd-factory.service
 sudo install -m 644 src/deploy/raspi/etr-factory-firstboot.service /etc/systemd/system/etr-factory-firstboot.service
@@ -100,12 +96,11 @@ sudo install -m 644 src/deploy/raspi/etr-sd-factory.desktop /usr/share/applicati
 sudo install -m 440 src/deploy/raspi/etr-sd-factory.sudoers /etc/sudoers.d/etr-sd-factory
 sudo /usr/sbin/visudo -cf /etc/sudoers.d/etr-sd-factory >/dev/null
 
-# Écran distant : VNC reste local au Raspberry et le relais est uniquement sortant.
+# Écran distant : VNC reste local au Raspberry et publie uniquement le bureau virtuel :2.
 sudo install -m 644 src/deploy/raspi/etr-vnc.service /etc/systemd/system/etr-vnc.service
 sudo install -m 644 src/deploy/raspi/etr-remote-screen.service /etc/systemd/system/etr-remote-screen.service
 
-# Protection de l'espace disque et partage de la session appareil enrôlée.
-sudo systemctl stop etr-remote-screen.service 2>/dev/null || true
+sudo systemctl stop etr-remote-screen.service etr-vnc.service etr-remote-desktop.service 2>/dev/null || true
 sudo install -d -m 755 -o oryx -g oryx /home/oryx/.local/bin
 sudo rm -f /var/lib/etr-core/remote-screen-auth.json /var/lib/etr-core/remote-screen-auth.tmp
 if [ -f /var/lib/etr-core/firebase-auth.json ]; then
@@ -113,11 +108,9 @@ if [ -f /var/lib/etr-core/firebase-auth.json ]; then
   sudo chmod 600 /var/lib/etr-core/firebase-auth.json
 fi
 sudo install -m 755 src/deploy/raspi/etr-storage-maintenance.sh /home/oryx/.local/bin/etr-storage-maintenance.sh
-echo '*/15 * * * * oryx /home/oryx/.local/bin/etr-storage-maintenance.sh' | \
-  sudo tee /etc/cron.d/etr-storage-maintenance >/dev/null
+echo '*/15 * * * * oryx /home/oryx/.local/bin/etr-storage-maintenance.sh' | sudo tee /etc/cron.d/etr-storage-maintenance >/dev/null
 sudo chmod 644 /etc/cron.d/etr-storage-maintenance
 
-# Une ancienne exécution manuelle peut conserver le port 8090 ou le profil Chromium.
 sudo systemctl stop etr-kiosk.service etr-wifi-portal.service 2>/dev/null || true
 sudo pkill -f 'wifi_portal.py' 2>/dev/null || true
 sudo fuser -k 8090/tcp 2>/dev/null || true
@@ -127,7 +120,7 @@ sudo pkill -KILL -u oryx -f '[c]hromium.*etr-kiosk-chromium' 2>/dev/null || true
 sudo rm -f /home/oryx/.cache/etr-kiosk-chromium/SingletonCookie \
             /home/oryx/.cache/etr-kiosk-chromium/SingletonLock \
             /home/oryx/.cache/etr-kiosk-chromium/SingletonSocket
-sudo systemctl reset-failed etr-dashboard.service etr-firebase-bridge.service etr-wifi-portal.service etr-kiosk.service 2>/dev/null || true
+sudo systemctl reset-failed etr-dashboard.service etr-firebase-bridge.service etr-wifi-portal.service etr-kiosk.service etr-remote-desktop.service etr-vnc.service 2>/dev/null || true
 
 sudo systemctl daemon-reload
 sudo systemctl enable etr.service etr-dashboard.service etr-wifi-portal.service spi-desktop.service etr-kiosk.service
@@ -147,11 +140,7 @@ if [ "$api_ready" != true ]; then
   exit 1
 fi
 
-# Le bridge démarre dès que la configuration Firebase minimale existe. Il reste
-# actif en attente d'association et n'accepte un code qu'après enregistrement de
-# sa clé publique par le workflow GitHub authentifié ou par un ticket usine.
-if sudo grep -q '^FIREBASE_API_KEY=.' "$ENV_FILE" && \
-   sudo grep -q '^FIREBASE_DATABASE_URL=.' "$ENV_FILE"; then
+if sudo grep -q '^FIREBASE_API_KEY=.' "$ENV_FILE" && sudo grep -q '^FIREBASE_DATABASE_URL=.' "$ENV_FILE"; then
   sudo systemctl enable etr-firebase-bridge.service
   sudo systemctl restart etr-firebase-bridge.service
 else
@@ -176,25 +165,35 @@ fi
 
 sudo systemctl restart spi-desktop.service
 
-# La passerelle distante est activée uniquement lorsqu'une URL WSS a été configurée.
 remote_gateway=$(sudo sed -n 's/^ETR_REMOTE_GATEWAY_WSS=//p' "$ENV_FILE" | tail -n 1)
 if [ -n "$remote_gateway" ]; then
-  sudo systemctl stop etr-vnc.service 2>/dev/null || true
   sudo pkill -f '[x]11vnc.*rfbport 5901' 2>/dev/null || true
-  sudo systemctl enable etr-vnc.service etr-remote-screen.service
+  sudo systemctl enable etr-remote-desktop.service etr-vnc.service etr-remote-screen.service
+  sudo systemctl restart etr-remote-desktop.service
+  remote_desktop_ready=false
+  for attempt in $(seq 1 30); do
+    if DISPLAY=:2 xdpyinfo 2>/dev/null | grep -q 'dimensions:.*1280x720'; then
+      remote_desktop_ready=true
+      break
+    fi
+    sleep 1
+  done
+  if [ "$remote_desktop_ready" != true ]; then
+    sudo systemctl status etr-remote-desktop.service --no-pager -l || true
+    sudo journalctl -u etr-remote-desktop.service -n 120 --no-pager || true
+    exit 1
+  fi
   sudo systemctl restart etr-vnc.service
   sudo systemctl restart etr-remote-screen.service
 else
-  sudo systemctl disable --now etr-remote-screen.service etr-vnc.service 2>/dev/null || true
+  sudo systemctl disable --now etr-remote-screen.service etr-vnc.service etr-remote-desktop.service 2>/dev/null || true
   echo "Passerelle distante non activée : définir ETR_REMOTE_GATEWAY_WSS dans $ENV_FILE"
 fi
 
-# Le portail doit être réellement joignable avant de démarrer le kiosque.
 sudo systemctl start etr-wifi-portal.service
 portal_ready=false
 for attempt in $(seq 1 60); do
-  if sudo systemctl is-active --quiet etr-wifi-portal.service && \
-     curl -fsS http://127.0.0.1:8090/api/status >/dev/null; then
+  if sudo systemctl is-active --quiet etr-wifi-portal.service && curl -fsS http://127.0.0.1:8090/api/status >/dev/null; then
     portal_ready=true
     break
   fi
@@ -209,5 +208,5 @@ fi
 sudo systemctl reset-failed etr-kiosk.service 2>/dev/null || true
 sudo systemctl start etr-kiosk.service
 
-echo "OK. API EtR, identité Ed25519, bridge Firebase, enrôlement sécurisé, dashboard versionné, portail Wi-Fi tactile, écran SPI, kiosque, fabrique microSD et configuration d'écran distant sont installés."
+echo "OK. API EtR, écran SPI 480x320 et bureau distant virtuel 1280x720 sont installés."
 echo "Un redémarrage est recommandé pour valider le parcours hors connexion."
