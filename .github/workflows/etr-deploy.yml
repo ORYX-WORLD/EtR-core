@@ -63,7 +63,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           script="$ETR_INSTALL_DIR/src/deploy/raspi/publish_physical_deploy_report.sh"
-          if [ ! -x "$script" ]; then
+          if [ ! -s "$script" ]; then
             echo "::error::Script de publication de preuve absent"
             exit 1
           fi
