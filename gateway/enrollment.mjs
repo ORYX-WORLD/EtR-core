@@ -49,6 +49,14 @@ export function deriveDeviceUid(serialHash) {
   return `etrdev_${serialHash.slice(0, 48)}`;
 }
 
+function normalizeFirebaseUid(value, fallback) {
+  const uid = String(value || fallback || "").trim();
+  if (!uid || uid.length > 128 || /[.#$\[\]\/]/.test(uid)) {
+    throw new Error("invalid_device_session_uid");
+  }
+  return uid;
+}
+
 export function formatActivationCode(code) {
   const normalized = normalizeActivationCode(code);
   return normalized.match(/.{1,5}/g).join("-");
@@ -180,6 +188,15 @@ export function createFirebaseEnrollmentStore(db) {
         [`installations/${installationId}/metadata/device_uid`]: deviceUid,
         [`installations/${installationId}/metadata/device_fingerprint`]: serialHash,
         [`installations/${installationId}/metadata/device_bound_at`]: timestamp
+      });
+    },
+
+    async unbindDevice(installationId, deviceUid) {
+      await db.ref().update({
+        [`deviceAccess/${deviceUid}`]: null,
+        [`installations/${installationId}/metadata/device_uid`]: null,
+        [`installations/${installationId}/metadata/device_fingerprint`]: null,
+        [`installations/${installationId}/metadata/device_bound_at`]: null
       });
     },
 
@@ -323,34 +340,61 @@ export function createEnrollmentService({
       const locked = await store.lockExchange(verified.serialHash, verified.codeHash, lockId, startedAt);
       if (!locked) throw new EnrollmentError(409, "exchange_conflict", "Un échange est déjà en cours");
 
-      const deviceUid = deriveDeviceUid(verified.serialHash);
+      const requestedDeviceUid = deriveDeviceUid(verified.serialHash);
       let completed = false;
+      let bindingStarted = false;
+      let issuedSession = null;
+      let deviceUid = requestedDeviceUid;
       try {
-        try {
-          await auth.getUser(deviceUid);
-        } catch (error) {
-          if (error?.code !== "auth/user-not-found") throw error;
-          await auth.createUser({
-            uid: deviceUid,
-            disabled: false,
-            displayName: `EtR ${locked.installationId.slice(-12).toUpperCase()}`
-          });
+        if (auth.managesUsers !== false) {
+          try {
+            await auth.getUser(requestedDeviceUid);
+          } catch (error) {
+            if (error?.code !== "auth/user-not-found") throw error;
+            await auth.createUser({
+              uid: requestedDeviceUid,
+              disabled: false,
+              displayName: `EtR ${locked.installationId.slice(-12).toUpperCase()}`
+            });
+          }
         }
-        await store.bindDevice(locked.installationId, deviceUid, verified.serialHash, startedAt);
-        const customToken = await auth.createCustomToken(deviceUid, {
+
+        issuedSession = await auth.createCustomToken(requestedDeviceUid, {
           etrDevice: true,
           installationId: locked.installationId
         });
+        deviceUid = normalizeFirebaseUid(
+          issuedSession && typeof issuedSession === "object" ? issuedSession.uid : "",
+          requestedDeviceUid
+        );
+
+        bindingStarted = true;
+        await store.bindDevice(locked.installationId, deviceUid, verified.serialHash, startedAt);
         completed = await store.completeExchange(verified.serialHash, lockId, deviceUid, nowIso(now));
         if (!completed) throw new Error("enrollment_completion_conflict");
         return {
-          customToken,
+          customToken: issuedSession,
           installationId: locked.installationId,
           deviceUid,
           status: "exchanged",
           expiresIn: 3600
         };
       } catch (error) {
+        if (!completed && bindingStarted && typeof store.unbindDevice === "function") {
+          try {
+            await store.unbindDevice(locked.installationId, deviceUid);
+          } catch {
+            // Preserve the original enrollment failure; a later reconciliation can
+            // remove an orphaned binding if the datastore itself is unavailable.
+          }
+        }
+        if (!completed && issuedSession && typeof auth.revokeSession === "function") {
+          try {
+            await auth.revokeSession(issuedSession);
+          } catch {
+            // Preserve the original failure without exposing provider details.
+          }
+        }
         if (!completed) await store.rollbackExchange(verified.serialHash, lockId, nowIso(now));
         throw error;
       }
