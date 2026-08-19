@@ -1,10 +1,10 @@
-date_utc=2026-08-19T01:04:45Z
+date_utc=2026-08-19T01:59:06Z
 job_status=success
 exit_code=0
 failed_or_last_step=completed
 host=etr-core
-workflow_commit=8a2bd0a879273186dfa365818d51224462ba817d
-installed_commit=8a2bd0a879273186dfa365818d51224462ba817d
+workflow_commit=28fe725291f85989ec99a982f2901ee009327911
+installed_commit=28fe725291f85989ec99a982f2901ee009327911
 commit_match=true
 configuration_source=firebase-hosting-reserved-url+cloud-run-fixed-origin
 gateway_origin=https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
@@ -21,7 +21,7 @@ sensor_count=4
 pressure_signals_valid=true
 temperature_inputs_diagnosed=true
 telemetry_fresh=true
-telemetry_updated_at=2026-08-19T01:04:35.890783+00:00
+telemetry_updated_at=2026-08-19T01:58:57.684834+00:00
 etr.service=Result=success,User=oryx,ActiveState=active,SubState=running
 etr-dashboard.service=Result=success,User=oryx,ActiveState=active,SubState=running
 etr-firebase-bridge.service=Result=success,User=oryx,ActiveState=active,SubState=running
