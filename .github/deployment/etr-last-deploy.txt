@@ -1,10 +1,10 @@
-date_utc=2026-08-19T00:52:12Z
+date_utc=2026-08-19T01:04:45Z
 job_status=success
 exit_code=0
 failed_or_last_step=completed
 host=etr-core
-workflow_commit=e4ad1ea1ffca9ed1ff4a0a9f25a9235412450734
-installed_commit=e4ad1ea1ffca9ed1ff4a0a9f25a9235412450734
+workflow_commit=8a2bd0a879273186dfa365818d51224462ba817d
+installed_commit=8a2bd0a879273186dfa365818d51224462ba817d
 commit_match=true
 configuration_source=firebase-hosting-reserved-url+cloud-run-fixed-origin
 gateway_origin=https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
@@ -15,6 +15,13 @@ bootstrap_installation_id=etr-0000dd7429c2
 bootstrap_public_key_fingerprint=4125946b82dcd0233397037de43b02eb1c089c59f2609f6fb203126e68450575
 remote_screen_connected=true
 firebase_session_health=true
+sensor_acquisition=true
+sensor_adc_online=true
+sensor_count=4
+pressure_signals_valid=true
+temperature_inputs_diagnosed=true
+telemetry_fresh=true
+telemetry_updated_at=2026-08-19T01:04:35.890783+00:00
 etr.service=Result=success,User=oryx,ActiveState=active,SubState=running
 etr-dashboard.service=Result=success,User=oryx,ActiveState=active,SubState=running
 etr-firebase-bridge.service=Result=success,User=oryx,ActiveState=active,SubState=running
@@ -23,6 +30,7 @@ spi-desktop.service=Result=success,User=root,ActiveState=active,SubState=running
 etr-kiosk.service=Result=success,User=oryx,ActiveState=active,SubState=running
 etr-vnc.service=Result=success,User=oryx,ActiveState=active,SubState=running
 etr-remote-screen.service=Result=success,User=oryx,ActiveState=active,SubState=running
+etr-sensor-acquisition.service=Result=success,User=oryx,ActiveState=active,SubState=running
 etr_api_http=200
 etr_enrollment_http=200
 etr_dashboard_http=200
