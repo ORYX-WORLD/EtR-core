@@ -54,7 +54,7 @@ class RaspberryPublicBootstrapContractTests(unittest.TestCase):
         ]:
             self.assertIn(marker, self.deployment)
         self.assertIn("127\\.0\\.0\\.1", self.deployment)
-        self.assertIn("VNC local indisponible", self.deployment)
+        self.assertIn("Écran distant non connecté", self.deployment)
 
 
 if __name__ == "__main__":
