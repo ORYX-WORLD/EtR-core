@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 import unittest
 
 
@@ -51,6 +52,17 @@ class PhysicalDeployWorkflowTests(unittest.TestCase):
             "checkout -B proof-edge origin/main",
         ]:
             self.assertIn(marker, content)
+
+    def test_versioned_shell_scripts_are_syntactically_valid(self):
+        for script in (DEPLOY_SCRIPT, PUBLISH_SCRIPT):
+            with self.subTest(script=script.name):
+                result = subprocess.run(
+                    ["bash", "-n", str(script)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_workflow_change_triggers_the_physical_deployment(self):
         content = WORKFLOW.read_text(encoding="utf-8")
