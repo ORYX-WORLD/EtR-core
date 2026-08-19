@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "productId": "oryx-etr",
+  "componentId": "edge",
+  "repository": "ORYX-WORLD/EtR-core",
+  "branch": "main",
+  "canonicalProductManifest": {
+    "repository": "ORYX-WORLD/ORYX-PROJETS",
+    "path": "projets/etr-product/product-manifest.json",
+    "contextPath": "projets/etr-product/ETR_CONTEXT.md"
+  },
+  "responsibilities": [
+    "API locale",
+    "acquisition capteurs",
+    "dashboard tactile",
+    "portail Wi-Fi",
+    "enrôlement",
+    "publication Firebase",
+    "écran distant",
+    "fabrication microSD"
+  ],
+  "versionedLocalInterfaces": [
+    {
+      "id": "edge-dashboard",
+      "url": "http://127.0.0.1:8000/",
+      "sourcePath": "dashboard",
+      "service": "etr-dashboard.service"
+    },
+    {
+      "id": "edge-touch-portal",
+      "url": "http://127.0.0.1:8090/",
+      "sourcePath": "src/wifi_portal.py",
+      "service": "etr-wifi-portal.service"
+    },
+    {
+      "id": "edge-api",
+      "url": "http://127.0.0.1:8080/",
+      "sourcePath": "src/app.py",
+      "service": "etr.service"
+    }
+  ],
+  "requiredProductSurface": {
+    "id": "local-view-store",
+    "observedUrl": "http://127.0.0.1:3000/?view=view-store",
+    "sourceStatus": "unresolved",
+    "repository": null,
+    "path": null,
+    "service": null,
+    "launchCommand": null,
+    "blocksFullProductRelease": true,
+    "discoveryEvidence": {
+      "checkedAt": "2026-08-19",
+      "queries": [
+        "view-store",
+        "127.0.0.1:3000",
+        "?view="
+      ],
+      "result": "Aucune source correspondante trouvée dans les dépôts ORYX-WORLD accessibles."
+    }
+  },
+  "contracts": {
+    "installationIdentity": "v1",
+    "telemetry": "v1",
+    "enrollment": "v1",
+    "remoteScreen": "v1",
+    "commands": "not-qualified"
+  },
+  "networkRule": "Les services HTTP et VNC métier restent limités à 127.0.0.1 ; l'accès distant utilise une connexion sortante authentifiée."
+}
