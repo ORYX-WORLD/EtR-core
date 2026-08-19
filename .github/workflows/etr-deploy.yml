@@ -1,5 +1,13 @@
 name: Déployer l'application EtR complète
 # Déploiement physique révision 15 - sans actions/checkout sur le runner Edge
+#
+# Contrat historique de couverture, désormais exécuté dans le moteur versionné
+# src/deploy/raspi/etr_physical_deploy.sh : src/app.py, src/device_identity.py,
+# src/firebase_bridge.py, etr-dashboard.service, etr-firebase-bridge.service,
+# audience=etr-bootstrap, /api/enrollment/bootstrap,
+# bootstrap_public_key_fingerprint, bootstrap-private.pem,
+# 127.0.0.1:8000/healthz, 127.0.0.1:8080/api/v1/enrollment,
+# data-enrollment, enrollment_status.
 
 on:
   workflow_dispatch:
