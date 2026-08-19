@@ -208,5 +208,16 @@ fi
 sudo systemctl reset-failed etr-kiosk.service 2>/dev/null || true
 sudo systemctl start etr-kiosk.service
 
-echo "OK. API EtR, écran SPI 480x320 et bureau distant virtuel 1280x720 sont installés."
+# L'acquisition ADS1263 fait partie du produit EtR : une installation sans
+# service capteurs ni télémétrie fraîche ne doit jamais être déclarée réussie.
+sensor_installer="$INSTALL_DIR/src/deploy/raspi/install_sensor_acquisition.sh"
+if [ ! -s "$sensor_installer" ]; then
+  echo "Installateur ADS1263 absent : $sensor_installer" >&2
+  exit 2
+fi
+bash "$sensor_installer"
+sudo systemctl is-active --quiet etr-sensor-acquisition.service
+sudo test -s /var/lib/etr-core/telemetry.json
+
+echo "OK. API EtR, acquisition ADS1263, écran SPI 480x320 et bureau distant virtuel 1280x720 sont installés."
 echo "Un redémarrage est recommandé pour valider le parcours hors connexion."

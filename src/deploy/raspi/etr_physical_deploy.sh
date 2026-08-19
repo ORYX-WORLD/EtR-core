@@ -16,6 +16,13 @@ bootstrap_installation_id=
 bootstrap_public_key_fingerprint=
 remote_screen_connected=false
 firebase_session_health=false
+sensor_acquisition=false
+sensor_adc_online=false
+sensor_count=0
+pressure_signals_valid=false
+temperature_inputs_diagnosed=false
+telemetry_fresh=false
+telemetry_updated_at=unavailable
 
 service_state() {
   local service=$1
@@ -66,9 +73,16 @@ write_report() {
     echo "bootstrap_public_key_fingerprint=$bootstrap_public_key_fingerprint"
     echo "remote_screen_connected=$remote_screen_connected"
     echo "firebase_session_health=$firebase_session_health"
+    echo "sensor_acquisition=$sensor_acquisition"
+    echo "sensor_adc_online=$sensor_adc_online"
+    echo "sensor_count=$sensor_count"
+    echo "pressure_signals_valid=$pressure_signals_valid"
+    echo "temperature_inputs_diagnosed=$temperature_inputs_diagnosed"
+    echo "telemetry_fresh=$telemetry_fresh"
+    echo "telemetry_updated_at=$telemetry_updated_at"
     for service in etr.service etr-dashboard.service etr-firebase-bridge.service \
       etr-wifi-portal.service spi-desktop.service etr-kiosk.service \
-      etr-vnc.service etr-remote-screen.service; do
+      etr-vnc.service etr-remote-screen.service etr-sensor-acquisition.service; do
       echo "$service=$(service_state "$service")"
     done
     echo "etr_api_http=$(http_status http://127.0.0.1:8080/healthz)"
@@ -165,11 +179,17 @@ python3 -m py_compile \
   "$ETR_INSTALL_DIR/src/wifi_portal.py" \
   "$ETR_INSTALL_DIR/src/firebase_bridge.py" \
   "$ETR_INSTALL_DIR/src/remote_screen_agent.py" \
+  "$ETR_INSTALL_DIR/src/ads1263.py" \
+  "$ETR_INSTALL_DIR/src/sensor_acquisition.py" \
+  "$ETR_INSTALL_DIR/src/sensor_acquisition_runtime.py" \
   "$ETR_INSTALL_DIR/dashboard/app.py"
 test -s "$ETR_INSTALL_DIR/dashboard/requirements.txt"
+test -s "$ETR_INSTALL_DIR/config/sensors-home-lab.json"
 test -s "$ETR_INSTALL_DIR/src/deploy/raspi/etr-dashboard.service"
 test -s "$ETR_INSTALL_DIR/src/deploy/raspi/etr-firebase-bridge.service"
 test -s "$ETR_INSTALL_DIR/src/deploy/raspi/etr-remote-screen.service"
+test -s "$ETR_INSTALL_DIR/src/deploy/raspi/etr-sensor-acquisition.service"
+test -s "$ETR_INSTALL_DIR/src/deploy/raspi/install_sensor_acquisition.sh"
 
 target_step=install_application
 sudo -u oryx -H bash "$ETR_INSTALL_DIR/src/deploy/raspi/setup_etr.sh"
@@ -290,13 +310,11 @@ services=(
   etr-firebase-bridge.service
   etr-vnc.service
   etr-remote-screen.service
+  etr-sensor-acquisition.service
 )
-if systemctl list-unit-files etr-sensor-acquisition.service --no-legend \
-  | grep -q '^etr-sensor-acquisition.service'; then
-  services+=(etr-sensor-acquisition.service)
-fi
 for service in "${services[@]}"; do wait_for_service "$service"; done
 [ "$(sudo stat -c '%U:%G %a' /etc/etr-core/firebase-bridge.env)" = 'root:oryx 640' ]
+[ "$(sudo stat -c '%U:%G %a' /etc/etr-core/sensors.json)" = 'root:oryx 640' ]
 [ "$(sudo stat -c '%U:%G %a' /var/lib/etr-core/bootstrap-private.pem)" = 'oryx:oryx 600' ]
 [ "$(sudo stat -c '%U:%G %a' /var/lib/etr-core/bootstrap-public.pem)" = 'oryx:oryx 644' ]
 
@@ -330,6 +348,63 @@ done
 sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901'
 ! sudo ss -H -ltnp | grep -qE '(0\.0\.0\.0|\[::\]):5901'
 [ "$(sudo systemctl show etr-firebase-bridge.service -p User --value)" = oryx ]
+[ "$(sudo systemctl show etr-sensor-acquisition.service -p User --value)" = oryx ]
+
+target_step=verify_sensor_acquisition
+test -c /dev/spidev0.2
+test -c /dev/gpiochip0
+fresh=false
+for attempt in $(seq 1 30); do
+  if sudo test -s /var/lib/etr-core/telemetry.json; then
+    age=$(($(date +%s)-$(sudo stat -c %Y /var/lib/etr-core/telemetry.json)))
+    if [ "$age" -le 20 ]; then
+      fresh=true
+      break
+    fi
+  fi
+  sleep 2
+done
+[ "$fresh" = true ] || fail_check "Télémétrie périmée" "telemetry.json n'a pas été actualisé depuis moins de 20 secondes"
+telemetry_fresh=true
+sudo cp /var/lib/etr-core/telemetry.json /tmp/etr-deploy-telemetry.json
+sudo chown "$(id -u):$(id -g)" /tmp/etr-deploy-telemetry.json
+read -r telemetry_updated_at sensor_count < <(python3 - <<'PY'
+import json
+from pathlib import Path
+
+telemetry = json.loads(Path('/tmp/etr-deploy-telemetry.json').read_text(encoding='utf-8'))
+api = json.loads(Path('/tmp/etr-api-status.json').read_text(encoding='utf-8'))
+hardware = telemetry.get('hardware', {})
+assert telemetry.get('schema_version') == '1.1', telemetry
+assert hardware.get('status') == 'online', hardware
+assert hardware.get('adc') == 'ADS1263', hardware
+assert hardware.get('chip_id') == 1, hardware
+sensors = {item.get('id'): item for item in telemetry.get('sensors', []) if isinstance(item, dict)}
+assert set(sensors) == {'pressure_1', 'pressure_2', 'temperature_1', 'temperature_2'}, sensors
+for identifier in ('pressure_1', 'pressure_2'):
+    sample = sensors[identifier]
+    assert sample.get('status') == 'ok', sample
+    assert sample.get('value') is not None, sample
+    assert 0.05 <= float(sample.get('signal_v')) <= 4.95, sample
+allowed_ntc = {'reference_resistor_missing_or_probe_open', 'curve_required', 'ok'}
+for identifier in ('temperature_1', 'temperature_2'):
+    sample = sensors[identifier]
+    assert sample.get('status') in allowed_ntc, sample
+    assert sample.get('signal_v') is not None, sample
+api_telemetry = api.get('telemetry', {})
+assert api.get('capabilities', {}).get('ads1263_acquisition') is True, api.get('capabilities')
+assert api_telemetry.get('hardware', {}).get('status') == 'online', api_telemetry
+assert api_telemetry.get('hardware', {}).get('chip_id') == 1, api_telemetry
+assert len(api_telemetry.get('sensors', [])) == 4, api_telemetry
+print(str(telemetry.get('updated_at') or 'unavailable'), len(sensors))
+PY
+)
+grep -Fq 'data-sensor-grid' <<<"$dashboard_html"
+grep -Fq 'Banc d’essai capteurs' <<<"$dashboard_html"
+sensor_acquisition=true
+sensor_adc_online=true
+pressure_signals_valid=true
+temperature_inputs_diagnosed=true
 
 target_step=verify_remote_screen
 start_epoch=$(date +%s)

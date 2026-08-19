@@ -15,6 +15,8 @@ class SensorRepositoryContractTests(unittest.TestCase):
             "src/deploy/raspi/etr-sensor-acquisition.service",
             "src/deploy/raspi/etr-ads1263-spi0-cs2-overlay.dts",
             "src/deploy/raspi/install_sensor_acquisition.sh",
+            "src/deploy/raspi/setup_etr.sh",
+            "src/deploy/raspi/etr_physical_deploy.sh",
             ".github/workflows/etr-sensor-lab.yml",
             ".github/workflows/etr-spi-pin-diagnostic.yml",
             ".github/workflows/etr-ads1263-probe.yml",
@@ -75,6 +77,28 @@ class SensorRepositoryContractTests(unittest.TestCase):
         ]:
             self.assertIn(marker, overlay)
         self.assertNotIn("User=root", unit)
+
+    def test_main_install_and_edge_proof_cannot_omit_the_adc(self):
+        setup = (ROOT / "src/deploy/raspi/setup_etr.sh").read_text(encoding="utf-8")
+        deploy = (ROOT / "src/deploy/raspi/etr_physical_deploy.sh").read_text(encoding="utf-8")
+        for marker in [
+            "install_sensor_acquisition.sh",
+            "etr-sensor-acquisition.service",
+            "/var/lib/etr-core/telemetry.json",
+        ]:
+            self.assertIn(marker, setup)
+        for marker in [
+            "etr-sensor-acquisition.service",
+            "target_step=verify_sensor_acquisition",
+            "telemetry_fresh=true",
+            "sensor_adc_online=true",
+            "pressure_signals_valid=true",
+            "temperature_inputs_diagnosed=true",
+            "hardware.get('status') == 'online'",
+            "hardware.get('chip_id') == 1",
+            "ads1263_acquisition",
+        ]:
+            self.assertIn(marker, deploy)
 
     def test_shared_state_directory_is_not_reassigned_to_root(self):
         wifi_unit = (ROOT / "src/deploy/raspi/etr-wifi-portal.service").read_text(encoding="utf-8")
