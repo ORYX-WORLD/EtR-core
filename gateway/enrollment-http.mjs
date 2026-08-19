@@ -53,10 +53,18 @@ function safeError(res, error) {
 }
 
 function enrollmentAuthAdapter(auth, issuer) {
+  const requireAdminOperation = name => async (...args) => {
+    if (!auth || typeof auth[name] !== "function") {
+      throw new Error(`Firebase Admin Auth operation unavailable: ${name}`);
+    }
+    return auth[name](...args);
+  };
   return {
-    getUser: auth.getUser.bind(auth),
-    createUser: auth.createUser.bind(auth),
-    createCustomToken: (uid, claims) => issuer.issue(uid, claims)
+    managesUsers: issuer.managesUsers !== false,
+    getUser: requireAdminOperation("getUser"),
+    createUser: requireAdminOperation("createUser"),
+    createCustomToken: (uid, claims) => issuer.issue(uid, claims),
+    revokeSession: session => issuer.revoke ? issuer.revoke(session) : undefined
   };
 }
 
@@ -79,7 +87,7 @@ export function installEnrollmentRoutes({
   auth,
   verifyIdToken,
   deviceBootstrap = createDeviceBootstrapService({ db, now: () => Date.now() }),
-  deviceSessionIssuer = createFirebaseDeviceSessionIssuer({ auth }),
+  deviceSessionIssuer = createFirebaseDeviceSessionIssuer(),
   factorySessionIssuer = createFactoryDeviceSessionIssuer(),
   now = () => Date.now()
 }) {
