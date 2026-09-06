@@ -43,7 +43,7 @@ jobs:
           assert data.get('deviceConnected') is True
           print('VIEWER_URL='+data['viewerUrl'])
           PY
-      - name: Reparer DNS, services EtR et runner depuis la console distante
+      - name: Forcer un DNS fiable sur le Wi-Fi actif et relancer la fabrique
         shell: bash
         run: |
           cat > repair.mjs <<'NODE'
@@ -57,10 +57,10 @@ jobs:
           await canvas.click({position:{x:200,y:200}});
           await page.keyboard.press('Control+Alt+t');
           await page.waitForTimeout(1500);
-          const cmd = "sudo -n resolvectl flush-caches 2>/dev/null; sudo -n systemctl restart systemd-resolved 2>/dev/null; sudo -n systemctl restart etr-sd-factory.service etr-sd-factory-worker.service 2>/dev/null; sudo -n systemctl restart 'actions.runner*' 2>/dev/null; sudo -n systemctl restart NetworkManager 2>/dev/null";
-          await page.keyboard.type(cmd,{delay:4});
+          const cmd = "CON=$(nmcli -t -f NAME,DEVICE connection show --active | awk -F: '$2==\"wlan0\"{print $1;exit}'); if [ -n \"$CON\" ]; then sudo -n nmcli connection modify \"$CON\" ipv4.ignore-auto-dns yes ipv4.dns '1.1.1.1 8.8.8.8'; sudo -n nmcli device reapply wlan0; fi; sleep 2; python3 -c \"import socket; socket.getaddrinfo('etr-remote-gateway-7n72m5gopq-ew.a.run.app',443)\" && sudo -n systemctl restart etr-sd-factory.service etr-sd-factory-worker.service 2>/dev/null";
+          await page.keyboard.type(cmd,{delay:3});
           await page.keyboard.press('Enter');
-          await page.waitForTimeout(12000);
+          await page.waitForTimeout(10000);
           await browser.close();
           NODE
           node ./repair.mjs
