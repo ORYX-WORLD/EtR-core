@@ -8,6 +8,7 @@ from tkinter import BOTH, StringVar, Tk
 from tkinter import ttk
 
 STATE = Path("/run/etr-maintenance.json")
+READY = Path("/tmp/etr-maintenance-ui-ready")
 
 
 def read_state() -> dict:
@@ -19,6 +20,8 @@ def read_state() -> dict:
 
 
 def main() -> int:
+    READY.unlink(missing_ok=True)
+
     root = Tk()
     root.title("Maintenance EtR")
     root.attributes("-topmost", True)
@@ -37,6 +40,22 @@ def main() -> int:
     bar.pack(fill="x", pady=(0, 8))
     ttk.Label(frame, textvariable=percent, font=("DejaVu Sans", 10, "bold")).pack()
 
+    def mark_ready(event=None) -> None:
+        try:
+            READY.write_text("mapped\n", encoding="utf-8")
+        except OSError:
+            pass
+
+    root.bind("<Map>", mark_ready)
+    root.update_idletasks()
+    root.deiconify()
+    root.lift()
+    try:
+        root.attributes("-topmost", True)
+        root.focus_force()
+    except Exception:
+        pass
+
     def refresh() -> None:
         state = read_state()
         if state:
@@ -49,12 +68,13 @@ def main() -> int:
             bar.configure(value=value)
             percent.set(f"{value} %")
             if bool(state.get("done")):
-                root.after(2500, root.destroy)
+                root.after(5000, root.destroy)
                 return
         root.after(400, refresh)
 
     refresh()
     root.mainloop()
+    READY.unlink(missing_ok=True)
     return 0
 
 
