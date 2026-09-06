@@ -25,10 +25,14 @@ progress 20 "Affichage du suivi sur le Raspberry..."
 DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority "$python" "$repo/src/deploy/raspi/etr_maintenance_overlay.py" >/tmp/etr-maintenance-ui.log 2>&1 &
 sleep 2
 
-progress 35 "Installation du raccourci et du lanceur reels..."
+progress 35 "Installation du raccourci SD V1.1..."
 install -m 755 src/deploy/raspi/etr-sd-factory-launch.sh /usr/local/bin/etr-sd-factory-launch.sh
-install -m 644 src/deploy/raspi/etr-sd-factory.desktop /home/oryx/Desktop/etr-sd-factory.desktop 2>/dev/null || true
-chown oryx:oryx /home/oryx/Desktop/etr-sd-factory.desktop 2>/dev/null || true
+rm -f /home/oryx/Desktop/etr-sd-factory.desktop
+install -m 755 src/deploy/raspi/etr-sd-factory.desktop /home/oryx/Desktop/etr-sd-factory.desktop
+chown oryx:oryx /home/oryx/Desktop/etr-sd-factory.desktop
+command -v gio >/dev/null 2>&1 && sudo -u oryx gio set /home/oryx/Desktop/etr-sd-factory.desktop metadata::trusted true 2>/dev/null || true
+grep -q '^Name=SD V1.1$' /home/oryx/Desktop/etr-sd-factory.desktop
+grep -q '^Exec=sudo -n /usr/local/bin/etr-sd-factory-launch.sh$' /home/oryx/Desktop/etr-sd-factory.desktop
 
 progress 50 "Installation de la Fabrique resiliente..."
 install -m 644 src/deploy/raspi/etr-sd-factory.service /etc/systemd/system/etr-sd-factory.service
@@ -61,5 +65,5 @@ grep -q 'etr-sd-factory.service' /usr/local/bin/etr-sd-factory-launch.sh
 systemctl show -p ExecStart --value etr-sd-factory.service | grep -q 'etr_sd_factory_resilient.py'
 pgrep -af 'etr_sd_factory_resilient.py' >/dev/null
 
-progress 100 "Mise a jour terminee - Fabrique prete" true
+progress 100 "Mise a jour terminee - SD V1.1 prete" true
 echo ETR_FACTORY_FIX_OK
