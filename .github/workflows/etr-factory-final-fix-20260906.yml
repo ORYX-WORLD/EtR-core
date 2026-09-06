@@ -3,7 +3,13 @@ name: EtR - deploy factory resilient final
 on:
   push:
     branches: [main]
-    paths: [.github/workflows/etr-factory-final-fix-20260906.yml]
+    paths:
+      - .github/workflows/etr-factory-final-fix-20260906.yml
+      - src/deploy/raspi/etr-sd-factory.desktop
+      - src/deploy/raspi/etr_apply_factory_fix.sh
+      - src/deploy/raspi/etr-sd-factory-launch.sh
+      - src/deploy/raspi/etr-sd-factory.service
+      - src/deploy/raspi/etr_sd_factory_resilient.py
 
 permissions:
   contents: read
