@@ -1,0 +1,83 @@
+name: EtR - reparation reseau et fabrique 2026-09-06
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/etr-network-repair-20260906.yml]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GATEWAY_URL: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
+      ETR_INSTALLATION_ID: etr-core
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - name: Installer Playwright
+        run: |
+          npm install playwright ws
+          npx playwright install --with-deps chromium
+      - name: Obtenir le ticket viewer
+        shell: bash
+        run: |
+          set -euo pipefail
+          oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=etr-bootstrap"
+          curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$oidc_url" > /tmp/oidc.json
+          token=$(python3 -c 'import json; print(json.load(open("/tmp/oidc.json"))["value"])')
+          echo "::add-mask::$token"
+          curl -fsS -X POST "$GATEWAY_URL/api/diagnostics/remote-screen-ticket" \
+            -H "Authorization: Bearer $token" \
+            -H 'Content-Type: application/json' \
+            --data '{"installationId":"etr-core"}' > /tmp/ticket.json
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json
+          data=json.load(open('/tmp/ticket.json'))
+          assert data.get('deviceConnected') is True
+          print('VIEWER_URL='+data['viewerUrl'])
+          PY
+      - name: Reparer DNS, services EtR et runner depuis la console distante
+        shell: bash
+        run: |
+          cat > /tmp/repair.mjs <<'NODE'
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch({headless:true});
+          const page = await browser.newPage({viewport:{width:1280,height:900}});
+          await page.goto(process.env.VIEWER_URL,{waitUntil:'domcontentloaded',timeout:30000});
+          await page.waitForTimeout(6000);
+          const canvas = page.locator('canvas').first();
+          await canvas.waitFor({state:'visible',timeout:20000});
+          await canvas.click({position:{x:200,y:200}});
+          await page.keyboard.press('Control+Alt+t');
+          await page.waitForTimeout(1500);
+          const cmd = "sudo -n resolvectl flush-caches 2>/dev/null; sudo -n systemctl restart systemd-resolved 2>/dev/null; sudo -n systemctl restart etr-sd-factory.service etr-sd-factory-worker.service 2>/dev/null; sudo -n systemctl restart 'actions.runner*' 2>/dev/null; sudo -n systemctl restart NetworkManager 2>/dev/null";
+          await page.keyboard.type(cmd,{delay:4});
+          await page.keyboard.press('Enter');
+          await page.waitForTimeout(12000);
+          await browser.close();
+          NODE
+          node /tmp/repair.mjs
+      - name: Verifier le retour de l EtR sur la passerelle
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=false
+          for attempt in $(seq 1 60); do
+            if curl -fsS "$GATEWAY_URL/api/health" > /tmp/health.json && python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/health.json'))
+          assert d.get('ok') is True
+          assert int(d.get('devices',0)) >= 1
+          PY
+            then ok=true; break; fi
+            sleep 2
+          done
+          cat /tmp/health.json || true
+          [ "$ok" = true ]
