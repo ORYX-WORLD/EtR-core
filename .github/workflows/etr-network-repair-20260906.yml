@@ -46,7 +46,7 @@ jobs:
       - name: Reparer DNS, services EtR et runner depuis la console distante
         shell: bash
         run: |
-          cat > /tmp/repair.mjs <<'NODE'
+          cat > repair.mjs <<'NODE'
           import { chromium } from 'playwright';
           const browser = await chromium.launch({headless:true});
           const page = await browser.newPage({viewport:{width:1280,height:900}});
@@ -63,7 +63,7 @@ jobs:
           await page.waitForTimeout(12000);
           await browser.close();
           NODE
-          node /tmp/repair.mjs
+          node repair.mjs
       - name: Verifier le retour de l EtR sur la passerelle
         shell: bash
         run: |
