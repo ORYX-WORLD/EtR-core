@@ -11,7 +11,7 @@ pass() {
 }
 
 repo=/home/oryx/EtR-core
-desktop=/home/oryx/Desktop/etr-sd-factory.desktop
+desktop=/home/oryx/Desktop/SD-V1.1.desktop
 launcher=/usr/local/bin/etr-sd-factory-launch.sh
 gateway=etr-remote-gateway-7n72m5gopq-ew.a.run.app
 
