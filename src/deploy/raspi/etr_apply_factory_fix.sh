@@ -24,6 +24,12 @@ progress 10 "Mise a jour du systeme EtR..."
 git fetch origin main
 git reset --hard origin/main
 
+progress 14 "Activation de la capture du vrai ecran SPI..."
+install -m 755 src/deploy/raspi/etr-vnc-rawfb.sh /usr/local/bin/etr-vnc-rawfb.sh
+install -m 644 src/deploy/raspi/etr-vnc.service /etc/systemd/system/etr-vnc.service
+systemctl daemon-reload
+systemctl restart etr-vnc.service
+
 progress 18 "Installation du suivi visuel..."
 install -m 644 src/deploy/raspi/etr-maintenance-overlay.service /etc/systemd/system/etr-maintenance-overlay.service
 systemctl daemon-reload
@@ -32,8 +38,6 @@ systemctl stop etr-maintenance-overlay.service 2>/dev/null || true
 systemctl reset-failed etr-maintenance-overlay.service 2>/dev/null || true
 systemctl start etr-maintenance-overlay.service
 
-# Validation fonctionnelle : le processus doit être actif ET Tk doit avoir reçu
-# l'événement Map de la fenêtre sur le vrai DISPLAY du bureau Raspberry.
 for _ in $(seq 1 20); do
   if systemctl is-active --quiet etr-maintenance-overlay.service && [ -s "$ready" ]; then
     break
