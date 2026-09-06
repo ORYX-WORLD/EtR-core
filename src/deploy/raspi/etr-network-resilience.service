@@ -1,0 +1,8 @@
+[Unit]
+Description=EtR network and DNS resilience check
+After=NetworkManager.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/etr-network-resilience.sh
