@@ -43,7 +43,7 @@ jobs:
           assert data.get('deviceConnected') is True
           print('VIEWER_URL='+data['viewerUrl'])
           PY
-      - name: Reparer le reseau et relancer le runner GitHub du Raspberry
+      - name: Diagnostiquer et relancer le runner GitHub du Raspberry
         shell: bash
         run: |
           cat > repair.mjs <<'NODE'
@@ -57,18 +57,18 @@ jobs:
           await canvas.click({position:{x:200,y:200}});
           await page.keyboard.press('Control+Alt+t');
           await page.waitForTimeout(1500);
-          const cmd = "cd /home/oryx/EtR-core && git fetch origin main && git reset --hard origin/main && sudo -n install -m 755 src/deploy/raspi/etr-network-resilience.sh /usr/local/bin/etr-network-resilience.sh && sudo -n install -m 644 src/deploy/raspi/etr-network-resilience.service /etc/systemd/system/etr-network-resilience.service && sudo -n install -m 644 src/deploy/raspi/etr-network-resilience.timer /etc/systemd/system/etr-network-resilience.timer && sudo -n systemctl daemon-reload && sudo -n systemctl enable --now etr-network-resilience.timer && sudo -n systemctl start etr-network-resilience.service && sleep 3 && runner=\$(sudo -n systemctl list-unit-files --type=service --no-legend | awk '/actions\\.runner|github.*runner|runner.*service/ {print \$1; exit}') && if [ -n \"\$runner\" ]; then sudo -n systemctl restart \"\$runner\"; sudo -n systemctl is-active --quiet \"\$runner\"; else cd /home/oryx/actions-runner && sudo -n ./svc.sh start; sudo -n ./svc.sh status; fi && sleep 5 && pgrep -af 'Runner.Listener|Runner.Worker|runsvc.sh'";
-          await page.keyboard.type(cmd,{delay:2});
+          const cmd = "echo '=== ETR RUNNER DIAGNOSTIC ==='; uname -m; systemctl list-unit-files --type=service --no-legend | grep -E 'actions\\.runner|github.*runner|runner.*service' || true; runner=\$(systemctl list-unit-files --type=service --no-legend | awk '/actions\\.runner|github.*runner|runner.*service/ {print \$1; exit}'); echo RUNNER_SERVICE=\"\$runner\"; if [ -n \"\$runner\" ]; then sudo -n systemctl restart \"\$runner\"; sleep 5; sudo -n systemctl --no-pager --full status \"\$runner\" | head -40; fi; echo '=== PROCESSES ==='; pgrep -af 'Runner.Listener|Runner.Worker|runsvc.sh' || true; echo '=== RUNNER CONFIG ==='; if [ -s /home/oryx/actions-runner/.runner ]; then python3 -c \"import json; d=json.load(open('/home/oryx/actions-runner/.runner')); print('agentName=',d.get('agentName')); print('poolId=',d.get('poolId')); print('serverUrl=',d.get('serverUrl'))\"; else echo NO_RUNNER_CONFIG; fi; echo '=== END DIAGNOSTIC ==='";
+          await page.keyboard.type(cmd,{delay:1});
           await page.keyboard.press('Enter');
-          await page.waitForTimeout(25000);
-          await page.screenshot({path:'runner-repair.png',fullPage:true});
+          await page.waitForTimeout(14000);
+          await page.screenshot({path:'runner-diagnostic.png',fullPage:true});
           await browser.close();
           NODE
           node ./repair.mjs
       - uses: actions/upload-artifact@v4
         with:
-          name: raspberry-runner-repair
-          path: runner-repair.png
+          name: raspberry-runner-diagnostic
+          path: runner-diagnostic.png
       - name: Verifier le retour de l EtR sur la passerelle
         shell: bash
         run: |
@@ -85,4 +85,4 @@ jobs:
             sleep 2
           done
           cat /tmp/health.json || true
-          [ "$ok" = true ]
+          [ "$ok" = true]
