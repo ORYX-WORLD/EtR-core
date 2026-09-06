@@ -1,0 +1,99 @@
+name: EtR - diagnostic alimentation USB Raspberry 2026-09-06
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/etr-usb-power-diagnostic-20260906.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  usb-power:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 7
+    steps:
+      - name: Diagnostiquer alimentation, xHCI et autosuspend
+        shell: bash
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/etr-usb-power-diagnostic.txt"
+          {
+            echo '=== DATE ==='
+            date -Is
+            echo
+            echo '=== BOARD / KERNEL ==='
+            uname -a
+            cat /proc/device-tree/model 2>/dev/null | tr '\0' '\n' || true
+            echo
+            echo '=== POWER / THROTTLED ==='
+            vcgencmd get_throttled 2>&1 || true
+            vcgencmd measure_volts core 2>&1 || true
+            vcgencmd measure_temp 2>&1 || true
+            echo
+            echo '=== POWER / VOLTAGE KERNEL EVENTS ==='
+            sudo -n dmesg --color=never 2>&1 | grep -Ei 'under-voltage|undervoltage|voltage|over-current|overcurrent|throttl|power' | tail -n 200 || true
+            echo
+            echo '=== USB CONTROLLERS ==='
+            lspci -nn 2>&1 | grep -Ei 'usb|xhci|vl805' || true
+            lsusb || true
+            echo
+            echo '=== USB TREE ==='
+            lsusb -t || true
+            echo
+            echo '=== USB DEVICE DETAILS / MAXPOWER ==='
+            sudo -n lsusb -v 2>/dev/null | grep -E '(^Bus |idVendor|idProduct|iManufacturer|iProduct|bMaxPower|MaxPower)' || true
+            echo
+            echo '=== USBCORE AUTOSUSPEND ==='
+            cat /sys/module/usbcore/parameters/autosuspend 2>&1 || true
+            echo
+            echo '=== USB RUNTIME POWER ==='
+            for d in /sys/bus/usb/devices/*; do
+              [ -d "$d" ] || continue
+              name=$(basename "$d")
+              printf '%s ' "$name"
+              for f in manufacturer product idVendor idProduct bMaxPower speed; do
+                [ -r "$d/$f" ] && printf '%s=%s ' "$f" "$(tr -d '\n' < "$d/$f")"
+              done
+              for f in power/control power/runtime_status power/autosuspend_delay_ms; do
+                [ -r "$d/$f" ] && printf '%s=%s ' "$f" "$(tr -d '\n' < "$d/$f")"
+              done
+              echo
+            done
+            echo
+            echo '=== BLOCK DEVICES ==='
+            lsblk -o NAME,PATH,TYPE,SIZE,MODEL,SERIAL,TRAN,RM,FSTYPE,MOUNTPOINTS || true
+            echo
+            echo '=== EEPROM USB RELATED ==='
+            sudo -n rpi-eeprom-config 2>&1 | grep -Ei 'USB|PCIE|POWER|BOOT_ORDER' || true
+            echo
+            echo '=== BOOT CONFIG USB RELATED ==='
+            grep -Ei 'usb|max_current|over_voltage|dtoverlay|dtparam' /boot/firmware/config.txt /boot/config.txt 2>/dev/null || true
+            echo
+            echo '=== XHCI / USB KERNEL HISTORY ==='
+            sudo -n dmesg --color=never 2>&1 | grep -Ei 'xhci|usb [0-9-]+|reset (high|super|full)-speed|device descriptor|error -71|disconnect|I/O error|offline error|capacity' | tail -n 300 || true
+            echo
+            echo '=== SAFE READ STRESS /DEV/SDA ==='
+            root_src=$(findmnt -n -o SOURCE / 2>/dev/null || true)
+            root_parent=$(lsblk -no PKNAME "$root_src" 2>/dev/null || true)
+            sda_type=$(lsblk -dn -o TYPE /dev/sda 2>/dev/null || true)
+            sda_tran=$(lsblk -dn -o TRAN /dev/sda 2>/dev/null || true)
+            sda_rm=$(lsblk -dn -o RM /dev/sda 2>/dev/null || true)
+            echo "root=$root_src parent=$root_parent sda_type=$sda_type sda_tran=$sda_tran sda_rm=$sda_rm"
+            if [ -b /dev/sda ] && [ "$sda_type" = disk ] && { [ "$sda_tran" = usb ] || [ "$sda_rm" = 1 ]; } && [ "$root_src" != /dev/sda ] && [ "$root_parent" != sda ]; then
+              sudo -n dd if=/dev/sda of=/dev/null bs=4M count=128 iflag=direct status=progress 2>&1 || true
+            else
+              echo 'SKIPPED: /dev/sda not proven safe removable USB target'
+            fi
+            echo
+            echo '=== KERNEL AFTER SAFE READ STRESS ==='
+            sudo -n dmesg --color=never 2>&1 | grep -Ei 'xhci|usb [0-9-]+|reset|device descriptor|error -71|disconnect|I/O error|offline error|capacity|under-voltage|voltage|over-current' | tail -n 300 || true
+          } | tee "$out"
+
+      - name: Conserver le diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etr-usb-power-diagnostic
+          path: ${{ runner.temp }}/etr-usb-power-diagnostic.txt
+          if-no-files-found: error
