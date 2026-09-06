@@ -5,6 +5,7 @@ repo=/home/oryx/EtR-core
 state=/run/etr-maintenance.json
 python="$repo/.venv/bin/python"
 ready=/tmp/etr-maintenance-ui-ready
+desktop=/home/oryx/Desktop/SD-V1.1.desktop
 
 progress() {
   local pct="$1" msg="$2" done="${3:-false}"
@@ -48,12 +49,12 @@ sleep 2
 
 progress 40 "Installation du raccourci SD V1.1..."
 install -m 755 src/deploy/raspi/etr-sd-factory-launch.sh /usr/local/bin/etr-sd-factory-launch.sh
-rm -f /home/oryx/Desktop/etr-sd-factory.desktop
-install -m 755 src/deploy/raspi/etr-sd-factory.desktop /home/oryx/Desktop/etr-sd-factory.desktop
-chown oryx:oryx /home/oryx/Desktop/etr-sd-factory.desktop
-command -v gio >/dev/null 2>&1 && sudo -u oryx gio set /home/oryx/Desktop/etr-sd-factory.desktop metadata::trusted true 2>/dev/null || true
-grep -q '^Name=SD V1.1$' /home/oryx/Desktop/etr-sd-factory.desktop
-grep -q '^Exec=sudo -n /usr/local/bin/etr-sd-factory-launch.sh$' /home/oryx/Desktop/etr-sd-factory.desktop
+rm -f /home/oryx/Desktop/Creer-une-carte-EtR.desktop /home/oryx/Desktop/etr-sd-factory.desktop "$desktop"
+install -m 755 src/deploy/raspi/etr-sd-factory.desktop "$desktop"
+chown oryx:oryx "$desktop"
+command -v gio >/dev/null 2>&1 && sudo -u oryx gio set "$desktop" metadata::trusted true 2>/dev/null || true
+grep -q '^Name=SD V1.1$' "$desktop"
+grep -q '^Exec=sudo -n /usr/local/bin/etr-sd-factory-launch.sh$' "$desktop"
 
 progress 55 "Installation de la Fabrique resiliente..."
 install -m 644 src/deploy/raspi/etr-sd-factory.service /etc/systemd/system/etr-sd-factory.service
