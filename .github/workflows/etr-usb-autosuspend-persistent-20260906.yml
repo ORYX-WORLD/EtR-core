@@ -1,0 +1,28 @@
+name: EtR - desactiver autosuspend USB persistant 2026-09-06
+
+on:
+  push:
+    paths:
+      - '.github/workflows/etr-usb-autosuspend-persistent-20260906.yml'
+  workflow_dispatch:
+
+jobs:
+  apply-usb-autosuspend-fix:
+    runs-on: [self-hosted, Linux, ARM64]
+    steps:
+      - name: Appliquer usbcore.autosuspend=-1 et redemarrer
+        shell: bash
+        run: |
+          set -euo pipefail
+          CMDLINE=/boot/firmware/cmdline.txt
+          test -f "$CMDLINE"
+          sudo -n cp -a "$CMDLINE" "${CMDLINE}.bak-etr-20260906"
+          current="$(cat "$CMDLINE")"
+          case " $current " in
+            *' usbcore.autosuspend=-1 '*) echo 'usbcore.autosuspend=-1 deja present' ;;
+            *) printf '%s usbcore.autosuspend=-1\n' "$current" | sudo -n tee "$CMDLINE" >/dev/null ;;
+          esac
+          echo '=== CMDLINE APRES ==='
+          cat "$CMDLINE"
+          echo '=== PLANIFICATION REBOOT ==='
+          sudo -n systemd-run --unit=etr-usb-autosuspend-reboot --on-active=8s /usr/sbin/reboot
