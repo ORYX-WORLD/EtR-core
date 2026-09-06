@@ -1,0 +1,29 @@
+name: EtR - preparer mise a jour noyau Raspberry 2026-09-06
+
+on:
+  push:
+    paths:
+      - '.github/workflows/etr-kernel-upgrade-prepare-20260906.yml'
+  workflow_dispatch:
+
+jobs:
+  kernel-upgrade-prepare:
+    runs-on: self-hosted
+    steps:
+      - name: Sauvegarder boot et installer le noyau candidat sans redemarrer
+        shell: bash
+        run: |
+          set -euo pipefail
+          stamp="$(date +%Y%m%d-%H%M%S)"
+          sudo -n mkdir -p "/root/etr-kernel-backup-$stamp"
+          sudo -n cp -a /boot/firmware/config.txt /boot/firmware/cmdline.txt /boot/firmware/kernel8.img /boot/firmware/initramfs8 "/root/etr-kernel-backup-$stamp/" 2>/dev/null || true
+          uname -a
+          apt-cache policy linux-image-rpi-v8
+          sudo -n apt-get update
+          sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade linux-image-rpi-v8
+          echo '=== INSTALLED ==='
+          dpkg-query -W -f='${Package}\t${Version}\t${Status}\n' 'linux-image*' 2>/dev/null | grep 'install ok installed' || true
+          echo '=== BOOT FILES ==='
+          ls -lah /boot/firmware/kernel8.img /boot/firmware/initramfs8 /boot/vmlinuz-* /boot/initrd.img-* 2>/dev/null || true
+          echo '=== RUNNING KERNEL (unchanged until reboot) ==='
+          uname -a
