@@ -1,0 +1,43 @@
+name: EtR - diagnostic firmware USB Raspberry 2026-09-06
+
+on:
+  push:
+    paths:
+      - '.github/workflows/etr-usb-firmware-diagnostic-20260906.yml'
+  workflow_dispatch:
+
+jobs:
+  usb-firmware-diagnostic:
+    runs-on: [self-hosted]
+    timeout-minutes: 10
+    steps:
+      - name: Inspecter firmware EEPROM VL805 et noyau USB
+        shell: bash
+        run: |
+          set -u
+          out="$RUNNER_TEMP/etr-usb-firmware-diagnostic.txt"
+          {
+            echo '=== DATE ==='; date -Is
+            echo '=== SYSTEM ==='; uname -a; cat /etc/os-release 2>/dev/null || true
+            echo '=== MODEL ==='; tr -d '\0' </proc/device-tree/model 2>/dev/null || true; echo
+            echo '=== THROTTLED ==='; vcgencmd get_throttled 2>&1 || true
+            echo '=== BOOTLOADER VERSION ==='; vcgencmd bootloader_version 2>&1 || true
+            echo '=== EEPROM CONFIG ==='; sudo -n rpi-eeprom-config 2>&1 || true
+            echo '=== EEPROM UPDATE STATUS ==='; sudo -n rpi-eeprom-update 2>&1 || true
+            echo '=== VL805 ===';
+            command -v vl805 >/dev/null 2>&1 && sudo -n vl805 2>&1 || true
+            command -v vl805fw >/dev/null 2>&1 && sudo -n vl805fw 2>&1 || true
+            command -v rpi-eeprom-update >/dev/null 2>&1 && sudo -n rpi-eeprom-update -a 2>&1 | sed -n '1,40p' || true
+            echo '=== PCI USB CONTROLLER ==='; lspci -nnk 2>&1 | grep -A4 -Ei 'USB|VIA|VL805|xhci' || true
+            echo '=== USB TREE ==='; lsusb -t 2>&1 || true
+            echo '=== CMDLINE ==='; cat /proc/cmdline 2>&1 || true
+            echo '=== CONFIG USB RELATED ==='; grep -Ei 'usb|xhci|otg|dwc|over_voltage|current' /boot/firmware/config.txt /boot/config.txt 2>/dev/null || true
+            echo '=== MODULE PARAMS ===';
+            for p in /sys/module/usbcore/parameters/*; do printf '%s=' "$p"; cat "$p" 2>/dev/null || true; done
+            echo '=== KERNEL USB ERRORS ==='; sudo -n dmesg --color=never 2>&1 | grep -Ei 'usb|xhci|error -71|disconnect|reset high-speed|over-current|under-voltage|voltage' | tail -n 180 || true
+          } | tee "$out"
+      - name: Conserver le diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: etr-usb-firmware-diagnostic
+          path: ${{ runner.temp }}/etr-usb-firmware-diagnostic.txt
