@@ -74,7 +74,10 @@ jobs:
               return Boolean(c && c.width > 20 && c.height > 20);
             }, null, {timeout:30000});
             const canvas = page.locator('#screen canvas, canvas').first();
-            await canvas.click({position:{x:Math.min(200, Math.max(1, canvas.width()-2)),y:Math.min(200, Math.max(1, canvas.height()-2))}}).catch(()=>{});
+            const box = await canvas.boundingBox();
+            if (box && box.width > 2 && box.height > 2) {
+              await canvas.click({position:{x:Math.min(200, box.width - 1), y:Math.min(200, box.height - 1)}}).catch(()=>{});
+            }
             return {page, canvas};
           }
 
@@ -94,8 +97,6 @@ jobs:
 
           const browser = await chromium.launch({headless:true});
 
-          // La capture X11 actuelle de :1 est noire mais les entrees VNC atteignent
-          // encore LXDE. On l'utilise uniquement pour installer le pont rawfb.
           let first = await openViewer(browser);
           await first.canvas.screenshot({path:'01-before-rawfb.png'});
           await first.page.keyboard.press('Alt+F2');
@@ -106,7 +107,6 @@ jobs:
           await sleep(6000);
           await first.page.close().catch(() => {});
 
-          // Nouvelle connexion : la source VNC doit maintenant etre /dev/fb1.
           let second = null;
           let physical = null;
           for (let attempt=1; attempt<=10; attempt++) {
@@ -126,8 +126,6 @@ jobs:
           }
           await second.canvas.screenshot({path:'03-physical-spi-framebuffer.png'});
 
-          // Seulement apres preuve des pixels reels : installer le raccourci canonique
-          // puis ouvrir le diagnostic EtR dans le vrai LXDE :1.
           await second.page.keyboard.press('Alt+F2');
           await sleep(900);
           const diagCmd = "bash -lc 'cd /home/oryx/EtR-core && git fetch origin main && git reset --hard origin/main && rm -f /home/oryx/Desktop/Creer-une-carte-EtR.desktop /home/oryx/Desktop/etr-sd-factory.desktop /home/oryx/Desktop/SD-V1.1.desktop && install -m 755 src/deploy/raspi/etr-sd-factory.desktop /home/oryx/Desktop/SD-V1.1.desktop && rm -f /tmp/etr-architecture-diagnostic-gui-ready /tmp/etr-architecture-diagnostic.txt && DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority python3 src/deploy/raspi/etr_architecture_diagnostic_gui.py'";
