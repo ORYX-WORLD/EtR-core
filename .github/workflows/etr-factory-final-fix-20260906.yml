@@ -1,0 +1,77 @@
+name: EtR - deploy factory resilient final
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/etr-factory-final-fix-20260906.yml]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GATEWAY_URL: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - name: Installer Playwright
+        run: |
+          npm install playwright
+          npx playwright install --with-deps chromium
+      - name: Obtenir le ticket viewer
+        shell: bash
+        run: |
+          set -euo pipefail
+          oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=etr-bootstrap"
+          curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$oidc_url" > /tmp/oidc.json
+          token=$(python3 -c 'import json; print(json.load(open("/tmp/oidc.json"))["value"])')
+          echo "::add-mask::$token"
+          curl -fsS -X POST "$GATEWAY_URL/api/diagnostics/remote-screen-ticket" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' --data '{"installationId":"etr-core"}' > /tmp/ticket.json
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json
+          d=json.load(open('/tmp/ticket.json'))
+          assert d.get('deviceConnected') is True
+          print('VIEWER_URL='+d['viewerUrl'])
+          PY
+      - name: Deployer sur le Raspberry
+        shell: bash
+        run: |
+          cat > deploy.mjs <<'NODE'
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch({headless:true});
+          const page = await browser.newPage({viewport:{width:1280,height:900}});
+          await page.goto(process.env.VIEWER_URL,{waitUntil:'domcontentloaded',timeout:30000});
+          await page.waitForTimeout(6000);
+          const canvas = page.locator('canvas').first();
+          await canvas.waitFor({state:'visible',timeout:20000});
+          await canvas.click({position:{x:200,y:200}});
+          await page.keyboard.press('Control+Alt+t');
+          await page.waitForTimeout(1500);
+          const cmd = "cd /home/oryx/EtR-core && git fetch origin main && git reset --hard origin/main && sudo -n bash src/deploy/raspi/etr_apply_factory_fix.sh";
+          await page.keyboard.type(cmd,{delay:2});
+          await page.keyboard.press('Enter');
+          await page.waitForTimeout(30000);
+          await page.screenshot({path:'etr-factory-final.png',fullPage:true});
+          await browser.close();
+          NODE
+          node deploy.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: etr-factory-final-verification
+          path: etr-factory-final.png
+      - name: Verifier la passerelle
+        run: |
+          set -euo pipefail
+          curl -fsS "$GATEWAY_URL/api/health" > /tmp/health.json
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/health.json'))
+          assert d.get('ok') is True
+          assert int(d.get('devices',0)) >= 1
+          PY
