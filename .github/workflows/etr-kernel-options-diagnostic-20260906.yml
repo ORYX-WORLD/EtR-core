@@ -1,0 +1,47 @@
+name: EtR - diagnostic noyaux Raspberry 2026-09-06
+
+on:
+  push:
+    paths:
+      - '.github/workflows/etr-kernel-options-diagnostic-20260906.yml'
+  workflow_dispatch:
+
+jobs:
+  kernel-options:
+    runs-on: self-hosted
+    steps:
+      - name: Inspecter noyaux disponibles et retour arriere possible
+        shell: bash
+        run: |
+          set -u
+          out="$RUNNER_TEMP/etr-kernel-options.txt"
+          {
+            echo '=== DATE ==='; date -Is
+            echo '=== RUNNING KERNEL ==='; uname -a
+            echo '=== INSTALLED KERNEL PACKAGES ==='
+            dpkg-query -W -f='${Package}\t${Version}\t${Status}\n' 'linux-image*' 'raspberrypi-kernel*' 2>/dev/null | grep -E 'install ok installed|raspberrypi-kernel|linux-image' || true
+            echo '=== APT POLICY ==='
+            apt-cache policy linux-image-rpi-v8 linux-image-rpi-2712 raspberrypi-kernel 2>/dev/null || true
+            echo '=== AVAILABLE VERSIONS ==='
+            apt-cache madison linux-image-rpi-v8 2>/dev/null || true
+            apt-cache madison raspberrypi-kernel 2>/dev/null || true
+            echo '=== BOOT FILES ==='
+            ls -lah /boot /boot/firmware 2>/dev/null || true
+            echo '=== KERNEL/INITRD FILES ==='
+            find /boot /boot/firmware -maxdepth 1 -type f \( -name 'kernel*.img' -o -name 'vmlinuz*' -o -name 'initrd*' -o -name 'initramfs*' \) -printf '%p\t%TY-%Tm-%Td %TH:%TM\t%s bytes\n' 2>/dev/null | sort || true
+            echo '=== CONFIG.TXT ==='
+            sed -n '1,220p' /boot/firmware/config.txt 2>/dev/null || true
+            echo '=== CMDLINE.TXT ==='
+            cat /boot/firmware/cmdline.txt 2>/dev/null || true
+            echo '=== DPKG CACHE KERNEL DEBS ==='
+            find /var/cache/apt/archives -maxdepth 1 -type f \( -name '*linux-image*.deb' -o -name '*raspberrypi-kernel*.deb' \) -printf '%f\n' 2>/dev/null | sort || true
+            echo '=== APT SOURCES ==='
+            grep -RhsE '^[[:space:]]*deb|^Types:|^URIs:|^Suites:|^Components:' /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null || true
+          } | tee "$out"
+      - name: Conserver le diagnostic noyau
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etr-kernel-options
+          path: ${{ runner.temp }}/etr-kernel-options.txt
+          if-no-files-found: warn
