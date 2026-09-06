@@ -39,7 +39,7 @@ jobs:
           assert d.get('deviceConnected') is True
           print('VIEWER_URL='+d['viewerUrl'])
           PY
-      - name: Deployer sur le Raspberry
+      - name: Deployer sur le Raspberry au chemin reel du raccourci
         shell: bash
         run: |
           cat > deploy.mjs <<'NODE'
@@ -56,7 +56,7 @@ jobs:
           const cmd = "cd /home/oryx/EtR-core && git fetch origin main && git reset --hard origin/main && sudo -n bash src/deploy/raspi/etr_apply_factory_fix.sh";
           await page.keyboard.type(cmd,{delay:2});
           await page.keyboard.press('Enter');
-          await page.waitForTimeout(30000);
+          await page.waitForTimeout(35000);
           await page.screenshot({path:'etr-factory-final.png',fullPage:true});
           await browser.close();
           NODE
