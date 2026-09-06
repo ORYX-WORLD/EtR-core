@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic EtR network resilience check
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=2min
+AccuracySec=20s
+Persistent=true
+Unit=etr-network-resilience.service
+
+[Install]
+WantedBy=timers.target
