@@ -1,10 +1,10 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Créer une carte EtR
-Name[fr]=Créer une carte EtR
-Comment=Préparer automatiquement une microSD pour un nouvel EtR
-Comment[fr]=Préparer automatiquement une microSD pour un nouvel EtR
+Name=SD V1.1
+Name[fr]=SD V1.1
+Comment=Fabrique microSD EtR - version 1.1
+Comment[fr]=Fabrique microSD EtR - version 1.1
 Exec=sudo -n /usr/local/bin/etr-sd-factory-launch.sh
 Path=/home/oryx/EtR-core
 Icon=drive-removable-media
