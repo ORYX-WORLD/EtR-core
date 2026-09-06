@@ -1,0 +1,19 @@
+[Unit]
+Description=Affichage de maintenance EtR sur le bureau
+After=spi-desktop.service graphical.target
+Requires=spi-desktop.service
+PartOf=spi-desktop.service
+
+[Service]
+Type=simple
+User=oryx
+Group=oryx
+Environment=HOME=/home/oryx
+Environment=DISPLAY=:1
+Environment=XAUTHORITY=/home/oryx/.Xauthority
+WorkingDirectory=/home/oryx/EtR-core
+ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/deploy/raspi/etr_maintenance_overlay.py
+Restart=no
+
+[Install]
+WantedBy=graphical.target
