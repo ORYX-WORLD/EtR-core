@@ -1,0 +1,132 @@
+name: EtR - diagnostic USB confidentiel (lecture seule)
+'on':
+  push:
+    branches: [diagnostic/sd-usb-20260906]
+    paths: [.github/workflows/etr-sd-usb-diagnostic-private.yml]
+permissions:
+  contents: read
+concurrency:
+  group: etr-sd-usb-readonly-diagnostic
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    name: Examiner la fabrique sans modifier les supports
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 6
+    defaults:
+      run:
+        shell: bash
+        working-directory: /tmp
+    steps:
+      - name: Collecter et chiffrer le diagnostic
+        id: capture
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ ! -d /home/oryx/EtR-core ]; then
+            echo 'Expected EtR installation not found; no collection performed.'
+            exit 2
+          fi
+          work=$(mktemp -d /tmp/etr-sd-usb-diag.XXXXXX)
+          echo "workdir=$work" >> "$GITHUB_OUTPUT"
+          trap 'rm -f "$work/report.json.gz" "$work/collector.err"' EXIT
+          cat > "$work/recipient.pem" <<'CERT'
+          -----BEGIN CERTIFICATE-----
+          MIIEJTCCAo2gAwIBAgIUXk6imh5idrEJH0OWEgePaJYFpFMwDQYJKoZIhvcNAQEL
+          BQAwIjEgMB4GA1UEAwwXRXRSIG9uZS1zaG90IGRpYWdub3N0aWMwHhcNMjYwOTA2
+          MDgwMzQ0WhcNMjYwOTA4MDgwMzQ0WjAiMSAwHgYDVQQDDBdFdFIgb25lLXNob3Qg
+          ZGlhZ25vc3RpYzCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAKzt1ui3
+          7pGNr4mPX+Pd10VcO4StVJmVnBU54ylEuZgIHsiag76V8JaRxkuv2y3RWKAOzX3d
+          OxDfRwgcdXm8f4n9Fvy88hCY05CnOr7DdUqJb8RIYGsiIQEzinKhKM5qfTqzFIuS
+          WG9Nx9fpK52PBkQ3SYc6Q2VwacZrIjk3MoqsenYkr0//J8mK06YFnBeBQgDWjmqN
+          /yosFRInGj0RWArQnbJic9ySD0D/n//B9drxCjTX8Qk5E36vtvFUW8UeI0qEgWRh
+          txqpFnULwbacbrA9lmt6Oqc1xoon4K044gvKucSrrEHpP8eLhxhCR+z7RcOgLcrd
+          m91j6NyOsRUwH+0wyin+oKqPxM4cSrP5bN1nTl4AAONLPsLMqDeDhKAm966NA93r
+          6rFx08k452vfG/SrjcGQwnps6zcelfTjSAv6wdzVOayPgR9bngiSuVlELVVTDRlS
+          n50Ibb7IhKM509brmHIuJkYyUq58Do/q+HHzK/344xhfBKB2TnOltb+sswIDAQAB
+          o1MwUTAdBgNVHQ4EFgQUqZDV7lAGxhS257zwRhqq+ksiVCowHwYDVR0jBBgwFoAU
+          qZDV7lAGxhS257zwRhqq+ksiVCowDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0B
+          AQsFAAOCAYEASIHwXIXqqC66JuO5Ij59Tv08QJhznMsK7fa26zGoP3JFx30XSrCz
+          PbPmZ1RztREmCu/GOY+aXIbxRfhQsYpov6ZtZNFp2RTmRaTkkT+/Haq9uEFEkgeO
+          K3SQoIlpOjgDngO/EJ1p5xVq+tvDY4cg+ccaGZ2FSDAbG6acqaH/VOYa7eoOHgEV
+          jidMQJPhjjLlzt9QAcRvLJrJxDxHXgVXIyhopqM+xNt/IseLVXvF1hAZzyTpw4Vu
+          m+ZjuP09gqy3Se1kcjAYukCnybvZ5dF7ZGEB6QC+sc9KEcnxPPUOmIB6reqhdlCm
+          5fcB+MKVyCxH7BqZGZf1b+tjcaX0EC4nvW8AOuKk1so01+rc0n87Y1frEDxNV3xD
+          CL2CLjyWDZL2csigVMnvg1KRiwASioeL611WihwqcV9Qwwu3vjrVxOrLFfOLM3tN
+          zdDV23nexq3B9b2vvg+KaR+NpF0dM7LBJToMeKMpPQiw9/H4jcGgUJ3hfYFaK9F1
+          MiSEHN9OaVJN
+          -----END CERTIFICATE-----
+          CERT
+          if ! sudo -n python3 - > "$work/report.json.gz" 2> "$work/collector.err" <<'PYCOLLECT'
+          import datetime, gzip, hashlib, json, os, pathlib, re, subprocess, sys
+          report = {'captured_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'mode': 'read-only'}
+          def run(args, limit=16000):
+              try:
+                  result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', timeout=18, env=dict(os.environ, LC_ALL='C'))
+                  return {'returncode': result.returncode, 'output': result.stdout[-limit:]}
+              except Exception as exc:
+                  return {'error': type(exc).__name__ + ': ' + str(exc)}
+          units = ['etr-sd-factory.service', 'etr-sd-factory-worker.service']
+          report['services'] = run(['systemctl', 'show', *units, '-p', 'Id,LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,MainPID,ActiveEnterTimestamp,InactiveEnterTimestamp'])
+          report['factory_journal'] = run(['journalctl', '-u', units[0], '-u', units[1], '--since', '4 hours ago', '-n', '180', '--no-pager', '-o', 'short-iso'], 32000)
+          state_path = pathlib.Path('/var/lib/etr-core/sd-factory-state.json')
+          try:
+              state = json.loads(state_path.read_text())
+              keys = ['schema_version', 'job_id', 'status', 'active', 'stage', 'message', 'progress_percent', 'device', 'speed', 'eta', 'precopy_recovery_attempt', 'precopy_recovery_max', 'usb_recovery_attempt', 'usb_recovery_max', 'resume_count', 'started_at', 'updated_at', 'finished_at', 'error', 'verification', 'ready_to_remove']
+              report['factory_state'] = {key: state[key] for key in keys if key in state}
+          except Exception as exc:
+              report['factory_state'] = {'read_error': str(exc)}
+          report['block_devices'] = run(['lsblk', '-b', '-J', '-o', 'NAME,PATH,TYPE,SIZE,RO,RM,TRAN,FSTYPE,MOUNTPOINT,MODEL'])
+          report['root_device'] = run(['findmnt', '-n', '-o', 'SOURCE,FSTYPE,OPTIONS', '/'])
+          report['free_space'] = run(['df', '-B1', '--output=source,size,used,avail,pcent,target', '/', '/tmp', '/boot/firmware'])
+          report['usb_devices'] = run(['lsusb'])
+          report['usb_topology'] = run(['lsusb', '-t'])
+          kernel = run(['journalctl', '-k', '-b', '-n', '1200', '--no-pager', '-o', 'short-iso'], 200000)
+          if 'output' in kernel:
+              kernel['output'] = '\n'.join([line for line in kernel['output'].splitlines() if re.search(r'usb|sd[a-z]|mmc|voltage|I/O error|EXT4-fs|uas', line, re.I)][-150:])
+          report['storage_kernel'] = kernel
+          report['power'] = run(['vcgencmd', 'get_throttled'])
+          report['clock'] = run(['timedatectl', 'show', '-p', 'NTPSynchronized,TimeUSec'])
+          report['uptime'] = run(['uptime', '-p'])
+          report['installed_commit'] = run(['git', '-c', 'safe.directory=/home/oryx/EtR-core', '-C', '/home/oryx/EtR-core', 'rev-parse', 'HEAD'])
+          locks = run(['lslocks', '-n', '-o', 'COMMAND,PID,TYPE,MODE,PATH'])
+          if 'output' in locks:
+              locks['output'] = '\n'.join(line for line in locks['output'].splitlines() if 'etr-sd-factory' in line)
+          report['factory_locks'] = locks
+          report['installed_factory_files'] = {}
+          for name in ['etr_sd_factory.py', 'etr_sd_factory_worker.py', 'etr_sd_factory_state.py', 'etr_sd_factory_backend.py']:
+              path = pathlib.Path('/usr/local/bin') / name
+              try:
+                  report['installed_factory_files'][name] = {'size': path.stat().st_size, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+              except OSError as exc:
+                  report['installed_factory_files'][name] = {'error': str(exc)}
+          # Never read the request file, Wi-Fi profiles, tokens, credentials or process environments.
+          serialized = json.dumps(report, ensure_ascii=True, indent=2)
+          serialized = re.sub(r'(?i)(bearer\s+)[A-Za-z0-9._~+/-]+', r'\1[REDACTED]', serialized)
+          sys.stdout.buffer.write(gzip.compress(serialized.encode('utf-8')))
+          PYCOLLECT
+          then
+            echo 'Read-only collection failed. No plaintext report was published.'
+            exit 3
+          fi
+          openssl cms -encrypt -binary -aes-256-cbc -outform DER -in "$work/report.json.gz" -out "$work/report.cms" "$work/recipient.pem"
+          echo "report=$work/report.cms" >> "$GITHUB_OUTPUT"
+          echo 'Read-only diagnostic captured and encrypted.'
+      - name: Conserver uniquement le rapport chiffre
+        uses: actions/upload-artifact@v4
+        with:
+          name: etr-sd-usb-diagnostic-encrypted
+          path: ${{ steps.capture.outputs.report }}
+          retention-days: 1
+          if-no-files-found: error
+      - name: Effacer les fichiers temporaires du diagnostic
+        if: always()
+        env:
+          WORKDIR: ${{ steps.capture.outputs.workdir }}
+        run: |
+          case "$WORKDIR" in
+            /tmp/etr-sd-usb-diag.*)
+              rm -f -- "$WORKDIR/report.json.gz" "$WORKDIR/collector.err" "$WORKDIR/report.cms" "$WORKDIR/recipient.pem"
+              rmdir -- "$WORKDIR" || true
+              ;;
+          esac
