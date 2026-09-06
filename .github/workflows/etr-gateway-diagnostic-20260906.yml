@@ -1,0 +1,26 @@
+name: EtR - diagnostic passerelle 2026-09-06
+'on':
+  push:
+    branches: [diagnostic/gateway-20260906]
+    paths: [.github/workflows/etr-gateway-diagnostic-20260906.yml]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: DNS and HTTPS diagnostic
+        shell: bash
+        run: |
+          set -euxo pipefail
+          host='etr-remote-gateway-7n72m5gopq-ew.a.run.app'
+          echo '=== DNS getent ==='
+          getent ahosts "$host" || true
+          echo '=== DNS dig ==='
+          dig +short "$host" A || true
+          dig +short "$host" AAAA || true
+          echo '=== HTTPS root ==='
+          curl -vkI --connect-timeout 10 --max-time 20 "https://$host/" || true
+          echo '=== HTTPS health ==='
+          curl -vk --connect-timeout 10 --max-time 20 "https://$host/api/health" || true
