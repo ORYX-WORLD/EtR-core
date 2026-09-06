@@ -25,8 +25,9 @@ class SdFactoryInstallContractTests(unittest.TestCase):
             self.assertIn(marker, SETUP)
 
     def test_factory_is_only_exposed_on_linux_desktop(self):
-        self.assertIn("Creer-une-carte-EtR.desktop", DESKTOP)
+        self.assertIn("SD-V1.1.desktop", DESKTOP)
         self.assertIn("etr-sd-factory.desktop", DESKTOP)
+        self.assertIn("rm -f /home/oryx/Desktop/Creer-une-carte-EtR.desktop", DESKTOP)
         touch_shell = (ROOT / "src/touch_shell.py").read_text(encoding="utf-8") if (ROOT / "src/touch_shell.py").exists() else ""
         self.assertNotIn("sd-factory", touch_shell)
         self.assertNotIn("Créer une carte EtR", touch_shell)
