@@ -5,10 +5,11 @@ Ce document décrit la chaîne réellement utilisée sur le Raspberry EtR. Une m
 ## Chaîne principale Fabrique microSD
 
 1. **Bureau Linux**
-   - Fichier installé : `/home/oryx/Desktop/etr-sd-factory.desktop`
+   - Fichier installé : `/home/oryx/Desktop/SD-V1.1.desktop`
    - Nom attendu : `SD V1.1`
    - Source dépôt : `src/deploy/raspi/etr-sd-factory.desktop`
    - Commande attendue : `sudo -n /usr/local/bin/etr-sd-factory-launch.sh`
+   - Anciens noms supprimés : `Creer-une-carte-EtR.desktop` et `etr-sd-factory.desktop`
 
 2. **Launcher système**
    - Fichier installé : `/usr/local/bin/etr-sd-factory-launch.sh`
