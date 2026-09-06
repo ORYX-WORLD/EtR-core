@@ -1,0 +1,71 @@
+name: EtR - desactivation autosuspend USB 2026-09-06
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/etr-usb-autosuspend-off-20260906.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  usb-autosuspend-off:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 5
+    steps:
+      - name: Desactiver autosuspend sur la chaine USB du lecteur SD
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== AVANT ==='
+          lsusb -t || true
+          echo
+          found=0
+          for dev in /sys/bus/usb/devices/*; do
+            [ -f "$dev/idVendor" ] || continue
+            [ -f "$dev/idProduct" ] || continue
+            vid=$(cat "$dev/idVendor" 2>/dev/null || true)
+            pid=$(cat "$dev/idProduct" 2>/dev/null || true)
+            case "$vid:$pid" in
+              1a86:8095|05e3:0751|2109:3431)
+                found=1
+                echo "Cible $(basename "$dev") $vid:$pid"
+                if [ -f "$dev/power/control" ]; then
+                  echo "  control avant: $(cat "$dev/power/control" 2>/dev/null || true)"
+                  echo on | sudo -n tee "$dev/power/control" >/dev/null
+                  echo "  control apres: $(cat "$dev/power/control" 2>/dev/null || true)"
+                fi
+                if [ -f "$dev/power/autosuspend" ]; then
+                  echo -1 | sudo -n tee "$dev/power/autosuspend" >/dev/null || true
+                  echo "  autosuspend: $(cat "$dev/power/autosuspend" 2>/dev/null || true)"
+                fi
+                ;;
+            esac
+          done
+          if [ "$found" -eq 0 ]; then
+            echo 'Aucun peripherique cible detecte.'
+            exit 2
+          fi
+          echo
+          echo '=== APRES ==='
+          for dev in /sys/bus/usb/devices/*; do
+            [ -f "$dev/idVendor" ] || continue
+            [ -f "$dev/idProduct" ] || continue
+            vid=$(cat "$dev/idVendor" 2>/dev/null || true)
+            pid=$(cat "$dev/idProduct" 2>/dev/null || true)
+            case "$vid:$pid" in
+              1a86:8095|05e3:0751|2109:3431)
+                printf '%s %s:%s control=%s runtime=%s autosuspend=%s\n' \
+                  "$(basename "$dev")" "$vid" "$pid" \
+                  "$(cat "$dev/power/control" 2>/dev/null || echo n/a)" \
+                  "$(cat "$dev/power/runtime_status" 2>/dev/null || echo n/a)" \
+                  "$(cat "$dev/power/autosuspend" 2>/dev/null || echo n/a)"
+                ;;
+            esac
+          done
+          echo
+          echo '=== THROTTLED ==='
+          vcgencmd get_throttled || true
+          echo
+          echo '=== SDA ==='
+          lsblk -o NAME,PATH,SIZE,MODEL,TRAN,RM,FSTYPE,MOUNTPOINTS /dev/sda 2>&1 || true
