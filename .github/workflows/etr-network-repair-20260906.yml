@@ -63,7 +63,7 @@ jobs:
           await page.waitForTimeout(12000);
           await browser.close();
           NODE
-          node repair.mjs
+          node ./repair.mjs
       - name: Verifier le retour de l EtR sur la passerelle
         shell: bash
         run: |
