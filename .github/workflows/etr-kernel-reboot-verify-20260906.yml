@@ -1,0 +1,68 @@
+name: EtR - reboot et verification noyau Raspberry 2026-09-06
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/etr-kernel-reboot-verify-20260906.yml]
+
+jobs:
+  schedule-reboot:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 5
+    steps:
+      - name: Programmer le redemarrage controle
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Kernel avant reboot: $(uname -r)"
+          sudo -n systemd-run --unit=etr-kernel-reboot-once --on-active=10s /usr/bin/systemctl reboot
+          systemctl status etr-kernel-reboot-once.timer --no-pager || true
+          echo "Reboot programme dans environ 10 secondes"
+
+  wait-gateway:
+    runs-on: ubuntu-latest
+    needs: schedule-reboot
+    timeout-minutes: 8
+    steps:
+      - name: Attendre le retour du Raspberry sur la gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          GATEWAY_URL="https://etr-remote-gateway-7n72m5gopq-ew.a.run.app"
+          sleep 30
+          ok=false
+          for attempt in $(seq 1 90); do
+            if curl -fsS "$GATEWAY_URL/api/health" > /tmp/health.json && python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/health.json'))
+          assert d.get('ok') is True
+          assert int(d.get('devices',0)) >= 1
+          PY
+            then
+              ok=true
+              break
+            fi
+            sleep 3
+          done
+          cat /tmp/health.json || true
+          [ "$ok" = true ]
+
+  verify-kernel:
+    runs-on: [self-hosted, Linux, ARM64]
+    needs: wait-gateway
+    timeout-minutes: 10
+    steps:
+      - name: Prouver le noyau actif et le retour du runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Runner=$RUNNER_NAME OS=$RUNNER_OS ARCH=$RUNNER_ARCH"
+          uname -a
+          kernel="$(uname -r)"
+          case "$kernel" in
+            6.18.39+rpt-rpi-v8|6.18.39+rpt-rpi-2712) ;;
+            *) echo "Noyau inattendu: $kernel" >&2; exit 1 ;;
+          esac
+          systemctl is-system-running --wait || true
+          systemctl is-active etr-remote-screen.service || true
+          systemctl is-active etr-vnc.service || true
