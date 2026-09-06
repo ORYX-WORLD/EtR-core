@@ -1,5 +1,5 @@
 [Unit]
-Description=EtR local VNC source for the physical SPI desktop
+Description=EtR VNC source for the physical SPI framebuffer
 After=spi-desktop.service
 Requires=spi-desktop.service
 
@@ -7,10 +7,11 @@ Requires=spi-desktop.service
 Type=simple
 Environment=DISPLAY=:1
 Environment=XAUTHORITY=/home/oryx/.Xauthority
-ExecStart=/usr/bin/x11vnc -display :1 -auth /home/oryx/.Xauthority -localhost -forever -shared -nopw -rfbport 5901 -noxdamage
+ExecStart=/usr/local/bin/etr-vnc-rawfb.sh
 Restart=always
 RestartSec=3
 User=oryx
+SupplementaryGroups=video
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
