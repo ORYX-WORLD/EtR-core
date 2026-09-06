@@ -1,0 +1,53 @@
+name: EtR - sonde ecriture USB Raspberry 2026-09-06
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/etr-usb-write-probe-20260906.yml]
+permissions:
+  contents: read
+jobs:
+  usb-write-probe:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 5
+    steps:
+      - name: Tester une ecriture identique minimale sur la microSD
+        shell: bash
+        run: |
+          set -u
+          out="$RUNNER_TEMP/etr-usb-write-probe.txt"
+          {
+            echo '=== DATE ==='; date -Is
+            echo '=== BEFORE ==='; lsusb || true; lsblk -o NAME,PATH,SIZE,MODEL,TRAN,RM,FSTYPE,MOUNTPOINTS || true
+            if [ ! -b /dev/sda ]; then
+              echo 'RESULT=NO_DEVICE'
+              exit 2
+            fi
+            sudo -n umount /dev/sda1 2>/dev/null || true
+            sudo -n umount /dev/sda2 2>/dev/null || true
+            tmp="$RUNNER_TEMP/sda-identical-block.bin"
+            echo '=== READ ORIGINAL 4K AT OFFSET 4096 ==='
+            sudo -n dd if=/dev/sda of="$tmp" bs=4096 count=1 skip=1 iflag=fullblock status=none
+            sha256sum "$tmp"
+            echo '=== WRITE SAME 4K BACK ==='
+            set +e
+            sudo -n dd if="$tmp" of=/dev/sda bs=4096 count=1 seek=1 conv=fsync,notrunc status=none
+            rc=$?
+            set -e
+            echo "DD_WRITE_RC=$rc"
+            sleep 3
+            echo '=== AFTER ==='; lsusb || true; lsblk -o NAME,PATH,SIZE,MODEL,TRAN,RM,FSTYPE,MOUNTPOINTS || true
+            echo '=== KERNEL TAIL ==='
+            sudo -n dmesg --color=never 2>&1 | grep -Ei 'usb|sd[a-z]|reset|error|I/O|disconnect|descriptor|offline' | tail -n 100 || true
+            if [ "$rc" -ne 0 ] || [ ! -b /dev/sda ]; then
+              echo 'RESULT=WRITE_PATH_UNSTABLE'
+              exit 3
+            fi
+            echo 'RESULT=WRITE_PATH_OK'
+          } | tee "$out"
+      - name: Conserver la sonde
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etr-usb-write-probe
+          path: ${{ runner.temp }}/etr-usb-write-probe.txt
+          if-no-files-found: warn
