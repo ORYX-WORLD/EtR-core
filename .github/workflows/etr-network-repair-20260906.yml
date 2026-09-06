@@ -37,14 +37,12 @@ jobs:
           echo "::add-mask::$token"
           printf 'ETR_OIDC_TOKEN=%s\n' "$token" >> "$GITHUB_ENV"
 
-          # Preuve couche par couche avant toute interaction graphique :
-          # ticket -> viewer HTML -> bundle noVNC -> websocket -> bannière RFB.
           GITHUB_OIDC_TOKEN="$token" \
             ETR_E2E_OUTPUT=/tmp/remote-screen-preflight.json \
             node gateway/remote-screen-live-e2e.mjs
           cat /tmp/remote-screen-preflight.json
 
-      - name: Retablir le viewer puis installer SD V1.1 et diagnostiquer EtR
+      - name: Prouver LXDE puis installer SD V1.1 et diagnostiquer EtR
         shell: bash
         run: |
           cat > repair.mjs <<'NODE'
@@ -72,6 +70,31 @@ jobs:
               await sleep(2000);
             }
             throw new Error(`viewer_ticket_unavailable:${JSON.stringify(last)}`);
+          }
+
+          async function canvasStats(page) {
+            return await page.evaluate(() => {
+              const canvas = document.querySelector('#screen canvas, canvas');
+              if (!canvas || canvas.width < 20 || canvas.height < 20) return null;
+              const ctx = canvas.getContext('2d', {willReadFrequently:true});
+              const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+              let sum = 0;
+              let bright = 0;
+              let samples = 0;
+              const step = 40;
+              for (let i = 0; i < data.length; i += step) {
+                const y = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
+                sum += y;
+                if (y > 55) bright += 1;
+                samples += 1;
+              }
+              return {mean: sum / Math.max(samples,1), brightRatio: bright / Math.max(samples,1), width: canvas.width, height: canvas.height};
+            });
+          }
+
+          function changedEnough(before, after) {
+            if (!before || !after) return false;
+            return Math.abs(after.mean - before.mean) >= 4 || Math.abs(after.brightRatio - before.brightRatio) >= 0.02;
           }
 
           const browser = await chromium.launch({headless:true});
@@ -105,15 +128,45 @@ jobs:
             throw new Error(`viewer_canvas_unavailable_after_retries:${lastStatus}`);
           }
 
-          // Exécution dans la session LXDE réelle. Un seul maillon est corrigé :
-          // le raccourci physique, désormais canonique sous SD-V1.1.desktop.
+          const canvas = page.locator('#screen canvas, canvas').first();
+          const before = await canvasStats(page);
+          await canvas.screenshot({path:'01-viewer-before.png'});
+
+          // Première preuve : Alt+F2 doit modifier réellement l'image VNC.
           await page.keyboard.press('Alt+F2');
-          await page.waitForTimeout(1200);
+          await page.waitForTimeout(1800);
+          const runDialog = await canvasStats(page);
+          await canvas.screenshot({path:'02-lxde-run-dialog.png'});
+          if (!changedEnough(before, runDialog)) {
+            await browser.close();
+            throw new Error(`lxde_run_dialog_not_visible:before=${JSON.stringify(before)}:after=${JSON.stringify(runDialog)}`);
+          }
+
           const cmd = "bash -lc 'cd /home/oryx/EtR-core && git fetch origin main && git reset --hard origin/main && rm -f /home/oryx/Desktop/Creer-une-carte-EtR.desktop /home/oryx/Desktop/etr-sd-factory.desktop /home/oryx/Desktop/SD-V1.1.desktop && install -m 755 src/deploy/raspi/etr-sd-factory.desktop /home/oryx/Desktop/SD-V1.1.desktop && rm -f /tmp/etr-architecture-diagnostic-gui-ready /tmp/etr-architecture-diagnostic.txt && DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority python3 src/deploy/raspi/etr_architecture_diagnostic_gui.py'";
           await page.keyboard.type(cmd,{delay:1});
           await page.keyboard.press('Enter');
-          await page.waitForTimeout(35000);
-          await page.screenshot({path:'etr-architecture-diagnostic.png',fullPage:true});
+
+          // Deuxième preuve : la fenêtre de diagnostic doit devenir visiblement
+          // différente du dialogue Alt+F2. Un workflow vert sans cela est refusé.
+          let diagnosticVisible = false;
+          let diagnosticStats = null;
+          for (let attempt = 1; attempt <= 30; attempt += 1) {
+            await sleep(1500);
+            diagnosticStats = await canvasStats(page);
+            if (changedEnough(runDialog, diagnosticStats) && diagnosticStats.brightRatio > 0.05) {
+              diagnosticVisible = true;
+              break;
+            }
+          }
+          await canvas.screenshot({path:'03-etr-diagnostic-visible.png'});
+          if (!diagnosticVisible) {
+            await browser.close();
+            throw new Error(`etr_diagnostic_window_not_visible:${JSON.stringify(diagnosticStats)}`);
+          }
+
+          await page.waitForTimeout(4000);
+          await canvas.screenshot({path:'etr-architecture-diagnostic.png'});
+          console.log(JSON.stringify({viewer:true, lxdeRunDialog:true, etrDiagnosticVisible:true, before, runDialog, diagnosticStats}));
           await browser.close();
           NODE
           node ./repair.mjs
@@ -124,6 +177,9 @@ jobs:
         with:
           name: etr-architecture-diagnostic
           path: |
+            01-viewer-before.png
+            02-lxde-run-dialog.png
+            03-etr-diagnostic-visible.png
             etr-architecture-diagnostic.png
             viewer-attempt-*.png
           if-no-files-found: ignore
