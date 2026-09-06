@@ -43,7 +43,7 @@ jobs:
           assert data.get('deviceConnected') is True
           print('VIEWER_URL='+data['viewerUrl'])
           PY
-      - name: Diagnostiquer la chaine EtR dans la session LXDE oryx
+      - name: Installer SD V1.1 et diagnostiquer la chaine EtR dans LXDE
         shell: bash
         run: |
           cat > repair.mjs <<'NODE'
@@ -56,13 +56,11 @@ jobs:
           await canvas.waitFor({state:'visible',timeout:20000});
           await canvas.click({position:{x:200,y:200}});
 
-          // Le bureau SPI est un LXDE lance via dbus-run-session sous l'utilisateur
-          // oryx. Ouvrir un terminal avec Ctrl+Alt+t peut appeler un composant qui
-          // exige une session logind et produire "No session for pid". Alt+F2
-          // execute au contraire la commande directement dans la session LXDE.
+          // Exécution dans la vraie session LXDE oryx. On corrige uniquement le
+          // premier maillon identifié : le nom physique du raccourci bureau.
           await page.keyboard.press('Alt+F2');
           await page.waitForTimeout(1200);
-          const cmd = "bash -lc 'cd /home/oryx/EtR-core && git fetch origin main && git reset --hard origin/main && rm -f /tmp/etr-architecture-diagnostic-gui-ready /tmp/etr-architecture-diagnostic.txt && DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority python3 src/deploy/raspi/etr_architecture_diagnostic_gui.py'";
+          const cmd = "bash -lc 'cd /home/oryx/EtR-core && git fetch origin main && git reset --hard origin/main && rm -f /home/oryx/Desktop/Creer-une-carte-EtR.desktop /home/oryx/Desktop/etr-sd-factory.desktop /home/oryx/Desktop/SD-V1.1.desktop && install -m 755 src/deploy/raspi/etr-sd-factory.desktop /home/oryx/Desktop/SD-V1.1.desktop && rm -f /tmp/etr-architecture-diagnostic-gui-ready /tmp/etr-architecture-diagnostic.txt && DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority python3 src/deploy/raspi/etr_architecture_diagnostic_gui.py'";
           await page.keyboard.type(cmd,{delay:1});
           await page.keyboard.press('Enter');
           await page.waitForTimeout(35000);
