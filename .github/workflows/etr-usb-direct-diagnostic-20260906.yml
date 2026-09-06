@@ -1,0 +1,62 @@
+name: EtR - diagnostic USB direct Raspberry 2026-09-06
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/etr-usb-direct-diagnostic-20260906.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  usb-direct:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 5
+    steps:
+      - name: Capturer diagnostic USB et microSD
+        shell: bash
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/etr-usb-direct-diagnostic.txt"
+          {
+            echo '=== DATE ==='
+            date -Is
+            echo
+            echo '=== UNAME ==='
+            uname -a
+            echo
+            echo '=== USB ==='
+            lsusb || true
+            echo
+            echo '=== USB TREE ==='
+            lsusb -t || true
+            echo
+            echo '=== BLOCK ==='
+            lsblk -o NAME,PATH,SIZE,MODEL,SERIAL,TRAN,RM,FSTYPE,MOUNTPOINTS || true
+            echo
+            echo '=== UDEV /DEV/SDA ==='
+            udevadm info --query=all --name=/dev/sda 2>&1 || true
+            echo
+            echo '=== SCSI ==='
+            cat /proc/scsi/scsi 2>&1 || true
+            echo
+            echo '=== KERNEL USB/SCSI/SD ==='
+            sudo -n dmesg --color=never 2>&1 | grep -Ei 'usb|uas|scsi|sd[a-z]|reset|error|I/O|capacity|disconnect|descriptor|under-voltage|voltage|over-current|timeout' | tail -n 250 || true
+            echo
+            echo '=== WORKER JOURNAL ==='
+            sudo -n journalctl -u etr-sd-factory-worker.service --no-pager -n 180 2>&1 || true
+            echo
+            echo '=== FACTORY STATE ==='
+            sudo -n cat /var/lib/etr-core/sd-factory-state.json 2>&1 || true
+            echo
+            echo '=== THROTTLED ==='
+            vcgencmd get_throttled 2>&1 || true
+          } | tee "$out"
+
+      - name: Conserver le diagnostic texte
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etr-usb-direct-diagnostic
+          path: ${{ runner.temp }}/etr-usb-direct-diagnostic.txt
+          if-no-files-found: error
