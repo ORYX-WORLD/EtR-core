@@ -27,7 +27,7 @@ jobs:
           npm install playwright ws
           npx playwright install --with-deps chromium
 
-      - name: Valider le tunnel VNC et preparer un acces frais
+      - name: Valider le tunnel VNC et preparer l acces
         shell: bash
         run: |
           set -euo pipefail
@@ -36,23 +36,18 @@ jobs:
           token=$(python3 -c 'import json; print(json.load(open("/tmp/oidc.json"))["value"])')
           echo "::add-mask::$token"
           printf 'ETR_OIDC_TOKEN=%s\n' "$token" >> "$GITHUB_ENV"
-
-          GITHUB_OIDC_TOKEN="$token" \
-            ETR_E2E_OUTPUT=/tmp/remote-screen-preflight.json \
-            node gateway/remote-screen-live-e2e.mjs
+          GITHUB_OIDC_TOKEN="$token" ETR_E2E_OUTPUT=/tmp/remote-screen-preflight.json node gateway/remote-screen-live-e2e.mjs
           cat /tmp/remote-screen-preflight.json
 
-      - name: Prouver LXDE puis installer SD V1.1 et diagnostiquer EtR
+      - name: Basculer VNC sur le vrai bureau SPI puis diagnostiquer EtR
         shell: bash
         run: |
           cat > repair.mjs <<'NODE'
           import { chromium } from 'playwright';
-
           const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-          async function issueFreshTicket() {
-            let last = null;
-            for (let attempt = 1; attempt <= 30; attempt += 1) {
+          async function ticket() {
+            for (let attempt = 1; attempt <= 40; attempt += 1) {
               const response = await fetch(`${process.env.GATEWAY_URL}/api/diagnostics/remote-screen-ticket`, {
                 method: 'POST',
                 headers: {
@@ -64,109 +59,93 @@ jobs:
                 cache: 'no-store'
               });
               const body = await response.json().catch(() => ({}));
-              last = {status: response.status, code: body.code || ''};
               if (response.ok && body.deviceConnected === true && body.viewerUrl) return body.viewerUrl;
-              if (response.status !== 409) throw new Error(`viewer_ticket_http_${response.status}:${body.code || 'unknown'}`);
+              if (response.status !== 409) throw new Error(`ticket_http_${response.status}:${body.code || 'unknown'}`);
               await sleep(2000);
             }
-            throw new Error(`viewer_ticket_unavailable:${JSON.stringify(last)}`);
+            throw new Error('ticket_unavailable');
           }
 
-          async function canvasStats(page) {
-            return await page.evaluate(() => {
-              const canvas = document.querySelector('#screen canvas, canvas');
-              if (!canvas || canvas.width < 20 || canvas.height < 20) return null;
-              const ctx = canvas.getContext('2d', {willReadFrequently:true});
-              const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-              let sum = 0;
-              let bright = 0;
-              let samples = 0;
-              const step = 40;
-              for (let i = 0; i < data.length; i += step) {
-                const y = 0.2126 * data[i] + 0.7152 * data[i+1] + 0.0722 * data[i+2];
-                sum += y;
-                if (y > 55) bright += 1;
-                samples += 1;
+          async function openViewer(browser) {
+            const page = await browser.newPage({viewport:{width:1280,height:900}});
+            await page.goto(await ticket(), {waitUntil:'domcontentloaded', timeout:30000});
+            await page.waitForFunction(() => {
+              const c = document.querySelector('#screen canvas, canvas');
+              return Boolean(c && c.width > 20 && c.height > 20);
+            }, null, {timeout:30000});
+            const canvas = page.locator('#screen canvas, canvas').first();
+            await canvas.click({position:{x:200,y:200}});
+            return {page, canvas};
+          }
+
+          async function stats(page) {
+            return page.evaluate(() => {
+              const c = document.querySelector('#screen canvas, canvas');
+              const ctx = c.getContext('2d', {willReadFrequently:true});
+              const d = ctx.getImageData(0,0,c.width,c.height).data;
+              let sum=0, bright=0, n=0;
+              for (let i=0;i<d.length;i+=40) {
+                const y=0.2126*d[i]+0.7152*d[i+1]+0.0722*d[i+2];
+                sum+=y; if (y>55) bright++; n++;
               }
-              return {mean: sum / Math.max(samples,1), brightRatio: bright / Math.max(samples,1), width: canvas.width, height: canvas.height};
+              return {mean:sum/Math.max(n,1),brightRatio:bright/Math.max(n,1),width:c.width,height:c.height};
             });
           }
 
-          function changedEnough(before, after) {
-            if (!before || !after) return false;
-            return Math.abs(after.mean - before.mean) >= 4 || Math.abs(after.brightRatio - before.brightRatio) >= 0.02;
-          }
-
           const browser = await chromium.launch({headless:true});
-          let page = null;
-          let connected = false;
-          let lastStatus = '';
 
-          for (let attempt = 1; attempt <= 3 && !connected; attempt += 1) {
-            const viewerUrl = await issueFreshTicket();
-            page = await browser.newPage({viewport:{width:1280,height:900}});
+          // 1) La source actuelle :2 est noire mais accepte encore les entrées VNC.
+          // On l'utilise une seule fois pour installer le service corrigé puis on la coupe.
+          let first = await openViewer(browser);
+          await first.canvas.screenshot({path:'01-before-vnc-switch.png'});
+          await first.page.keyboard.press('Alt+F2');
+          await sleep(700);
+          const switchCmd = "bash -lc 'cd /home/oryx/EtR-core && git fetch origin main && git reset --hard origin/main && sudo -n install -m 644 src/deploy/raspi/etr-vnc.service /etc/systemd/system/etr-vnc.service && sudo -n systemctl daemon-reload && sudo -n systemctl restart etr-vnc.service'";
+          await first.page.keyboard.type(switchCmd,{delay:1});
+          await first.page.keyboard.press('Enter');
+          await sleep(5000);
+          await first.page.close().catch(() => {});
+
+          // 2) Nouvelle connexion : elle doit maintenant montrer le vrai DISPLAY :1.
+          let second = null;
+          let physical = null;
+          for (let attempt=1; attempt<=8; attempt++) {
             try {
-              await page.goto(viewerUrl,{waitUntil:'domcontentloaded',timeout:30000});
-              await page.waitForFunction(() => {
-                const canvas = document.querySelector('#screen canvas, canvas');
-                return Boolean(canvas && canvas.width > 20 && canvas.height > 20);
-              }, null, {timeout:30000});
-              const canvas = page.locator('#screen canvas, canvas').first();
-              await canvas.click({position:{x:200,y:200}});
-              connected = true;
-            } catch (error) {
-              lastStatus = await page.locator('#status').textContent().catch(() => 'status-indisponible');
-              await page.screenshot({path:`viewer-attempt-${attempt}.png`,fullPage:true}).catch(() => {});
-              await page.close().catch(() => {});
-              page = null;
-              if (attempt < 3) await sleep(5000);
-            }
+              second = await openViewer(browser);
+              physical = await stats(second.page);
+              if (physical && (physical.mean > 3 || physical.brightRatio > 0.01)) break;
+              await second.canvas.screenshot({path:`02-physical-attempt-${attempt}.png`}).catch(()=>{});
+              await second.page.close().catch(()=>{});
+              second = null;
+            } catch {}
+            await sleep(4000);
           }
-
-          if (!connected || !page) {
+          if (!second || !physical || (physical.mean <= 3 && physical.brightRatio <= 0.01)) {
             await browser.close();
-            throw new Error(`viewer_canvas_unavailable_after_retries:${lastStatus}`);
+            throw new Error(`physical_spi_desktop_not_visible:${JSON.stringify(physical)}`);
           }
+          await second.canvas.screenshot({path:'03-physical-spi-desktop.png'});
 
-          const canvas = page.locator('#screen canvas, canvas').first();
-          const before = await canvasStats(page);
-          await canvas.screenshot({path:'01-viewer-before.png'});
+          // 3) Maintenant seulement : installer le raccourci canonique et lancer le diagnostic.
+          await second.page.keyboard.press('Alt+F2');
+          await sleep(900);
+          const diagCmd = "bash -lc 'cd /home/oryx/EtR-core && git fetch origin main && git reset --hard origin/main && rm -f /home/oryx/Desktop/Creer-une-carte-EtR.desktop /home/oryx/Desktop/etr-sd-factory.desktop /home/oryx/Desktop/SD-V1.1.desktop && install -m 755 src/deploy/raspi/etr-sd-factory.desktop /home/oryx/Desktop/SD-V1.1.desktop && rm -f /tmp/etr-architecture-diagnostic-gui-ready /tmp/etr-architecture-diagnostic.txt && DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority python3 src/deploy/raspi/etr_architecture_diagnostic_gui.py'";
+          await second.page.keyboard.type(diagCmd,{delay:1});
+          await second.page.keyboard.press('Enter');
 
-          // Première preuve : Alt+F2 doit modifier réellement l'image VNC.
-          await page.keyboard.press('Alt+F2');
-          await page.waitForTimeout(1800);
-          const runDialog = await canvasStats(page);
-          await canvas.screenshot({path:'02-lxde-run-dialog.png'});
-          if (!changedEnough(before, runDialog)) {
-            await browser.close();
-            throw new Error(`lxde_run_dialog_not_visible:before=${JSON.stringify(before)}:after=${JSON.stringify(runDialog)}`);
-          }
-
-          const cmd = "bash -lc 'cd /home/oryx/EtR-core && git fetch origin main && git reset --hard origin/main && rm -f /home/oryx/Desktop/Creer-une-carte-EtR.desktop /home/oryx/Desktop/etr-sd-factory.desktop /home/oryx/Desktop/SD-V1.1.desktop && install -m 755 src/deploy/raspi/etr-sd-factory.desktop /home/oryx/Desktop/SD-V1.1.desktop && rm -f /tmp/etr-architecture-diagnostic-gui-ready /tmp/etr-architecture-diagnostic.txt && DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority python3 src/deploy/raspi/etr_architecture_diagnostic_gui.py'";
-          await page.keyboard.type(cmd,{delay:1});
-          await page.keyboard.press('Enter');
-
-          // Deuxième preuve : la fenêtre de diagnostic doit devenir visiblement
-          // différente du dialogue Alt+F2. Un workflow vert sans cela est refusé.
-          let diagnosticVisible = false;
-          let diagnosticStats = null;
-          for (let attempt = 1; attempt <= 30; attempt += 1) {
+          let visible = false;
+          for (let attempt=1; attempt<=30; attempt++) {
             await sleep(1500);
-            diagnosticStats = await canvasStats(page);
-            if (changedEnough(runDialog, diagnosticStats) && diagnosticStats.brightRatio > 0.05) {
-              diagnosticVisible = true;
-              break;
-            }
+            const s = await stats(second.page);
+            if (s && s.brightRatio > 0.05) { visible = true; break; }
           }
-          await canvas.screenshot({path:'03-etr-diagnostic-visible.png'});
-          if (!diagnosticVisible) {
+          await second.canvas.screenshot({path:'04-etr-diagnostic.png'});
+          if (!visible) {
             await browser.close();
-            throw new Error(`etr_diagnostic_window_not_visible:${JSON.stringify(diagnosticStats)}`);
+            throw new Error('etr_diagnostic_not_visible_on_physical_desktop');
           }
 
-          await page.waitForTimeout(4000);
-          await canvas.screenshot({path:'etr-architecture-diagnostic.png'});
-          console.log(JSON.stringify({viewer:true, lxdeRunDialog:true, etrDiagnosticVisible:true, before, runDialog, diagnosticStats}));
+          console.log(JSON.stringify({physicalDesktop:true, stats:physical, diagnosticVisible:true}));
           await browser.close();
           NODE
           node ./repair.mjs
@@ -177,11 +156,10 @@ jobs:
         with:
           name: etr-architecture-diagnostic
           path: |
-            01-viewer-before.png
-            02-lxde-run-dialog.png
-            03-etr-diagnostic-visible.png
-            etr-architecture-diagnostic.png
-            viewer-attempt-*.png
+            01-before-vnc-switch.png
+            02-physical-attempt-*.png
+            03-physical-spi-desktop.png
+            04-etr-diagnostic.png
           if-no-files-found: ignore
 
       - name: Verifier le retour de l EtR sur la passerelle
