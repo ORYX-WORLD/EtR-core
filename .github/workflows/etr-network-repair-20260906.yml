@@ -43,7 +43,7 @@ jobs:
           assert data.get('deviceConnected') is True
           print('VIEWER_URL='+data['viewerUrl'])
           PY
-      - name: Forcer un DNS fiable sur le Wi-Fi actif et relancer la fabrique
+      - name: Mettre a jour EtR et rendre le reseau resilient
         shell: bash
         run: |
           cat > repair.mjs <<'NODE'
@@ -57,10 +57,10 @@ jobs:
           await canvas.click({position:{x:200,y:200}});
           await page.keyboard.press('Control+Alt+t');
           await page.waitForTimeout(1500);
-          const cmd = "CON=$(nmcli -t -f NAME,DEVICE connection show --active | awk -F: '$2==\"wlan0\"{print $1;exit}'); if [ -n \"$CON\" ]; then sudo -n nmcli connection modify \"$CON\" ipv4.ignore-auto-dns yes ipv4.dns '1.1.1.1 8.8.8.8'; sudo -n nmcli device reapply wlan0; fi; sleep 2; python3 -c \"import socket; socket.getaddrinfo('etr-remote-gateway-7n72m5gopq-ew.a.run.app',443)\" && sudo -n systemctl restart etr-sd-factory.service etr-sd-factory-worker.service 2>/dev/null";
-          await page.keyboard.type(cmd,{delay:3});
+          const cmd = "cd /home/oryx/EtR-core && git fetch origin main && git reset --hard origin/main && sudo -n install -m 755 src/deploy/raspi/etr-network-resilience.sh /usr/local/bin/etr-network-resilience.sh && sudo -n install -m 644 src/deploy/raspi/etr-network-resilience.service /etc/systemd/system/etr-network-resilience.service && sudo -n install -m 644 src/deploy/raspi/etr-network-resilience.timer /etc/systemd/system/etr-network-resilience.timer && sudo -n systemctl daemon-reload && sudo -n systemctl enable --now etr-network-resilience.timer && sudo -n systemctl start etr-network-resilience.service && sleep 3 && python3 -c \"import socket; print(socket.getaddrinfo('etr-remote-gateway-7n72m5gopq-ew.a.run.app',443)[0][4][0])\" && sudo -n systemctl restart etr-sd-factory.service";
+          await page.keyboard.type(cmd,{delay:2});
           await page.keyboard.press('Enter');
-          await page.waitForTimeout(10000);
+          await page.waitForTimeout(18000);
           await browser.close();
           NODE
           node ./repair.mjs
