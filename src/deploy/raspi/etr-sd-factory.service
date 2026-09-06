@@ -1,7 +1,8 @@
 [Unit]
 Description=Fabrique tactile de cartes microSD EtR
-After=spi-desktop.service graphical.target
+After=spi-desktop.service graphical.target NetworkManager.service
 Requires=spi-desktop.service
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -10,7 +11,7 @@ Group=root
 Environment=DISPLAY=:1
 Environment=XAUTHORITY=/home/oryx/.Xauthority
 WorkingDirectory=/home/oryx/EtR-core
-ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/deploy/raspi/etr_sd_factory_fast.py
+ExecStart=/home/oryx/EtR-core/.venv/bin/python /home/oryx/EtR-core/src/deploy/raspi/etr_sd_factory_resilient.py
 Restart=no
 TimeoutStopSec=10
 
