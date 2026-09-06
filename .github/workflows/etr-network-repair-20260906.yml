@@ -85,4 +85,4 @@ jobs:
             sleep 2
           done
           cat /tmp/health.json || true
-          [ "$ok" = true]
+          [ "$ok" = true ]
