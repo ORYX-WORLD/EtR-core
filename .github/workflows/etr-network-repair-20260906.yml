@@ -1,5 +1,6 @@
 name: EtR - reparation reseau et fabrique 2026-09-06
 
+# Recovery trigger: install current VNC unit so it can wake the Raspberry GitHub runner.
 on:
   push:
     branches: [main]
