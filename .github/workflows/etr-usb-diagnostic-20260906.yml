@@ -1,0 +1,95 @@
+name: EtR - diagnostic USB microSD 2026-09-06
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/etr-usb-diagnostic-20260906.yml]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  usb-diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GATEWAY_URL: https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
+      ETR_INSTALLATION_ID: etr-core
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Installer Playwright
+        run: |
+          npm install playwright ws
+          npx playwright install --with-deps chromium
+
+      - name: Obtenir le jeton EtR
+        shell: bash
+        run: |
+          set -euo pipefail
+          oidc_url="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=etr-bootstrap"
+          curl -fsS -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$oidc_url" > /tmp/oidc.json
+          token=$(python3 -c 'import json; print(json.load(open("/tmp/oidc.json"))["value"])')
+          echo "::add-mask::$token"
+          printf 'ETR_OIDC_TOKEN=%s\n' "$token" >> "$GITHUB_ENV"
+
+      - name: Capturer les journaux USB du Raspberry
+        shell: bash
+        run: |
+          cat > usbdiag.mjs <<'NODE'
+          import { chromium } from 'playwright';
+          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+          async function ticket() {
+            for (let attempt = 1; attempt <= 40; attempt += 1) {
+              const response = await fetch(`${process.env.GATEWAY_URL}/api/diagnostics/remote-screen-ticket`, {
+                method: 'POST',
+                headers: {
+                  authorization: `Bearer ${process.env.ETR_OIDC_TOKEN}`,
+                  'content-type': 'application/json',
+                  accept: 'application/json'
+                },
+                body: JSON.stringify({installationId: process.env.ETR_INSTALLATION_ID}),
+                cache: 'no-store'
+              });
+              const body = await response.json().catch(() => ({}));
+              if (response.ok && body.deviceConnected === true && body.viewerUrl) return body.viewerUrl;
+              if (response.status !== 409) throw new Error(`ticket_http_${response.status}:${body.code || 'unknown'}`);
+              await sleep(2000);
+            }
+            throw new Error('ticket_unavailable');
+          }
+
+          const browser = await chromium.launch({headless:true});
+          const page = await browser.newPage({viewport:{width:1280,height:900}});
+          await page.goto(await ticket(), {waitUntil:'domcontentloaded', timeout:30000});
+          await page.waitForFunction(() => {
+            const c = document.querySelector('#screen canvas, canvas');
+            return Boolean(c && c.width > 20 && c.height > 20);
+          }, null, {timeout:30000});
+          const canvas = page.locator('#screen canvas, canvas').first();
+          const box = await canvas.boundingBox();
+          if (box) await canvas.click({position:{x:Math.min(200, box.width-1), y:Math.min(150, box.height-1)}}).catch(()=>{});
+
+          await page.keyboard.press('Alt+F2');
+          await sleep(900);
+          const cmd = "lxterminal -e bash -lc 'printf \\\"=== USB ===\\\\n\\\"; /usr/bin/lsusb; printf \\\"\\\\n=== BLOCK ===\\\\n\\\"; /usr/bin/lsblk -o NAME,PATH,SIZE,MODEL,TRAN,RM,FSTYPE,MOUNTPOINTS; printf \\\"\\\\n=== KERNEL USB/SD ===\\\\n\\\"; sudo -n /usr/bin/dmesg --color=never | grep -Ei \\\"usb|uas|scsi|sd[a-z]|reset|error|I/O|capacity|disconnect|descriptor\\\" | tail -n 55; sleep 120'";
+          await page.keyboard.type(cmd, {delay:1});
+          await page.keyboard.press('Enter');
+          await sleep(3500);
+          await canvas.screenshot({path:'etr-usb-diagnostic.png'});
+          await browser.close();
+          NODE
+          node ./usbdiag.mjs
+
+      - name: Conserver la preuve USB
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etr-usb-diagnostic
+          path: etr-usb-diagnostic.png
+          if-no-files-found: ignore
