@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 from contextlib import suppress
 from pathlib import Path
 from urllib.parse import urlencode
@@ -33,20 +34,108 @@ def _normalize_serial(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", str(value or "")).upper()
 
 
+def _read_text(path: Path, limit: int = 4096) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")[:limit].strip()
+    except OSError as exc:
+        return f"<error:{type(exc).__name__}:{exc}>"
+
+
+def _run_fixed(command: list[str], *, env: dict[str, str] | None = None, limit: int = 8000) -> dict:
+    try:
+        completed = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=8,
+            env=env,
+            check=False,
+        )
+        return {
+            "rc": completed.returncode,
+            "output": (completed.stdout or "")[:limit].strip(),
+        }
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"rc": -1, "output": f"{type(exc).__name__}: {exc}"}
+
+
+def collect_display_diagnostic() -> dict:
+    """Collect a fixed, read-only hardware/display report for remote diagnostics."""
+    report: dict = {
+        "framebuffers": {},
+        "drm": {},
+        "devices": {},
+        "commands": {},
+    }
+
+    for fb in sorted(Path("/sys/class/graphics").glob("fb*")):
+        item = {}
+        for name in ("name", "virtual_size", "bits_per_pixel", "stride", "mode", "modes", "blank"):
+            path = fb / name
+            if path.exists():
+                item[name] = _read_text(path)
+        try:
+            item["device"] = os.path.realpath(fb / "device")
+            item["driver"] = os.path.realpath(fb / "device" / "driver")
+        except OSError:
+            pass
+        report["framebuffers"][fb.name] = item
+
+    for node in sorted(Path("/dev").glob("fb*")):
+        try:
+            st = node.stat()
+            sample = b""
+            readable = os.access(node, os.R_OK)
+            if readable:
+                try:
+                    with node.open("rb", buffering=0) as handle:
+                        sample = handle.read(4096)
+                except OSError:
+                    sample = b""
+            report["devices"][str(node)] = {
+                "mode": oct(st.st_mode & 0o777),
+                "uid": st.st_uid,
+                "gid": st.st_gid,
+                "readable": readable,
+                "sampleBytes": len(sample),
+                "sampleNonZero": sum(1 for byte in sample if byte != 0),
+            }
+        except OSError as exc:
+            report["devices"][str(node)] = {"error": f"{type(exc).__name__}: {exc}"}
+
+    drm_root = Path("/sys/class/drm")
+    if drm_root.exists():
+        for entry in sorted(drm_root.iterdir()):
+            if entry.name == "version":
+                continue
+            item = {}
+            for name in ("status", "enabled", "modes", "dpms"):
+                path = entry / name
+                if path.exists():
+                    item[name] = _read_text(path)
+            if item:
+                report["drm"][entry.name] = item
+
+    xenv = dict(os.environ)
+    xenv.update({"DISPLAY": ":1", "XAUTHORITY": "/home/oryx/.Xauthority"})
+    report["commands"]["xrandr"] = _run_fixed(["/usr/bin/xrandr", "--verbose"], env=xenv)
+    report["commands"]["xset"] = _run_fixed(["/usr/bin/xset", "q"], env=xenv)
+    report["commands"]["ps_xorg"] = _run_fixed(["/bin/ps", "-eo", "pid,user,args"])
+    if Path("/usr/sbin/fbset").exists():
+        report["commands"]["fbset_fb0"] = _run_fixed(["/usr/sbin/fbset", "-fb", "/dev/fb0", "-i"])
+        report["commands"]["fbset_fb1"] = _run_fixed(["/usr/sbin/fbset", "-fb", "/dev/fb1", "-i"])
+    report["commands"]["dri"] = _run_fixed(["/bin/ls", "-l", "/dev/dri"])
+    report["commands"]["graphics"] = _run_fixed(["/bin/ls", "-l", "/sys/class/graphics"])
+    return report
+
+
 def installation_id_from_local_device(
     *,
     configured: str | None = None,
     serial_paths: tuple[Path, ...] = SERIAL_PATHS,
     cpuinfo_path: Path = CPUINFO_PATH,
 ) -> str:
-    """Derive the same stable installation ID used during secure enrollment.
-
-    The Raspberry serial is preferred over configuration so an obsolete local
-    hostname such as ``etr-core`` cannot shadow the canonical enrolled identity.
-    The environment value remains a controlled fallback for tests and hardware
-    where the firmware serial files are unavailable.
-    """
-
     serial = ""
     for path in serial_paths:
         try:
@@ -86,17 +175,6 @@ def installation_id_from_id_token(
     *,
     fallback_installation_id: str | None = None,
 ) -> str:
-    """Select the signed installation claim or the canonical local identity.
-
-    Some already-enrolled technical sessions predate the custom
-    ``installationId`` and ``etrDevice`` claims. The agent only decodes the JWT
-    to select a local identifier; it never treats that payload as authorization.
-    Cloud Run verifies the signature, project, expiry and issuer, then checks
-    ``deviceAccess/<uid>`` against the installation ID before upgrading the
-    WebSocket. A deterministic local fallback is therefore safe for these
-    legacy sessions.
-    """
-
     parts = str(id_token or "").split(".")
     if len(parts) != 3:
         raise RuntimeError("device_session_token_invalid")
@@ -116,13 +194,6 @@ def installation_id_from_id_token(
 
 
 def authenticate_existing_device_session() -> tuple[str, str]:
-    """Refresh and identify the device session created by the main bridge.
-
-    The primary token path is fixed deliberately. Historical systemd drop-ins
-    used a second token file and could silently restart another enrollment. The
-    screen relay now ignores any legacy ETR_TOKEN_FILE override.
-    """
-
     cached = load_json(PRIMARY_TOKEN_FILE)
     refresh_token = str(cached.get("refreshToken") or "").strip()
     if not refresh_token:
@@ -185,7 +256,15 @@ async def relay_vnc(ws):
                 except json.JSONDecodeError:
                     LOG.warning("Commande distante JSON invalide ignorée")
                     continue
-                if command.get("type") == "open":
+                if command.get("type") == "diagnostic":
+                    request_id = str(command.get("requestId") or "")[:120]
+                    report = await asyncio.to_thread(collect_display_diagnostic)
+                    await ws.send(json.dumps({
+                        "type": "diagnostic-result",
+                        "requestId": request_id,
+                        "report": report,
+                    }, ensure_ascii=False))
+                elif command.get("type") == "open":
                     session_id = str(command.get("sessionId") or "")
                     LOG.info(
                         "Commande d'ouverture VNC reçue pour %s:%d, session %s",
@@ -197,39 +276,21 @@ async def relay_vnc(ws):
                     try:
                         reader, writer = await asyncio.open_connection(LOCAL_VNC_HOST, LOCAL_VNC_PORT)
                         active_session_id = session_id
-                        await ws.send(
-                            json.dumps(
-                                {
-                                    "type": "ready",
-                                    "sessionId": session_id,
-                                    "host": LOCAL_VNC_HOST,
-                                    "port": LOCAL_VNC_PORT,
-                                }
-                            )
-                        )
+                        await ws.send(json.dumps({
+                            "type": "ready",
+                            "sessionId": session_id,
+                            "host": LOCAL_VNC_HOST,
+                            "port": LOCAL_VNC_PORT,
+                        }))
                         reader_task = asyncio.create_task(local_to_gateway(session_id))
-                        LOG.info(
-                            "VNC local connecté à %s:%d, session %s",
-                            LOCAL_VNC_HOST,
-                            LOCAL_VNC_PORT,
-                            session_id or "sans identifiant",
-                        )
                     except OSError as exc:
                         LOG.warning("VNC local %s:%d indisponible: %s", LOCAL_VNC_HOST, LOCAL_VNC_PORT, exc)
-                        await ws.send(
-                            json.dumps(
-                                {
-                                    "type": "error",
-                                    "sessionId": session_id,
-                                    "message": f"VNC local {LOCAL_VNC_HOST}:{LOCAL_VNC_PORT} indisponible",
-                                }
-                            )
-                        )
+                        await ws.send(json.dumps({
+                            "type": "error",
+                            "sessionId": session_id,
+                            "message": f"VNC local {LOCAL_VNC_HOST}:{LOCAL_VNC_PORT} indisponible",
+                        }))
                 elif command.get("type") == "close":
-                    LOG.info(
-                        "Commande de fermeture VNC reçue, session %s",
-                        command.get("sessionId") or "sans identifiant",
-                    )
                     await close_local("viewer fermé")
             elif writer is not None:
                 writer.write(payload)
