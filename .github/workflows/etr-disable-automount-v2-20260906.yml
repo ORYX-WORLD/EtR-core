@@ -1,0 +1,43 @@
+name: EtR - neutraliser automount bureau v2 2026-09-06
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/etr-disable-automount-v2-20260906.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  disable-automount-v2:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 5
+    steps:
+      - name: Neutraliser montage automatique sans runuser
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "runner=$(id -un) uid=$(id -u)"
+          uid=$(id -u)
+          export DISPLAY=:1
+          export XAUTHORITY=/home/oryx/.Xauthority
+          export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus
+
+          if command -v gsettings >/dev/null 2>&1; then
+            gsettings set org.gnome.desktop.media-handling automount false || true
+            gsettings set org.gnome.desktop.media-handling automount-open false || true
+          fi
+
+          pkill -f gvfs-udisks2-volume-monitor || true
+          pkill -f gvfs-mtp-volume-monitor || true
+          pkill -f gvfs-gphoto2-volume-monitor || true
+
+          sudo -n systemctl stop udisks2.service || true
+
+          echo '=== verification ==='
+          pgrep -af 'gvfs.*volume-monitor|udisks' || true
+          echo '--- gsettings ---'
+          gsettings get org.gnome.desktop.media-handling automount 2>&1 || true
+          gsettings get org.gnome.desktop.media-handling automount-open 2>&1 || true
+          echo '--- lsblk ---'
+          lsblk -o NAME,PATH,SIZE,MODEL,TRAN,RM,FSTYPE,MOUNTPOINTS || true
