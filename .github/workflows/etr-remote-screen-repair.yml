@@ -14,9 +14,6 @@ on:
       - src/deploy/raspi/repair_remote_screen.sh
       - .github/workflows/etr-remote-screen-repair.yml
 
-# Compatibilité avec l'ancien nom de workflow. Le contrôle physique de référence
-# est désormais le workflow rapide : il sonde une route applicative réellement
-# servie, résout deviceAccess et n'immobilise pas le runner sur /healthz.
 concurrency:
   group: etr-remote-screen-repair-physical
   cancel-in-progress: true
@@ -34,4 +31,4 @@ jobs:
       - name: Lancer le contrôle ARM64
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run etr-remote-screen-repair-fast.yml --ref main
+        run: gh workflow run etr-remote-screen-repair-fast.yml --repo ORYX-WORLD/EtR-core --ref main
