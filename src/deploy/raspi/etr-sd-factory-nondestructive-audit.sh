@@ -64,8 +64,8 @@ PY
 fi
 pass request "aucune demande de fabrication executable"
 
-if [ -s "$state" ]; then
-  python3 - "$state" <<'PY' || fail progress "etat de progression invalide"
+if sudo -n test -s "$state"; then
+  sudo -n python3 - "$state" <<'PY' || fail progress "etat de progression invalide"
 import json, sys
 p = json.load(open(sys.argv[1], encoding="utf-8"))
 value = float(p.get("progress_percent") or 0)
