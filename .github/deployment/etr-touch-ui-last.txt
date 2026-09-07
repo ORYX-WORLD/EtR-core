@@ -1,7 +1,7 @@
-date_utc=2026-09-07T09:20:50Z
+date_utc=2026-09-07T10:20:28Z
 job_status=failure
 host=etr-core
-installed_commit=3b7ef777c6c05c0ccd33782aa86ec6a54e0a36d4
+installed_commit=1c0d0bc98222e272aa616e879090dd750c818344
 portal_button=true
 desktop_shortcut=true
 spi_desktop=activating
