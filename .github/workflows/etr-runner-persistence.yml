@@ -1,0 +1,35 @@
+name: EtR - fiabiliser le runner au demarrage
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-runner-persistence.yml
+      - src/deploy/raspi/etr-recover-github-runner.sh
+
+permissions:
+  contents: read
+
+jobs:
+  persist:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 10
+    steps:
+      - name: Installer la politique de persistance sans interrompre le job courant
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=/home/oryx/EtR-core
+          sudo -u oryx -H git -C "$repo" fetch --prune origin main
+          script=/tmp/etr-recover-github-runner.sh
+          sudo -u oryx -H git -C "$repo" show \
+            "$GITHUB_SHA:src/deploy/raspi/etr-recover-github-runner.sh" > "$script"
+          sudo bash "$script" --no-restart
+          cat /tmp/etr-runner-recovery.txt
+          grep -qx 'enabled' /tmp/etr-runner-recovery.txt
+          grep -qx 'active' /tmp/etr-runner-recovery.txt
+          grep -qx 'runner_process=active' /tmp/etr-runner-recovery.txt
+          unit=actions.runner.ORYX-WORLD-EtR-core.etr-core.service
+          test "$(systemctl show "$unit" -p Restart --value)" = always
+          test "$(systemctl show "$unit" -p RestartUSec --value)" = 10s

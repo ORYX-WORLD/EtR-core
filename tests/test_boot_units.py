@@ -69,6 +69,17 @@ class BootUnitDependencyTests(unittest.TestCase):
         )
         self.assertIn("exit 0", script)
 
+    def test_runner_recovery_enables_and_hardens_official_service(self):
+        script = (RASPI_DEPLOY_DIR / "etr-recover-github-runner.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('"$RUNNER_BASE/actions-runner" "$RUNNER_BASE"', script)
+        self.assertIn('systemctl enable "$unit"', script)
+        self.assertIn("Restart=always", script)
+        self.assertIn("RestartSec=10s", script)
+        self.assertIn('"${1:-}" = "--no-restart"', script)
+
 
 if __name__ == "__main__":
     unittest.main()
