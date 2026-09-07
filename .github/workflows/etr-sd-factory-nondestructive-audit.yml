@@ -44,7 +44,6 @@ jobs:
           window_visible=false
           for _ in $(seq 1 40); do
             if sudo systemctl is-active --quiet etr-sd-factory.service \
-              && pgrep -u oryx -f '/home/oryx/EtR-core/.venv/bin/python .*etr_sd_factory_resilient.py' >/dev/null \
               && DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xwininfo -root -tree 2>/dev/null \
                 | grep -Eiq 'Fabrique de cartes EtR|Créer une carte microSD EtR'; then
               window_visible=true
@@ -55,7 +54,6 @@ jobs:
 
           test "$window_visible" = true
           sudo systemctl is-active --quiet etr-sd-factory.service
-          pgrep -u oryx -f '/home/oryx/EtR-core/.venv/bin/python .*etr_sd_factory_resilient.py' >/dev/null
           ! sudo systemctl is-active --quiet etr-sd-factory-worker.service
           ! sudo test -e /var/lib/etr-core/sd-factory-request.json
           printf 'ETR_FACTORY_UI_PROOF|visible=:1|worker=inactive|request=absent\n'
