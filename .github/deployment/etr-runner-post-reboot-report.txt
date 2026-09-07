@@ -1,0 +1,30 @@
+checked_at=2026-09-07T08:56:23Z
+boot_id=6250428f-239a-4821-a222-560e0ddd2632
+uptime=625.33
+reboot_requested=2026-09-07T08:44:49Z
+runner_enabled=enabled
+runner_active=active
+runner_restart=always
+runner_restart_delay=10s
+1095 /bin/bash /home/oryx/actions-runner/actions-runner/runsvc.sh
+1167 /home/oryx/actions-runner/actions-runner/bin/Runner.Listener run --startuptype service
+watchdog_enabled=not-found
+watchdog_active=inactive
+NEXT LEFT LAST PASSED UNIT ACTIVATES
+
+0 timers listed.
+Pass --all to see loaded but inactive timers, too.
+display_1=unavailable
+  dimensions:    1280x720 pixels (325x183 millimeters)
+etr-remote-desktop.service enabled=enabled active=active
+etr-vnc.service enabled=enabled active=active
+etr-remote-screen.service enabled=enabled active=active
+{"ok":true,"service":"etr-remote-gateway","version":"1.1.1","revision":"etr-remote-gateway-00036-dn5","devices":1,"viewers":0,"readyViewers":0,"enrollment":"v1","admin":"v1","liveViewerDiagnostic":"github-oidc"}
+From https://github.com/ORYX-WORLD/EtR-core
+ * branch            main       -> FETCH_HEAD
+   94f4408..5837dfb  main       -> origin/main
+ETR_DIAG_OK|desktop|SD V1.1 -> launcher systeme
+ETR_DIAG_OK|launcher|/usr/local/bin/etr-sd-factory-launch.sh
+ETR_DIAG_OK|factory_service|unite installee et ExecStart conforme
+ETR_DIAG_OK|application|entree resiliente + moteur + interface presentes
+ETR_DIAG_FAIL|framebuffer|fb1 absent
