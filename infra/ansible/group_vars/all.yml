@@ -2,6 +2,8 @@ etr_hostname: etr-core
 etr_user: oryx
 etr_repo: /home/oryx/EtR-core
 etr_display: ':1'
+etr_remote_display: ':2'
+etr_remote_geometry: '1280x720x24'
 etr_framebuffer: /dev/fb1
 etr_framebuffer_name: fb_ili9486
 etr_framebuffer_width: 480
@@ -12,6 +14,7 @@ etr_runner_root: /home/oryx/actions-runner/actions-runner
 etr_expected_kernel_regex: '^6\\.18\\.39\\+rpt-rpi-(v8|2712)$'
 etr_critical_services:
   - spi-desktop.service
+  - etr-remote-desktop.service
   - etr-vnc.service
   - etr-remote-screen.service
 etr_managed_files:
@@ -21,9 +24,12 @@ etr_managed_files:
   - src: src/deploy/raspi/spi-desktop.service
     dest: /etc/systemd/system/spi-desktop.service
     mode: '0644'
-  - src: src/deploy/raspi/etr-vnc-rawfb.sh
-    dest: /usr/local/bin/etr-vnc-rawfb.sh
+  - src: src/deploy/raspi/start_remote_desktop.sh
+    dest: /usr/local/bin/start_remote_desktop.sh
     mode: '0755'
+  - src: src/deploy/raspi/etr-remote-desktop.service
+    dest: /etc/systemd/system/etr-remote-desktop.service
+    mode: '0644'
   - src: src/deploy/raspi/etr-vnc.service
     dest: /etc/systemd/system/etr-vnc.service
     mode: '0644'
