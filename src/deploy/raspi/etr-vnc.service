@@ -1,7 +1,7 @@
 [Unit]
 Description=EtR local VNC source for the 1280x720 remote desktop
 After=etr-remote-desktop.service
-Requires=etr-remote-desktop.service
+Wants=etr-remote-desktop.service
 
 [Service]
 Type=simple
