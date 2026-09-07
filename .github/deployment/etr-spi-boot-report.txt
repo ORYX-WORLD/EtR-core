@@ -1,5 +1,5 @@
-=== identity ===
-2026-09-07T10:03:11Z
+=== identity post-export ===
+2026-09-07T10:28:20Z
 Linux etr-core 6.18.39+rpt-rpi-v8 #1 SMP PREEMPT Debian 1:6.18.39-1+rpt1 (2026-07-29) aarch64 GNU/Linux
 279a9c71-5548-41a5-ad4c-8694ce3d24b3
 === framebuffer ===
@@ -8,9 +8,9 @@ crw-rw---- 1 root video 29, 0 Sep  7 11:11 /dev/fb0
 /sys/class/graphics:
 total 0
 drwxr-xr-x  2 root root 0 Sep  7 12:03 .
-drwxr-xr-x 67 root root 0 Sep  7 11:11 ..
-lrwxrwxrwx  1 root root 0 Sep  7 11:11 fb0 -> ../../devices/platform/soc/fe204000.spi/spi_master/spi0/spi0.0/graphics/fb0
-lrwxrwxrwx  1 root root 0 Sep  7 11:11 fbcon -> ../../devices/virtual/graphics/fbcon
+drwxr-xr-x 67 root root 0 Sep  7 12:03 ..
+lrwxrwxrwx  1 root root 0 Sep  7 12:03 fb0 -> ../../devices/platform/soc/fe204000.spi/spi_master/spi0/spi0.0/graphics/fb0
+lrwxrwxrwx  1 root root 0 Sep  7 12:03 fbcon -> ../../devices/virtual/graphics/fbcon
 /sys/class/graphics/fb0/name=fb_ili9486
 /sys/class/graphics/fb0/virtual_size=480,320
 === boot config ===
@@ -50,16 +50,24 @@ vermagic:       6.18.39+rpt-rpi-v8 SMP preempt mod_unload modversions aarch64
      Loaded: loaded (/etc/systemd/system/spi-desktop.service; enabled; preset: enabled)
     Drop-In: /etc/systemd/system/spi-desktop.service.d
              └─blanking.conf
-     Active: activating (auto-restart) (Result: exit-code) since Mon 2026-09-07 12:03:00 CEST; 11s ago
- Invocation: 016a2600d4fe4a1f8061e0005bd90eda
-    Process: 17795 ExecStart=/usr/local/bin/start_spi_desktop.sh (code=exited, status=1/FAILURE)
-    Process: 17796 ExecStartPost=/usr/local/bin/etr-disable-blanking.sh (code=exited, status=0/SUCCESS)
-   Main PID: 17795 (code=exited, status=1/FAILURE)
-        CPU: 439ms
+     Active: activating (start-post) (Result: exit-code) since Mon 2026-09-07 12:27:47 CEST; 33s ago
+        Job: 181641
+ Invocation: 0c5087329b9e48659b2dbdf49adfd6fa
+    Process: 25698 ExecStart=/usr/local/bin/start_spi_desktop.sh (code=exited, status=1/FAILURE)
+   Main PID: 25698 (code=exited, status=1/FAILURE); Control PID: 25699 (bash)
+      Tasks: 2 (limit: 4505)
+        CPU: 302ms
+     CGroup: /system.slice/spi-desktop.service
+             ├─25699 bash /usr/local/bin/etr-disable-blanking.sh
+             └─25840 sleep 1
+
+Sep 07 12:27:57 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 9.
+Sep 07 12:27:57 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:27:58 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
 
 ○ etr-kiosk.service - EtR kiosk (Chromium on SPI)
      Loaded: loaded (/etc/systemd/system/etr-kiosk.service; enabled; preset: enabled)
-     Active: inactive (dead) since Mon 2026-09-07 11:19:28 CEST; 43min ago
+     Active: inactive (dead) since Mon 2026-09-07 11:19:28 CEST; 1h 8min ago
    Duration: 6.617s
  Invocation: 5803d073305d407b828872621313f309
    Main PID: 4017 (code=killed, signal=TERM)
@@ -70,201 +78,201 @@ Sep 07 11:19:22 etr-core etr-kiosk.sh[4017]: /usr/local/bin/etr-kiosk.sh: line 1
 Sep 07 11:19:28 etr-core systemd[1]: Stopping etr-kiosk.service - EtR kiosk (Chromium on SPI)...
 Sep 07 11:19:28 etr-core systemd[1]: etr-kiosk.service: Deactivated successfully.
 Sep 07 11:19:28 etr-core systemd[1]: Stopped etr-kiosk.service - EtR kiosk (Chromium on SPI).
-Sep 07 11:41:34 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 11.
-Sep 07 11:41:34 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:41:35 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:42:04 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:42:04 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:42:15 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 12.
-Sep 07 11:42:15 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:42:16 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:42:45 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:42:45 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:42:55 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 13.
-Sep 07 11:42:55 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:42:56 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:43:25 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:43:25 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:43:36 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 14.
-Sep 07 11:43:36 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:43:37 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:44:06 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:44:06 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:44:16 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 15.
-Sep 07 11:44:16 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:44:17 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:44:46 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:44:46 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:44:57 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 16.
-Sep 07 11:44:57 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:44:58 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:45:27 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:45:27 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:45:37 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 17.
-Sep 07 11:45:37 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:45:38 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:46:07 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:46:07 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:46:18 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 18.
-Sep 07 11:46:18 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:46:19 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:46:48 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:46:48 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:46:58 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 19.
-Sep 07 11:46:58 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:46:59 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:47:28 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:47:28 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:47:39 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 20.
-Sep 07 11:47:39 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:47:40 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:48:09 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:48:09 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:48:19 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 21.
-Sep 07 11:48:19 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:48:20 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:48:49 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:48:49 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:49:00 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 22.
-Sep 07 11:49:00 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:49:01 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:49:30 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:49:30 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:49:40 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 23.
-Sep 07 11:49:40 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:49:41 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:50:10 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:50:10 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:50:21 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 24.
-Sep 07 11:50:21 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:50:22 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:50:51 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:50:51 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:51:01 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 25.
-Sep 07 11:51:01 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:51:02 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:51:31 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:51:31 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:51:42 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 26.
-Sep 07 11:51:42 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:51:43 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:52:12 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:52:12 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:52:22 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 27.
-Sep 07 11:52:22 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:52:23 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:52:52 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:52:52 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:53:03 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 28.
-Sep 07 11:53:03 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:53:04 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:53:33 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:53:33 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:53:43 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 29.
-Sep 07 11:53:43 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:53:44 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:54:13 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:54:13 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:54:24 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 30.
-Sep 07 11:54:24 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:54:25 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:54:54 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:54:54 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:55:04 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 31.
-Sep 07 11:55:04 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:55:05 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:55:34 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:55:34 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:55:45 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 32.
-Sep 07 11:55:45 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:55:46 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:56:15 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:56:15 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:56:25 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 33.
-Sep 07 11:56:25 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:56:26 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:56:55 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:56:55 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:57:06 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 34.
-Sep 07 11:57:06 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:57:07 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:57:36 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:57:36 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:57:46 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 35.
-Sep 07 11:57:46 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:57:47 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:58:16 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:58:16 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:58:27 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 36.
-Sep 07 11:58:27 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:58:28 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:58:57 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:58:57 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:59:07 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 37.
-Sep 07 11:59:07 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:59:08 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 11:59:37 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 11:59:37 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 11:59:48 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 38.
-Sep 07 11:59:48 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 11:59:49 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 12:00:18 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 12:00:18 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 12:00:28 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 39.
-Sep 07 12:00:28 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 12:00:29 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 12:00:58 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 12:00:58 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 12:01:09 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 40.
-Sep 07 12:01:09 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 12:01:10 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 12:01:39 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 12:01:39 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 12:01:49 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 41.
-Sep 07 12:01:49 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 12:01:50 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 12:02:19 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 12:02:19 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
-Sep 07 12:02:30 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 42.
-Sep 07 12:02:30 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
-Sep 07 12:02:31 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
-Sep 07 12:03:00 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
-Sep 07 12:03:00 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:03:53 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:04:22 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:04:22 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:04:32 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 45.
+Sep 07 12:04:32 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:04:33 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:05:03 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:05:03 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:05:13 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 46.
+Sep 07 12:05:13 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:05:14 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:05:43 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:05:43 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:05:54 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 47.
+Sep 07 12:05:54 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:05:55 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:06:24 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:06:24 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:06:34 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 48.
+Sep 07 12:06:34 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:06:35 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:07:04 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:07:04 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:07:15 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 49.
+Sep 07 12:07:15 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:07:16 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:07:45 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:07:45 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:07:55 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 50.
+Sep 07 12:07:55 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:07:56 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:08:26 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:08:26 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:08:36 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 51.
+Sep 07 12:08:36 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:08:37 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:09:06 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:09:06 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:09:16 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 52.
+Sep 07 12:09:16 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:09:17 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:09:46 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:09:46 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:09:57 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 53.
+Sep 07 12:09:57 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:09:58 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:10:25 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:10:25 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:10:35 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 54.
+Sep 07 12:10:35 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:10:36 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:11:06 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:11:06 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:11:16 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 55.
+Sep 07 12:11:16 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:11:17 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:11:46 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:11:46 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:11:56 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 56.
+Sep 07 12:11:56 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:11:57 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:12:26 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:12:26 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:12:37 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 57.
+Sep 07 12:12:37 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:12:38 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:13:07 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:13:07 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:13:17 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 58.
+Sep 07 12:13:17 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:13:18 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:13:36 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:13:36 etr-core systemd[1]: Stopped spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:13:36 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:13:38 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:14:07 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:14:07 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:14:17 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 1.
+Sep 07 12:14:17 etr-core systemd[1]: spi-desktop.service: Start request repeated too quickly.
+Sep 07 12:14:17 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:14:17 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:16:49 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:16:50 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:17:20 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:17:20 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:17:30 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 1.
+Sep 07 12:17:30 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:17:31 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:18:00 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:18:00 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:18:10 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 2.
+Sep 07 12:18:10 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:18:11 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:18:41 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:18:41 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:18:51 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 3.
+Sep 07 12:18:51 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:18:52 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:19:21 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:19:21 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:19:31 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 4.
+Sep 07 12:19:31 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:19:32 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:19:58 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:19:58 etr-core systemd[1]: Stopped spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:19:58 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:19:59 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:20:28 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:20:28 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:20:38 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 1.
+Sep 07 12:20:38 etr-core systemd[1]: spi-desktop.service: Start request repeated too quickly.
+Sep 07 12:20:38 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:20:38 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:21:52 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:21:53 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:22:23 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:22:23 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:22:33 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 1.
+Sep 07 12:22:33 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:22:34 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:23:03 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:23:03 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:23:13 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 2.
+Sep 07 12:23:13 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:23:14 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:23:44 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:23:44 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:23:54 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 3.
+Sep 07 12:23:54 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:23:55 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:24:24 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:24:24 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:24:34 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 4.
+Sep 07 12:24:34 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:24:35 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:25:05 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:25:05 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:25:15 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 5.
+Sep 07 12:25:15 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:25:16 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:25:45 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:25:45 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:25:55 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 6.
+Sep 07 12:25:55 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:25:56 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:26:26 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:26:26 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:26:36 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 7.
+Sep 07 12:26:36 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:26:37 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:27:06 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:27:06 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:27:16 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 8.
+Sep 07 12:27:16 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:27:17 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
+Sep 07 12:27:47 etr-core systemd[1]: spi-desktop.service: Failed with result 'exit-code'.
+Sep 07 12:27:47 etr-core systemd[1]: Failed to start spi-desktop.service - EtR SPI desktop on display :1.
+Sep 07 12:27:57 etr-core systemd[1]: spi-desktop.service: Scheduled restart job, restart counter is at 9.
+Sep 07 12:27:57 etr-core systemd[1]: Starting spi-desktop.service - EtR SPI desktop on display :1...
+Sep 07 12:27:58 etr-core systemd[1]: spi-desktop.service: Main process exited, code=exited, status=1/FAILURE
 --- /var/log/Xorg.1.log ---
-[  3059.909] 
+[  4587.664] 
 X.Org X Server 1.21.1.16
 X Protocol Version 11, Revision 0
-[  3059.909] Current Operating System: Linux etr-core 6.18.39+rpt-rpi-v8 #1 SMP PREEMPT Debian 1:6.18.39-1+rpt1 (2026-07-29) aarch64
-[  3059.909] Kernel command line: coherent_pool=1M 8250.nr_uarts=0 snd_bcm2835.enable_headphones=0 cgroup_disable=memory numa_policy=interleave nvme.max_host_mem_size_mb=32 bcm2708_fb.fbwidth=0 bcm2708_fb.fbheight=0 bcm2708_fb.fbswap=1 numa=fake=2 system_heap.max_order=0 smsc95xx.macaddr=88:A2:9E:2C:3A:10 vc_mem.mem_base=0x3ec00000 vc_mem.mem_size=0x40000000  console=ttyS0,115200 console=tty1 root=PARTUUID=ebfb0877-02 rootfstype=ext4 fsck.repair=yes rootwait quiet splash plymouth.ignore-serial-consoles cfg80211.ieee80211_regdom=FR usbcore.autosuspend=-1
-[  3059.909] xorg-server 2:21.1.16-1.3+rpt1+deb13u3 (https://www.debian.org/support) 
-[  3059.909] Current version of pixman: 0.44.0
-[  3059.909] 	Before reporting problems, check http://wiki.x.org
+[  4587.665] Current Operating System: Linux etr-core 6.18.39+rpt-rpi-v8 #1 SMP PREEMPT Debian 1:6.18.39-1+rpt1 (2026-07-29) aarch64
+[  4587.665] Kernel command line: coherent_pool=1M 8250.nr_uarts=0 snd_bcm2835.enable_headphones=0 cgroup_disable=memory numa_policy=interleave nvme.max_host_mem_size_mb=32 bcm2708_fb.fbwidth=0 bcm2708_fb.fbheight=0 bcm2708_fb.fbswap=1 numa=fake=2 system_heap.max_order=0 smsc95xx.macaddr=88:A2:9E:2C:3A:10 vc_mem.mem_base=0x3ec00000 vc_mem.mem_size=0x40000000  console=ttyS0,115200 console=tty1 root=PARTUUID=ebfb0877-02 rootfstype=ext4 fsck.repair=yes rootwait quiet splash plymouth.ignore-serial-consoles cfg80211.ieee80211_regdom=FR usbcore.autosuspend=-1
+[  4587.665] xorg-server 2:21.1.16-1.3+rpt1+deb13u3 (https://www.debian.org/support) 
+[  4587.665] Current version of pixman: 0.44.0
+[  4587.665] 	Before reporting problems, check http://wiki.x.org
 	to make sure that you have the latest version.
-[  3059.909] Markers: (--) probed, (**) from config file, (==) default setting,
+[  4587.665] Markers: (--) probed, (**) from config file, (==) default setting,
 	(++) from command line, (!!) notice, (II) informational,
 	(WW) warning, (EE) error, (NI) not implemented, (??) unknown.
-[  3059.909] (==) Log file: "/var/log/Xorg.1.log", Time: Mon Sep  7 12:02:30 2026
-[  3059.910] (==) Using config directory: "/etc/X11/xorg.conf.d"
-[  3059.910] (==) Using system config directory "/usr/share/X11/xorg.conf.d"
-[  3059.910] (==) No Layout section.  Using the first Screen section.
-[  3059.910] (==) No screen section available. Using defaults.
-[  3059.910] (**) |-->Screen "Default Screen Section" (0)
-[  3059.910] (**) |   |-->Monitor "<default monitor>"
-[  3059.910] (==) No device specified for screen "Default Screen Section".
+[  4587.665] (==) Log file: "/var/log/Xorg.1.log", Time: Mon Sep  7 12:27:57 2026
+[  4587.665] (==) Using config directory: "/etc/X11/xorg.conf.d"
+[  4587.665] (==) Using system config directory "/usr/share/X11/xorg.conf.d"
+[  4587.666] (==) No Layout section.  Using the first Screen section.
+[  4587.666] (==) No screen section available. Using defaults.
+[  4587.666] (**) |-->Screen "Default Screen Section" (0)
+[  4587.666] (**) |   |-->Monitor "<default monitor>"
+[  4587.666] (==) No device specified for screen "Default Screen Section".
 	Using the first device section listed.
-[  3059.910] (**) |   |-->Device "TFT"
-[  3059.910] (==) No monitor specified for screen "Default Screen Section".
+[  4587.666] (**) |   |-->Device "TFT"
+[  4587.666] (==) No monitor specified for screen "Default Screen Section".
 	Using a default monitor configuration.
-[  3059.910] (**) Option "Debug" "dmabuf_capable"
-[  3059.910] (**) Allowing byte-swapped clients
-[  3059.910] (==) Automatically adding devices
-[  3059.910] (==) Automatically enabling devices
-[  3059.910] (==) Automatically adding GPU devices
-[  3059.910] (==) Automatically binding GPU devices
-[  3059.910] (==) Max clients allowed: 256, resource mask: 0x1fffff
-[  3059.911] (WW) The directory "/usr/share/fonts/X11/cyrillic" does not exist.
-[  3059.911] 	Entry deleted from font path.
-[  3059.911] (==) FontPath set to:
+[  4587.666] (**) Option "Debug" "dmabuf_capable"
+[  4587.666] (**) Allowing byte-swapped clients
+[  4587.666] (==) Automatically adding devices
+[  4587.666] (==) Automatically enabling devices
+[  4587.666] (==) Automatically adding GPU devices
+[  4587.666] (==) Automatically binding GPU devices
+[  4587.666] (==) Max clients allowed: 256, resource mask: 0x1fffff
+[  4587.666] (WW) The directory "/usr/share/fonts/X11/cyrillic" does not exist.
+[  4587.666] 	Entry deleted from font path.
+[  4587.667] (==) FontPath set to:
 	/usr/share/fonts/X11/misc,
 	/usr/share/fonts/X11/100dpi/:unscaled,
 	/usr/share/fonts/X11/75dpi/:unscaled,
@@ -272,58 +280,58 @@ X Protocol Version 11, Revision 0
 	/usr/share/fonts/X11/100dpi,
 	/usr/share/fonts/X11/75dpi,
 	built-ins
-[  3059.911] (==) ModulePath set to "/usr/lib/xorg/modules"
-[  3059.911] (II) The server relies on udev to provide the list of input devices.
+[  4587.667] (==) ModulePath set to "/usr/lib/xorg/modules"
+[  4587.667] (II) The server relies on udev to provide the list of input devices.
 	If no devices become available, reconfigure udev or disable AutoAddDevices.
-[  3059.911] (II) Loader magic: 0x557f730ef0
-[  3059.911] (II) Module ABI versions:
-[  3059.911] 	X.Org ANSI C Emulation: 0.4
-[  3059.911] 	X.Org Video Driver: 25.2
-[  3059.911] 	X.Org XInput driver : 24.4
-[  3059.911] 	X.Org Server Extension : 10.0
-[  3059.912] (++) using VT number 2
+[  4587.667] (II) Loader magic: 0x558b3f0ef0
+[  4587.667] (II) Module ABI versions:
+[  4587.667] 	X.Org ANSI C Emulation: 0.4
+[  4587.667] 	X.Org Video Driver: 25.2
+[  4587.667] 	X.Org XInput driver : 24.4
+[  4587.667] 	X.Org Server Extension : 10.0
+[  4587.668] (++) using VT number 2
 
-[  3059.913] (EE) systemd-logind: failed to get session: PID 17817 does not belong to any known session
-[  3059.914] (II) no primary bus or device found
-[  3059.914] (II) LoadModule: "glx"
-[  3059.914] (II) Loading /usr/lib/xorg/modules/extensions/libglx.so
-[  3059.917] (II) Module glx: vendor="X.Org Foundation"
-[  3059.917] 	compiled for 1.21.1.16, module version = 1.0.0
-[  3059.917] 	ABI class: X.Org Server Extension, version 10.0
-[  3059.917] (II) LoadModule: "fbdev"
-[  3059.917] (II) Loading /usr/lib/xorg/modules/drivers/fbdev_drv.so
-[  3059.917] (II) Module fbdev: vendor="X.Org Foundation"
-[  3059.917] 	compiled for 1.21.1.16, module version = 0.5.0
-[  3059.917] 	Module class: X.Org Video Driver
-[  3059.917] 	ABI class: X.Org Video Driver, version 25.2
-[  3059.917] (II) FBDEV: driver for framebuffer: fbdev
-[  3059.918] (WW) Falling back to old probe method for fbdev
-[  3059.918] (II) Loading sub module "fbdevhw"
-[  3059.918] (II) LoadModule: "fbdevhw"
-[  3059.918] (II) Loading /usr/lib/xorg/modules/libfbdevhw.so
-[  3059.918] (II) Module fbdevhw: vendor="X.Org Foundation"
-[  3059.918] 	compiled for 1.21.1.16, module version = 0.0.2
-[  3059.918] 	ABI class: X.Org Video Driver, version 25.2
-[  3059.919] (EE) open /dev/fb1: No such file or directory
-[  3059.919] (WW) Falling back to old probe method for fbdev
-[  3059.919] (II) Loading sub module "fbdevhw"
-[  3059.919] (II) LoadModule: "fbdevhw"
-[  3059.919] (II) Loading /usr/lib/xorg/modules/libfbdevhw.so
-[  3059.919] (II) Module fbdevhw: vendor="X.Org Foundation"
-[  3059.919] 	compiled for 1.21.1.16, module version = 0.0.2
-[  3059.919] 	ABI class: X.Org Video Driver, version 25.2
-[  3059.919] (EE) open /dev/fb1: No such file or directory
-[  3059.919] (EE) No devices detected.
-[  3059.919] (EE) 
+[  4587.669] (EE) systemd-logind: failed to get session: PID 25715 does not belong to any known session
+[  4587.670] (II) no primary bus or device found
+[  4587.670] (II) LoadModule: "glx"
+[  4587.670] (II) Loading /usr/lib/xorg/modules/extensions/libglx.so
+[  4587.672] (II) Module glx: vendor="X.Org Foundation"
+[  4587.672] 	compiled for 1.21.1.16, module version = 1.0.0
+[  4587.672] 	ABI class: X.Org Server Extension, version 10.0
+[  4587.672] (II) LoadModule: "fbdev"
+[  4587.673] (II) Loading /usr/lib/xorg/modules/drivers/fbdev_drv.so
+[  4587.673] (II) Module fbdev: vendor="X.Org Foundation"
+[  4587.673] 	compiled for 1.21.1.16, module version = 0.5.0
+[  4587.673] 	Module class: X.Org Video Driver
+[  4587.673] 	ABI class: X.Org Video Driver, version 25.2
+[  4587.673] (II) FBDEV: driver for framebuffer: fbdev
+[  4587.673] (WW) Falling back to old probe method for fbdev
+[  4587.673] (II) Loading sub module "fbdevhw"
+[  4587.673] (II) LoadModule: "fbdevhw"
+[  4587.674] (II) Loading /usr/lib/xorg/modules/libfbdevhw.so
+[  4587.674] (II) Module fbdevhw: vendor="X.Org Foundation"
+[  4587.674] 	compiled for 1.21.1.16, module version = 0.0.2
+[  4587.674] 	ABI class: X.Org Video Driver, version 25.2
+[  4587.674] (EE) open /dev/fb1: No such file or directory
+[  4587.674] (WW) Falling back to old probe method for fbdev
+[  4587.674] (II) Loading sub module "fbdevhw"
+[  4587.674] (II) LoadModule: "fbdevhw"
+[  4587.674] (II) Loading /usr/lib/xorg/modules/libfbdevhw.so
+[  4587.674] (II) Module fbdevhw: vendor="X.Org Foundation"
+[  4587.674] 	compiled for 1.21.1.16, module version = 0.0.2
+[  4587.674] 	ABI class: X.Org Video Driver, version 25.2
+[  4587.674] (EE) open /dev/fb1: No such file or directory
+[  4587.674] (EE) No devices detected.
+[  4587.674] (EE) 
 Fatal server error:
-[  3059.919] (EE) no screens found(EE) 
-[  3059.919] (EE) 
+[  4587.674] (EE) no screens found(EE) 
+[  4587.674] (EE) 
 Please consult the The X.Org Foundation support 
 	 at http://wiki.x.org
  for help. 
-[  3059.919] (EE) Please also check the log file at "/var/log/Xorg.1.log" for additional information.
-[  3059.919] (EE) 
-[  3059.920] (EE) Server terminated with error (1). Closing log file.
+[  4587.674] (EE) Please also check the log file at "/var/log/Xorg.1.log" for additional information.
+[  4587.675] (EE) 
+[  4587.675] (EE) Server terminated with error (1). Closing log file.
 --- /home/oryx/.local/share/xorg/Xorg.1.log ---
 [    22.880] 
 X.Org X Server 1.21.1.16
