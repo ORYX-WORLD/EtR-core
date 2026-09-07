@@ -153,7 +153,7 @@ jobs:
 
           connected=false
           for _ in $(seq 1 60); do
-            if curl --retry 2 --retry-delay 1 --retry-all-errors -fsS "$gateway_origin/healthz" > /tmp/etr-remote-screen/gateway-health.json; then
+            if curl --retry 2 --retry-delay 1 --retry-all-errors --connect-timeout 5 --max-time 12 -fsS "$gateway_origin/api/health" > /tmp/etr-remote-screen/gateway-health.json; then
               devices=$(python3 -c 'import json; print(int(json.load(open("/tmp/etr-remote-screen/gateway-health.json")).get("devices",0)))')
               if [ "$devices" -ge 1 ]; then
                 connected=true
@@ -188,7 +188,7 @@ jobs:
           sudo journalctl -u etr-vnc.service -n 80 --no-pager > /tmp/etr-remote-screen/vnc-journal.txt 2>&1
           sudo journalctl -u etr-remote-desktop.service -n 80 --no-pager > /tmp/etr-remote-screen/desktop-journal.txt 2>&1
           if [ -n "${GATEWAY_ORIGIN:-}" ]; then
-            curl -fsS "$GATEWAY_ORIGIN/healthz" > /tmp/etr-remote-screen/gateway-health.json 2>/dev/null
+            curl --connect-timeout 5 --max-time 12 -fsS "$GATEWAY_ORIGIN/api/health" > /tmp/etr-remote-screen/gateway-health.json 2>/dev/null
           fi
           set -e
 
