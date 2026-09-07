@@ -1,10 +1,10 @@
-date_utc=2026-09-07T06:19:36Z
+date_utc=2026-09-07T07:23:12Z
 job_status=failure
 exit_code=1
 failed_or_last_step=install_application
 host=etr-core
-workflow_commit=8f19ec8dced577797d0a74d19d83046da976ab90
-installed_commit=89ae99988f8edf5d619ff2b8c0ddb5c39d38ecc3
+workflow_commit=f037b588e146c32880e9a3a52133d05ac0d26e97
+installed_commit=14939a3cfddf6dc46be90653a32104f9b681f5d6
 commit_match=false
 configuration_source=firebase-hosting-reserved-url+cloud-run-fixed-origin
 gateway_origin=https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
