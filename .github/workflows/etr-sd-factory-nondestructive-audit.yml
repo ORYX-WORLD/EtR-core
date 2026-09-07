@@ -59,3 +59,19 @@ jobs:
           ! sudo systemctl is-active --quiet etr-sd-factory-worker.service
           ! sudo test -e /var/lib/etr-core/sd-factory-request.json
           printf 'ETR_FACTORY_UI_PROOF|visible=:1|worker=inactive|request=absent\n'
+      - name: Publier le diagnostic de l'interface
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          echo '=== etr-sd-factory.service ==='
+          sudo systemctl status etr-sd-factory.service --no-pager -l
+          echo '=== journal interface ==='
+          sudo journalctl -u etr-sd-factory.service -n 100 --no-pager
+          echo '=== processus fabrique ==='
+          pgrep -a -f 'etr_sd_factory' || true
+          echo '=== fenetres DISPLAY :1 ==='
+          DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xwininfo -root -tree 2>&1 | tail -n 120
+          echo '=== garde-fous destructifs ==='
+          sudo systemctl is-active etr-sd-factory-worker.service || true
+          sudo test -e /var/lib/etr-core/sd-factory-request.json && echo request=present || echo request=absent
