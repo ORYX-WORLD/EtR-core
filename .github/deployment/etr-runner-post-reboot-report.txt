@@ -1,28 +1,32 @@
-checked_at=2026-09-07T08:56:23Z
-boot_id=6250428f-239a-4821-a222-560e0ddd2632
-uptime=625.33
+checked_at=2026-09-07T09:12:48Z
+boot_id=279a9c71-5548-41a5-ad4c-8694ce3d24b3
+uptime=77.98
 reboot_requested=2026-09-07T08:44:49Z
+spi_overlay=dtoverlay=tft35a:rotate=90
+/sys/class/graphics/fb0/name=fb_ili9486
+/sys/class/graphics/fb0/virtual_size=480,320
 runner_enabled=enabled
 runner_active=active
 runner_restart=always
 runner_restart_delay=10s
-1095 /bin/bash /home/oryx/actions-runner/actions-runner/runsvc.sh
-1167 /home/oryx/actions-runner/actions-runner/bin/Runner.Listener run --startuptype service
-watchdog_enabled=not-found
-watchdog_active=inactive
-NEXT LEFT LAST PASSED UNIT ACTIVATES
+1030 /bin/bash /home/oryx/actions-runner/actions-runner/runsvc.sh
+1109 /home/oryx/actions-runner/actions-runner/bin/Runner.Listener run --startuptype service
+watchdog_enabled=enabled
+watchdog_active=active
+NEXT                             LEFT LAST                         PASSED UNIT                      ACTIVATES
+Mon 2026-09-07 11:15:40 CEST 2min 51s Mon 2026-09-07 11:09:14 CEST      - etr-runner-watchdog.timer etr-runner-watchdog.service
 
-0 timers listed.
+1 timers listed.
 Pass --all to see loaded but inactive timers, too.
 display_1=unavailable
   dimensions:    1280x720 pixels (325x183 millimeters)
 etr-remote-desktop.service enabled=enabled active=active
 etr-vnc.service enabled=enabled active=active
 etr-remote-screen.service enabled=enabled active=active
-{"ok":true,"service":"etr-remote-gateway","version":"1.1.1","revision":"etr-remote-gateway-00036-dn5","devices":1,"viewers":0,"readyViewers":0,"enrollment":"v1","admin":"v1","liveViewerDiagnostic":"github-oidc"}
+{"ok":true,"service":"etr-remote-gateway","version":"1.1.1","revision":"etr-remote-gateway-00036-dn5","devices":0,"viewers":0,"readyViewers":0,"enrollment":"v1","admin":"v1","liveViewerDiagnostic":"github-oidc"}
 From https://github.com/ORYX-WORLD/EtR-core
  * branch            main       -> FETCH_HEAD
-   94f4408..5837dfb  main       -> origin/main
+   662a83f..04677da  main       -> origin/main
 ETR_DIAG_OK|desktop|SD V1.1 -> launcher systeme
 ETR_DIAG_OK|launcher|/usr/local/bin/etr-sd-factory-launch.sh
 ETR_DIAG_OK|factory_service|unite installee et ExecStart conforme
