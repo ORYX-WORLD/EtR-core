@@ -1,0 +1,86 @@
+name: EtR - stabilité en lecture de la carte SD
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: etr-sd-read-stability
+  cancel-in-progress: false
+
+jobs:
+  read-stability:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Vérifier la cible sans écriture
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_device=$(findmnt -n -o SOURCE /)
+          source_parent=$(lsblk -ndo PKNAME "$source_device" 2>/dev/null || true)
+          source_disk=${source_parent:+/dev/$source_parent}
+          source_disk=${source_disk:-$source_device}
+          test "$source_disk" = /dev/mmcblk0
+          test -b /dev/sda
+          test "$(lsblk -dnro TYPE /dev/sda)" = disk
+          test "$(lsblk -dnro TRAN /dev/sda)" = usb
+          test "$(lsblk -dnro RM /dev/sda)" = 1
+          test -z "$(lsblk -dnro MOUNTPOINTS /dev/sda)"
+          test "$(sudo blockdev --getsize64 /dev/sda)" = 31268536320
+          ! sudo systemctl is-active --quiet etr-sd-factory-worker.service
+          ! sudo test -e /var/lib/etr-core/sd-factory-request.json
+          udevadm info --query=property --name=/dev/sda | grep -qx 'ID_VENDOR_ID=05e3'
+          udevadm info --query=property --name=/dev/sda | grep -qx 'ID_MODEL_ID=0751'
+          echo 'ETR_SD_READ_PREFLIGHT|target=/dev/sda|bytes=31268536320|usb=05e3:0751|mounted=no'
+      - name: Lire intégralement la carte et surveiller le bus USB
+        shell: bash
+        run: |
+          set -euo pipefail
+          before=$(date +%s)
+          monitor=/tmp/etr-sd-read-monitor.txt
+          : > "$monitor"
+          (
+            while true; do
+              if ! test -b /dev/sda; then
+                echo "$(date -Is) device=missing" >> "$monitor"
+                exit 1
+              fi
+              size=$(sudo blockdev --getsize64 /dev/sda 2>/dev/null || echo 0)
+              echo "$(date -Is) size=$size" >> "$monitor"
+              test "$size" = 31268536320 || exit 1
+              sleep 2
+            done
+          ) &
+          monitor_pid=$!
+          trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
+
+          sudo dd if=/dev/sda of=/dev/null bs=4M iflag=direct status=progress
+          kill "$monitor_pid" 2>/dev/null || true
+          wait "$monitor_pid" 2>/dev/null || true
+          trap - EXIT
+
+          test -b /dev/sda
+          test "$(sudo blockdev --getsize64 /dev/sda)" = 31268536320
+          if grep -q 'device=missing' "$monitor" \
+            || ! awk '$NF != "size=31268536320" { exit 1 }' "$monitor"; then
+            cat "$monitor"
+            exit 1
+          fi
+          if sudo journalctl -k --since "@$before" --no-pager \
+            | grep -Eiq 'over-current|cannot reset|cannot enable|capacity change.*to 0|I/O error|medium error|device offline|USB disconnect'; then
+            sudo journalctl -k --since "@$before" --no-pager | tail -n 200
+            exit 1
+          fi
+          echo 'ETR_SD_READ_SUCCESS|target=/dev/sda|bytes=31268536320|capacity_stable=yes|kernel_errors=none'
+      - name: Publier l'état final même en cas d'échec
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          lsblk -b -o NAME,PATH,TYPE,SIZE,FSTYPE,LABEL,RO,RM,TRAN,MOUNTPOINTS,MODEL /dev/mmcblk0 /dev/sda
+          sudo systemctl is-active etr-sd-factory-worker.service || true
+          sudo test -e /var/lib/etr-core/sd-factory-request.json && echo request=present || echo request=absent
