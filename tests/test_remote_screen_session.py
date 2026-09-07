@@ -150,7 +150,9 @@ class RemoteScreenSessionTests(unittest.TestCase):
 class RemoteScreenRepositoryContractTests(unittest.TestCase):
     def test_remote_screen_service_shares_enrolled_device_identity(self):
         unit = (ROOT / "src/deploy/raspi/etr-remote-screen.service").read_text(encoding="utf-8")
-        source = (ROOT / "src/remote_screen_agent.py").read_text(encoding="utf-8")
+        agent_source = (ROOT / "src/remote_screen_agent.py").read_text(encoding="utf-8")
+        identity_source = (ROOT / "src/remote_screen_identity.py").read_text(encoding="utf-8")
+        runtime_source = (ROOT / "src/remote_screen_runtime.py").read_text(encoding="utf-8")
         for marker in [
             "After=network-online.target etr-vnc.service etr-firebase-bridge.service",
             "Environment=ETR_TOKEN_FILE=/var/lib/etr-core/firebase-auth.json",
@@ -170,14 +172,20 @@ class RemoteScreenRepositoryContractTests(unittest.TestCase):
             "refresh_tokens",
             "atomic_json_write",
             'payload.get("installationId")',
-            '``deviceAccess/<uid>``',
             'f"etr-{serial[-12:].lower()}"',
         ]:
-            self.assertIn(marker, source)
-        self.assertNotIn('payload.get("etrDevice") is not True', source)
-        self.assertNotIn("from firebase_bridge import INSTALLATION_ID", source)
-        self.assertNotIn("load_tokens", source)
-        self.assertNotIn("save_tokens", source)
+            self.assertIn(marker, agent_source)
+        for marker in [
+            "installation_id_from_device_access",
+            "/deviceAccess/",
+            "resolve_remote_installation_id",
+        ]:
+            self.assertIn(marker, identity_source)
+        self.assertIn("resolve_remote_installation_id", runtime_source)
+        self.assertNotIn('payload.get("etrDevice") is not True', agent_source)
+        self.assertNotIn("from firebase_bridge import INSTALLATION_ID", agent_source)
+        self.assertNotIn("load_tokens", agent_source)
+        self.assertNotIn("save_tokens", agent_source)
 
 
 if __name__ == "__main__":
