@@ -32,3 +32,26 @@ jobs:
       - name: Auditer le Raspberry en lecture seule
         shell: bash
         run: bash src/deploy/raspi/etr-sd-factory-nondestructive-audit.sh
+      - name: Ouvrir et prouver l'interface sans démarrer le moteur
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! sudo systemctl is-active --quiet etr-sd-factory-worker.service
+          ! sudo systemctl is-active --quiet etr-sd-factory-auto.service 2>/dev/null
+          ! sudo test -e /var/lib/etr-core/sd-factory-request.json
+
+          sudo systemctl start etr-sd-factory.service
+          for _ in $(seq 1 20); do
+            if pgrep -af 'etr_sd_factory_resilient.py' >/dev/null; then
+              break
+            fi
+            sleep 0.5
+          done
+
+          sudo systemctl is-active --quiet etr-sd-factory.service
+          pgrep -af 'etr_sd_factory_resilient.py' >/dev/null
+          ! sudo systemctl is-active --quiet etr-sd-factory-worker.service
+          ! sudo test -e /var/lib/etr-core/sd-factory-request.json
+          DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xwininfo -root -tree 2>/dev/null \
+            | grep -Eiq 'Fabrique de cartes EtR|Créer une carte microSD EtR'
+          printf 'ETR_FACTORY_UI_PROOF|visible=:1|worker=inactive|request=absent\n'
