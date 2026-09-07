@@ -1,0 +1,74 @@
+name: EtR - rapport post reboot detaille
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-runner-post-reboot-report.yml
+
+permissions:
+  contents: write
+
+jobs:
+  report:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 15
+    steps:
+      - name: Produire le rapport sans interrompre la collecte
+        shell: bash
+        run: |
+          report=/tmp/etr-runner-post-reboot-report.txt
+          repo=/home/oryx/EtR-core
+          diagnostic=/tmp/etr-architecture-diagnostic.sh
+          {
+            echo "checked_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "boot_id=$(cat /proc/sys/kernel/random/boot_id)"
+            echo "uptime=$(cut -d' ' -f1 /proc/uptime)"
+            echo "reboot_requested=$(cat /var/lib/etr-core/runner-reboot-requested-at.txt 2>&1)"
+            unit=actions.runner.ORYX-WORLD-EtR-core.etr-core.service
+            echo "runner_enabled=$(systemctl is-enabled "$unit" 2>&1)"
+            echo "runner_active=$(systemctl is-active "$unit" 2>&1)"
+            echo "runner_restart=$(systemctl show "$unit" -p Restart --value 2>&1)"
+            echo "runner_restart_delay=$(systemctl show "$unit" -p RestartUSec --value 2>&1)"
+            pgrep -af 'Runner.Listener|runsvc.sh' || true
+            echo "watchdog_enabled=$(systemctl is-enabled etr-runner-watchdog.timer 2>&1)"
+            echo "watchdog_active=$(systemctl is-active etr-runner-watchdog.timer 2>&1)"
+            systemctl list-timers etr-runner-watchdog.timer --no-pager 2>&1 || true
+            for display in 1 2; do
+              DISPLAY=:$display XAUTHORITY=/home/oryx/.Xauthority \
+                xdpyinfo 2>/dev/null | grep dimensions || \
+                echo "display_$display=unavailable"
+            done
+            for service in etr-remote-desktop.service etr-vnc.service etr-remote-screen.service; do
+              echo "$service enabled=$(systemctl is-enabled "$service" 2>&1) active=$(systemctl is-active "$service" 2>&1)"
+            done
+            curl -fsS --connect-timeout 5 --max-time 12 \
+              https://etr-remote-gateway-7n72m5gopq-ew.a.run.app/api/health || true
+            echo
+            sudo -u oryx -H git -C "$repo" fetch --prune origin main
+            sudo -u oryx -H git -C "$repo" show \
+              "$GITHUB_SHA:src/deploy/raspi/etr-architecture-diagnostic.sh" \
+              > "$diagnostic"
+            sudo bash "$diagnostic" || true
+          } > "$report" 2>&1
+          cat "$report"
+
+      - name: Publier le rapport dans la source de verite
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          publish=/tmp/etr-runner-report-publish
+          rm -rf "$publish"
+          git clone --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/ORYX-WORLD/EtR-core.git" \
+            "$publish"
+          install -m 0644 /tmp/etr-runner-post-reboot-report.txt \
+            "$publish/.github/deployment/etr-runner-post-reboot-report.txt"
+          cd "$publish"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/deployment/etr-runner-post-reboot-report.txt
+          git commit -m 'chore: record runner post-reboot proof [skip ci]'
+          git push origin HEAD:main
