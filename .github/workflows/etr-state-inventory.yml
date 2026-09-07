@@ -1,0 +1,87 @@
+name: EtR - inventaire etat Raspberry
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/etr-state-inventory.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 10
+    steps:
+      - name: Inventorier l etat reel sans secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== IDENTITY ==='
+          hostname
+          id
+          uname -a
+          echo
+
+          echo '=== REPOSITORY ==='
+          cd /home/oryx/EtR-core
+          printf 'HEAD='; git rev-parse HEAD
+          git status --short
+          git remote -v | sed -E 's#https://[^/@]+@github.com/#https://github.com/#g'
+          echo
+
+          echo '=== BOOT / FRAMEBUFFER ==='
+          for f in /sys/class/graphics/fb*/name /sys/class/graphics/fb*/virtual_size /sys/class/graphics/fb*/bits_per_pixel /sys/class/graphics/fb*/stride; do
+            [ -r "$f" ] && printf '%s=' "$f" && cat "$f"
+          done
+          ls -l /dev/fb* 2>/dev/null || true
+          grep -Ev '^(#|$)' /boot/firmware/config.txt 2>/dev/null | grep -E '^(dtoverlay|dtparam|display|hdmi|framebuffer|enable_|max_framebuffers|gpu_mem|disable_)' || true
+          echo
+
+          echo '=== DISPLAY PROCESSES ==='
+          ps -eo user,pid,ppid,args | grep -E 'Xorg|lxsession|lxpanel|pcmanfm|x11vnc|etr-vnc|spi-desktop' | grep -v grep || true
+          DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xrandr --current 2>&1 || true
+          echo
+
+          echo '=== SYSTEMD SERVICES ==='
+          for unit in spi-desktop.service etr-vnc.service etr-remote-screen.service etr-sd-factory.service; do
+            echo "--- $unit ---"
+            systemctl is-enabled "$unit" 2>&1 || true
+            systemctl is-active "$unit" 2>&1 || true
+            systemctl show "$unit" -p FragmentPath -p User -p Group -p SupplementaryGroups -p ExecStart -p ExecStartPre -p Environment --no-pager 2>&1 | sed -E 's/(TOKEN|SECRET|PASSWORD|KEY)=[^ ;]+/\1=<redacted>/Ig' || true
+          done
+          echo
+
+          echo '=== SERVICE FILE CHECKSUMS ==='
+          for f in \
+            /etc/systemd/system/spi-desktop.service \
+            /etc/systemd/system/etr-vnc.service \
+            /etc/systemd/system/etr-remote-screen.service \
+            /etc/systemd/system/etr-sd-factory.service \
+            /usr/local/bin/etr-vnc-rawfb.sh \
+            /usr/local/bin/etr-sd-factory-launch.sh \
+            /home/oryx/Desktop/SD-V1.1.desktop; do
+            if [ -e "$f" ]; then sha256sum "$f"; else echo "MISSING $f"; fi
+          done
+          echo
+
+          echo '=== RUNNER ==='
+          pgrep -af 'Runner.Listener|runsvc.sh' || true
+          systemctl list-unit-files 'actions.runner*' --no-pager 2>/dev/null || true
+          systemctl list-units 'actions.runner*' --all --no-pager 2>/dev/null || true
+          echo
+
+          echo '=== NETWORK / AGENT ==='
+          ip -brief address | sed -E 's/([0-9a-f]{2}:){5}[0-9a-f]{2}/<mac>/Ig' || true
+          systemctl is-active NetworkManager 2>/dev/null || true
+          systemctl is-active etr-remote-screen.service 2>/dev/null || true
+          echo
+
+          echo '=== VERSIONS ==='
+          python3 --version || true
+          git --version || true
+          dpkg-query -W -f='${Package}\t${Version}\n' linux-image-rpi-v8 x11vnc python3 2>/dev/null || true
+          echo
+
+          echo '=== INVENTORY COMPLETE ==='
