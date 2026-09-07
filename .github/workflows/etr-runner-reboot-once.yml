@@ -1,0 +1,31 @@
+name: EtR - redemarrage unique de preuve runner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-runner-reboot-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  schedule-reboot:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 10
+    steps:
+      - name: Programmer le redemarrage apres la fin du job
+        shell: bash
+        run: |
+          set -euo pipefail
+          unit=actions.runner.ORYX-WORLD-EtR-core.etr-core.service
+          systemctl is-enabled --quiet "$unit"
+          systemctl is-active --quiet "$unit"
+          sudo install -d -m 0755 /var/lib/etr-core
+          date -u +%Y-%m-%dT%H:%M:%SZ | sudo tee \
+            /var/lib/etr-core/runner-reboot-requested-at.txt
+          sudo systemd-run \
+            --unit=etr-runner-proof-reboot \
+            --on-active=45s \
+            /usr/bin/systemctl reboot
+          sudo systemctl status etr-runner-proof-reboot.timer --no-pager
