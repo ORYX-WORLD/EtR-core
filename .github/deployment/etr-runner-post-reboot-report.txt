@@ -1,7 +1,7 @@
-proof=final-after-exported-framebuffer
-checked_at=2026-09-07T10:24:59Z
+proof=final-xorg-explicit-framebuffer
+checked_at=2026-09-07T10:42:38Z
 boot_id=279a9c71-5548-41a5-ad4c-8694ce3d24b3
-uptime=4409.36
+uptime=5468.51
 reboot_requested=2026-09-07T08:44:49Z
 spi_overlay=dtoverlay=tft35a:rotate=90
 /sys/class/graphics/fb0/name=fb_ili9486
@@ -14,23 +14,31 @@ runner_restart_delay=10s
 17472 /home/oryx/actions-runner/actions-runner/bin/Runner.Listener run --startuptype service
 watchdog_enabled=enabled
 watchdog_active=active
-NEXT                             LEFT LAST                          PASSED UNIT                      ACTIVATES
-Mon 2026-09-07 12:26:10 CEST 1min 10s Mon 2026-09-07 12:24:09 CEST 50s ago etr-runner-watchdog.timer etr-runner-watchdog.service
+NEXT                            LEFT LAST                              PASSED UNIT                      ACTIVATES
+Mon 2026-09-07 12:43:40 CEST 1min 1s Mon 2026-09-07 12:41:31 CEST 1min 7s ago etr-runner-watchdog.timer etr-runner-watchdog.service
 
 1 timers listed.
 Pass --all to see loaded but inactive timers, too.
-display_1=unavailable
-display_2=unavailable
-etr-remote-desktop.service enabled=enabled active=inactive
-etr-vnc.service enabled=enabled active=inactive
-etr-remote-screen.service enabled=enabled active=inactive
-{"ok":true,"service":"etr-remote-gateway","version":"1.1.1","revision":"etr-remote-gateway-00036-dn5","devices":0,"viewers":0,"readyViewers":0,"enrollment":"v1","admin":"v1","liveViewerDiagnostic":"github-oidc"}
+  dimensions:    480x320 pixels (127x85 millimeters)
+  dimensions:    1280x720 pixels (325x183 millimeters)
+etr-remote-desktop.service enabled=enabled active=active
+etr-vnc.service enabled=enabled active=active
+etr-remote-screen.service enabled=enabled active=active
+{"ok":true,"service":"etr-remote-gateway","version":"1.1.1","revision":"etr-remote-gateway-00036-dn5","devices":1,"viewers":0,"readyViewers":0,"enrollment":"v1","admin":"v1","liveViewerDiagnostic":"github-oidc"}
 From https://github.com/ORYX-WORLD/EtR-core
  * branch            main       -> FETCH_HEAD
-   5799b94..35167af  main       -> origin/main
+   5efdba7..00f0f93  main       -> origin/main
 ETR_DIAG_OK|desktop|SD V1.1 -> launcher systeme
 ETR_DIAG_OK|launcher|/usr/local/bin/etr-sd-factory-launch.sh
 ETR_DIAG_OK|factory_service|unite installee et ExecStart conforme
 ETR_DIAG_OK|application|entree resiliente + moteur + interface presentes
 ETR_DIAG_OK|framebuffer|/dev/fb0 fb_ili9486 480x320x16
-ETR_DIAG_FAIL|display|DISPLAY :1 inaccessible
+ETR_DIAG_OK|display|une session LXDE physique :1 en 480x320
+ETR_DIAG_OK|remote_display|une session LXDE distante :2 en 1280x720
+ETR_DIAG_OK|remote_services|desktop :2 + VNC + relais actifs
+ETR_DIAG_OK|vnc|VNC local capture DISPLAY :2
+ETR_DIAG_OK|network|DNS gateway resolu
+ETR_DIAG_OK|gateway|health /api/health accessible
+ETR_DIAG_OK|remote_gateway|Raspberry present sur la gateway
+ETR_DIAG_OK|runner|actions.runner.ORYX-WORLD-EtR-core.etr-core.service actif dans /home/oryx/actions-runner/actions-runner
+ETR_DIAG_SUCCESS|all|architecture locale et distante conforme
