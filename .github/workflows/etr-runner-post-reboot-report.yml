@@ -25,6 +25,10 @@ jobs:
             echo "boot_id=$(cat /proc/sys/kernel/random/boot_id)"
             echo "uptime=$(cut -d' ' -f1 /proc/uptime)"
             echo "reboot_requested=$(cat /var/lib/etr-core/runner-reboot-requested-at.txt 2>&1)"
+            echo "spi_overlay=$(grep -E '^[[:space:]]*dtoverlay=tft35a([,:]|$)' /boot/firmware/config.txt 2>&1)"
+            for f in /sys/class/graphics/fb*/name /sys/class/graphics/fb*/virtual_size; do
+              [ -r "$f" ] && printf '%s=' "$f" && cat "$f"
+            done
             unit=actions.runner.ORYX-WORLD-EtR-core.etr-core.service
             echo "runner_enabled=$(systemctl is-enabled "$unit" 2>&1)"
             echo "runner_active=$(systemctl is-active "$unit" 2>&1)"
