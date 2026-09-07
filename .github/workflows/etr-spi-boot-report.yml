@@ -1,0 +1,70 @@
+name: EtR - diagnostic ecran SPI apres boot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-spi-boot-report.yml
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 15
+    steps:
+      - name: Collecter sans modifier l ecran ni la SD
+        shell: bash
+        run: |
+          report=/tmp/etr-spi-boot-report.txt
+          {
+            echo '=== identity ==='
+            date -u +%Y-%m-%dT%H:%M:%SZ
+            uname -a
+            cat /proc/sys/kernel/random/boot_id
+            echo '=== framebuffer ==='
+            ls -la /dev/fb* /sys/class/graphics 2>&1 || true
+            for f in /sys/class/graphics/fb*/name /sys/class/graphics/fb*/virtual_size; do
+              [ -r "$f" ] && printf '%s=' "$f" && cat "$f"
+            done
+            echo '=== boot config ==='
+            grep -nEv '^(#|$)' /boot/firmware/config.txt 2>&1 || true
+            echo '=== overlays ==='
+            sudo dtoverlay -l 2>&1 || true
+            ls -l /boot/firmware/overlays/tft35a.dtbo \
+              /boot/firmware/overlays/etr-ads1263-spi0-cs2.dtbo 2>&1 || true
+            echo '=== modules ==='
+            lsmod | grep -E 'fbtft|ili9486|spi|ads7846' || true
+            modinfo fb_ili9486 2>&1 | head -40 || true
+            echo '=== device tree SPI ==='
+            find /proc/device-tree -maxdepth 5 -type f \
+              \( -name compatible -o -name status \) -print0 2>/dev/null \
+              | xargs -0 -r grep -aH -E 'ili9486|fbtft|okay|disabled' 2>/dev/null || true
+            echo '=== systemd ==='
+            systemctl status spi-desktop.service etr-kiosk.service --no-pager 2>&1 || true
+            echo '=== kernel boot log ==='
+            sudo journalctl -b -k --no-pager 2>&1 \
+              | grep -Ei 'spi|fbtft|ili9486|ads7846|overlay|framebuffer|fb[0-9]' || true
+          } > "$report" 2>&1
+          cat "$report"
+
+      - name: Publier le diagnostic
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          publish=/tmp/etr-spi-report-publish
+          rm -rf "$publish"
+          git clone --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/ORYX-WORLD/EtR-core.git" \
+            "$publish"
+          install -m 0644 /tmp/etr-spi-boot-report.txt \
+            "$publish/.github/deployment/etr-spi-boot-report.txt"
+          cd "$publish"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/deployment/etr-spi-boot-report.txt
+          git commit -m 'chore: record SPI boot diagnostic [skip ci]'
+          git push origin HEAD:main

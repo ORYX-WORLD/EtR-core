@@ -39,7 +39,12 @@ jobs:
               Path('/var/lib/etr-core/runner-reboot-requested-at.txt')
               .read_text().strip().replace('Z', '+00:00')
           )
-          booted = datetime.fromtimestamp(Path('/proc/1').stat().st_ctime, timezone.utc)
+          btime = next(
+              line.split()[1]
+              for line in Path('/proc/stat').read_text().splitlines()
+              if line.startswith('btime ')
+          )
+          booted = datetime.fromtimestamp(int(btime), timezone.utc)
           assert booted > requested, (booted, requested)
           print(f'reboot_requested={requested.isoformat()}')
           print(f'boot_proven={booted.isoformat()}')
