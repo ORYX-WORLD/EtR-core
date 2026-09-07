@@ -11,6 +11,15 @@ sudo apt install -y \
   xserver-xorg xserver-xorg-video-fbdev xinit xvfb lxde-core dbus-x11 \
   chromium netcat-openbsd x11vnc rsync dosfstools parted fdisk e2fsprogs
 
+# Le HAT d'affichage doit etre charge par le firmware a chaque demarrage.
+# Une sauvegarde est creee seulement lorsqu'une correction est necessaire.
+boot_config=/boot/firmware/config.txt
+if [ -s "$boot_config" ] && ! grep -Eq '^[[:space:]]*dtoverlay=tft35a([,:]|$)' "$boot_config"; then
+  sudo cp -a "$boot_config" "$boot_config.etr-before-tft35a-$(date -u +%Y%m%dT%H%M%SZ)"
+  printf '\n# Ecran physique EtR 480x320\ndtoverlay=tft35a:rotate=90\n' \
+    | sudo tee -a "$boot_config" >/dev/null
+fi
+
 # Cloner ou actualiser le dépôt officiel.
 if [ ! -d "$INSTALL_DIR/.git" ]; then
   git clone "$REPO_URL" "$INSTALL_DIR"

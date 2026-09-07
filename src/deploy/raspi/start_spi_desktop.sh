@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lance Xorg sur l'écran MHS35 (/dev/fb1), puis LXDE sous l'utilisateur oryx.
+# Lance Xorg sur l'ecran MHS35 ILI9486 480x320, puis LXDE sous oryx.
 set -Eeuo pipefail
 
 DISPLAY_ID=":1"
@@ -7,6 +7,27 @@ X_SOCKET="/tmp/.X11-unix/X1"
 XORG_PID=""
 LXDE_PID=""
 REPO_DIR="/home/oryx/EtR-core"
+
+# Le numero fb0/fb1 depend de la presence d'un framebuffer HDMI. L'identite
+# stable de l'ecran EtR est son pilote et sa geometrie, pas son index noyau.
+FRAMEBUFFER=""
+for _ in $(seq 1 30); do
+  for sysfb in /sys/class/graphics/fb*; do
+    [ -r "$sysfb/name" ] || continue
+    [ -r "$sysfb/virtual_size" ] || continue
+    if [ "$(cat "$sysfb/name")" = fb_ili9486 ] \
+      && [ "$(cat "$sysfb/virtual_size")" = 480,320 ]; then
+      FRAMEBUFFER="/dev/${sysfb##*/}"
+      break 2
+    fi
+  done
+  sleep 1
+done
+[ -n "$FRAMEBUFFER" ] && [ -e "$FRAMEBUFFER" ] || {
+  echo "Framebuffer ILI9486 480x320 absent" >&2
+  exit 1
+}
+echo "EtR ecran physique: $FRAMEBUFFER -> DISPLAY $DISPLAY_ID"
 
 cleanup() {
   set +e

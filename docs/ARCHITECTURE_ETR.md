@@ -9,7 +9,7 @@ Ce document décrit la chaîne réellement utilisée sur le Raspberry EtR. Une m
 - Architecture : `aarch64` / ARM64
 - Noyau validé : `6.18.39+rpt-rpi-v8`
 - Dépôt installé : `/home/oryx/EtR-core`
-- Écran SPI physique : `/dev/fb1`, pilote `fb_ili9486`, `480x320`, 16 bits
+- Écran SPI physique : framebuffer `fb_ili9486` (index `/dev/fb0` ou `/dev/fb1`), `480x320`, 16 bits
 
 ## Topologie graphique
 

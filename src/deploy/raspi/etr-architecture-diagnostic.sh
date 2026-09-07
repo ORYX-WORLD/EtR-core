@@ -41,12 +41,21 @@ pass factory_service "unite installee et ExecStart conforme"
 [ -s "$repo/src/deploy/raspi/etr_sd_factory_fast.py" ] || fail application "etr_sd_factory_fast.py absent"
 pass application "entree resiliente + moteur + interface presentes"
 
-# 5. Contrat framebuffer physique
-[ -r /sys/class/graphics/fb1/name ] || fail framebuffer "fb1 absent"
-[ "$(cat /sys/class/graphics/fb1/name)" = "fb_ili9486" ] || fail framebuffer "pilote fb1 inattendu"
-[ "$(cat /sys/class/graphics/fb1/virtual_size)" = "480,320" ] || fail framebuffer "geometrie fb1 inattendue"
-[ "$(cat /sys/class/graphics/fb1/bits_per_pixel)" = "16" ] || fail framebuffer "profondeur fb1 inattendue"
-pass framebuffer "/dev/fb1 fb_ili9486 480x320x16"
+# 5. Contrat framebuffer physique. L'index fb0/fb1 varie selon qu'un
+# framebuffer HDMI est cree; le pilote et la geometrie constituent l'identite.
+physical_fb=""
+for candidate in /sys/class/graphics/fb*; do
+  [ -r "$candidate/name" ] || continue
+  [ -r "$candidate/virtual_size" ] || continue
+  if [ "$(cat "$candidate/name")" = "fb_ili9486" ] \
+    && [ "$(cat "$candidate/virtual_size")" = "480,320" ]; then
+    physical_fb=$candidate
+    break
+  fi
+done
+[ -n "$physical_fb" ] || fail framebuffer "fb_ili9486 480x320 absent"
+[ "$(cat "$physical_fb/bits_per_pixel")" = "16" ] || fail framebuffer "profondeur ILI9486 inattendue"
+pass framebuffer "/dev/${physical_fb##*/} fb_ili9486 480x320x16"
 
 # 6. Deux bureaux graphiques distincts
 [ -e "$xauth" ] || fail display "XAUTHORITY absent"

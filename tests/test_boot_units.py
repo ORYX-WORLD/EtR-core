@@ -80,6 +80,19 @@ class BootUnitDependencyTests(unittest.TestCase):
         self.assertIn("RestartSec=10s", script)
         self.assertIn('"${1:-}" = "--no-restart"', script)
 
+    def test_spi_desktop_identifies_display_without_unstable_fb_index(self):
+        unit = (RASPI_DEPLOY_DIR / "spi-desktop.service").read_text(encoding="utf-8")
+        launcher = (RASPI_DEPLOY_DIR / "start_spi_desktop.sh").read_text(
+            encoding="utf-8"
+        )
+        setup = (RASPI_DEPLOY_DIR / "setup_etr.sh").read_text(encoding="utf-8")
+
+        self.assertNotIn("ConditionPathExists=/dev/fb1", unit)
+        self.assertIn("fb_ili9486", launcher)
+        self.assertIn("480,320", launcher)
+        self.assertNotIn("FRAMEBUFFER=/dev/fb1", launcher)
+        self.assertIn("dtoverlay=tft35a:rotate=90", setup)
+
 
 if __name__ == "__main__":
     unittest.main()

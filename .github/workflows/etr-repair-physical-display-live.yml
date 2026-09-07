@@ -1,0 +1,49 @@
+name: EtR - reparer affichage physique actif
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-repair-physical-display-live.yml
+      - src/deploy/raspi/start_spi_desktop.sh
+      - src/deploy/raspi/spi-desktop.service
+      - src/deploy/raspi/etr-architecture-diagnostic.sh
+      - src/deploy/raspi/etr-vnc-rawfb.sh
+
+permissions:
+  contents: read
+
+jobs:
+  repair-and-verify:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 15
+    steps:
+      - name: Installer la selection stable du framebuffer
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=/home/oryx/EtR-core
+          work=/tmp/etr-physical-display-live
+          rm -rf "$work"
+          mkdir -p "$work"
+          sudo -u oryx -H git -C "$repo" fetch --prune origin main
+          for file in start_spi_desktop.sh spi-desktop.service etr-architecture-diagnostic.sh etr-vnc-rawfb.sh; do
+            sudo -u oryx -H git -C "$repo" show \
+              "$GITHUB_SHA:src/deploy/raspi/$file" > "$work/$file"
+          done
+          sudo install -m 0755 "$work/start_spi_desktop.sh" /usr/local/bin/start_spi_desktop.sh
+          sudo install -m 0644 "$work/spi-desktop.service" /etc/systemd/system/spi-desktop.service
+          sudo install -m 0755 "$work/etr-vnc-rawfb.sh" /usr/local/bin/etr-vnc-rawfb.sh
+          sudo systemctl daemon-reload
+          sudo systemctl restart spi-desktop.service
+          sudo systemctl restart etr-kiosk.service
+          for _ in $(seq 1 30); do
+            if DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority \
+              xdpyinfo 2>/dev/null | grep -q 'dimensions:.*480x320'; then
+              break
+            fi
+            sleep 2
+          done
+          DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xdpyinfo \
+            | grep 'dimensions:.*480x320'
+          sudo bash "$work/etr-architecture-diagnostic.sh"

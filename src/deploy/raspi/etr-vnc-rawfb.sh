@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-FB=/dev/fb1
-SYS=/sys/class/graphics/fb1
+SYS=""
+for candidate in /sys/class/graphics/fb*; do
+  [ -r "$candidate/name" ] || continue
+  [ -r "$candidate/virtual_size" ] || continue
+  if [ "$(cat "$candidate/name")" = fb_ili9486 ] \
+    && [ "$(cat "$candidate/virtual_size")" = 480,320 ]; then
+    SYS=$candidate
+    break
+  fi
+done
+[ -n "$SYS" ] || { echo "Framebuffer ILI9486 480x320 absent" >&2; exit 1; }
+FB="/dev/${SYS##*/}"
 DISPLAY_ID=:1
 XAUTH=/home/oryx/.Xauthority
 
 [ -e "$FB" ] || { echo "Framebuffer absent: $FB" >&2; exit 1; }
-[ -r "$SYS/virtual_size" ] || { echo "virtual_size absent pour fb1" >&2; exit 1; }
-[ -r "$SYS/bits_per_pixel" ] || { echo "bits_per_pixel absent pour fb1" >&2; exit 1; }
+[ -r "$SYS/virtual_size" ] || { echo "virtual_size absent pour $FB" >&2; exit 1; }
+[ -r "$SYS/bits_per_pixel" ] || { echo "bits_per_pixel absent pour $FB" >&2; exit 1; }
 
 IFS=, read -r WIDTH HEIGHT < "$SYS/virtual_size"
 BPP=$(cat "$SYS/bits_per_pixel")

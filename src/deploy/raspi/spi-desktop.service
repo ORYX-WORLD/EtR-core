@@ -5,7 +5,6 @@ After=network-online.target systemd-user-sessions.service
 Conflicts=getty@tty2.service
 StartLimitIntervalSec=120
 StartLimitBurst=3
-ConditionPathExists=/dev/fb1
 
 [Service]
 Type=simple
