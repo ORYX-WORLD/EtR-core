@@ -18,7 +18,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          url='https://etr-remote-gateway-7n72m5gopq-ew.a.run.app/healthz'
+          url='https://etr-remote-gateway-7n72m5gopq-ew.a.run.app/api/health'
           curl --fail --silent --show-error --connect-timeout 5 --max-time 15 "$url" | tee /tmp/health.json
           python3 - <<'PY'
           import json
