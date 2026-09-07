@@ -1,11 +1,11 @@
-date_utc=2026-09-07T09:19:42Z
+date_utc=2026-09-07T09:33:31Z
 job_status=failure
 exit_code=1
 failed_or_last_step=install_application
 host=etr-core
-workflow_commit=4888e3a644eb69f13a2cae8d3e906b38a4ab0b98
-installed_commit=4888e3a644eb69f13a2cae8d3e906b38a4ab0b98
-commit_match=true
+workflow_commit=abcd377a2682a3790fe03dd033ec028103966b7a
+installed_commit=4ce66e9dec7225230787c5b9304f7f4e26e63888
+commit_match=false
 configuration_source=firebase-hosting-reserved-url+cloud-run-fixed-origin
 gateway_origin=https://etr-remote-gateway-7n72m5gopq-ew.a.run.app
 gateway_revision=etr-remote-gateway-00036-dn5
@@ -26,7 +26,7 @@ etr.service=Result=success,User=oryx,ActiveState=active,SubState=running
 etr-dashboard.service=Result=success,User=oryx,ActiveState=active,SubState=running
 etr-firebase-bridge.service=Result=success,User=oryx,ActiveState=active,SubState=running
 etr-wifi-portal.service=Result=success,User=root,ActiveState=inactive,SubState=dead
-spi-desktop.service=Result=exit-code,User=root,ActiveState=failed,SubState=failed
+spi-desktop.service=Result=exit-code,User=root,ActiveState=activating,SubState=auto-restart
 etr-kiosk.service=Result=success,User=oryx,ActiveState=inactive,SubState=dead
 etr-vnc.service=Result=success,User=oryx,ActiveState=inactive,SubState=dead
 etr-remote-screen.service=Result=success,User=oryx,ActiveState=inactive,SubState=dead
