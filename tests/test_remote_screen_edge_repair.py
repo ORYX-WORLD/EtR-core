@@ -47,7 +47,7 @@ class RemoteScreenEdgeRepairTests(unittest.TestCase):
         )
         for marker in [
             "actions: write",
-            "gh workflow run etr-remote-screen-repair-fast.yml --ref main",
+            "gh workflow run etr-remote-screen-repair-fast.yml --repo ORYX-WORLD/EtR-core --ref main",
         ]:
             self.assertIn(marker, wrapper)
 
