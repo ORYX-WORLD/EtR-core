@@ -1,0 +1,78 @@
+=== identity ===
+2026-09-07T09:05:01Z
+Linux etr-core 6.18.39+rpt-rpi-v8 #1 SMP PREEMPT Debian 1:6.18.39-1+rpt1 (2026-07-29) aarch64 GNU/Linux
+6250428f-239a-4821-a222-560e0ddd2632
+=== framebuffer ===
+ls: cannot access '/dev/fb*': No such file or directory
+/sys/class/graphics:
+total 0
+drwxr-xr-x  2 root root 0 Sep  7 11:05 .
+drwxr-xr-x 67 root root 0 Sep  7 10:45 ..
+lrwxrwxrwx  1 root root 0 Sep  7 10:45 fbcon -> ../../devices/virtual/graphics/fbcon
+=== boot config ===
+1:dtparam=spi=on
+4:dtoverlay=etr-ads1263-spi0-cs2
+=== overlays ===
+No overlays loaded
+-rwxr-xr-x 1 root root  775 Sep  7 10:23 /boot/firmware/overlays/etr-ads1263-spi0-cs2.dtbo
+-rwxr-xr-x 1 root root 2616 Nov 13  2025 /boot/firmware/overlays/tft35a.dtbo
+=== modules ===
+spidev                 20480  0
+spi_bcm2835            20480  0
+filename:       /lib/modules/6.18.39+rpt-rpi-v8/kernel/drivers/staging/fbtft/fb_ili9486.ko.xz
+license:        GPL
+author:         Noralf Tronnes
+description:    FB driver for the ILI9486 LCD Controller
+alias:          platform:ili9486
+alias:          spi:ili9486
+alias:          platform:fb_ili9486
+alias:          spi:fb_ili9486
+srcversion:     290A51DF34B44A6D84901AE
+alias:          of:N*T*Cilitek,ili9486C*
+alias:          of:N*T*Cilitek,ili9486
+depends:        fbtft
+staging:        Y
+intree:         Y
+name:           fb_ili9486
+vermagic:       6.18.39+rpt-rpi-v8 SMP preempt mod_unload modversions aarch64
+=== device tree SPI ===
+=== systemd ===
+○ spi-desktop.service - EtR SPI desktop on display :1
+     Loaded: loaded (/etc/systemd/system/spi-desktop.service; enabled; preset: enabled)
+    Drop-In: /etc/systemd/system/spi-desktop.service.d
+             └─blanking.conf
+     Active: inactive (dead)
+  Condition: start condition unmet at Mon 2026-09-07 11:04:51 CEST; 10s ago
+             └─ ConditionPathExists=/dev/fb1 was not met
+
+Sep 07 10:55:00 etr-core systemd[1]: spi-desktop.service - EtR SPI desktop on display :1 was skipped because of an unmet condition check (ConditionPathExists=/dev/fb1).
+Sep 07 10:56:05 etr-core systemd[1]: spi-desktop.service - EtR SPI desktop on display :1 was skipped because of an unmet condition check (ConditionPathExists=/dev/fb1).
+Sep 07 10:57:11 etr-core systemd[1]: spi-desktop.service - EtR SPI desktop on display :1 was skipped because of an unmet condition check (ConditionPathExists=/dev/fb1).
+Sep 07 10:58:16 etr-core systemd[1]: spi-desktop.service - EtR SPI desktop on display :1 was skipped because of an unmet condition check (ConditionPathExists=/dev/fb1).
+Sep 07 10:59:22 etr-core systemd[1]: spi-desktop.service - EtR SPI desktop on display :1 was skipped because of an unmet condition check (ConditionPathExists=/dev/fb1).
+Sep 07 11:00:29 etr-core systemd[1]: spi-desktop.service - EtR SPI desktop on display :1 was skipped because of an unmet condition check (ConditionPathExists=/dev/fb1).
+Sep 07 11:01:34 etr-core systemd[1]: spi-desktop.service - EtR SPI desktop on display :1 was skipped because of an unmet condition check (ConditionPathExists=/dev/fb1).
+Sep 07 11:02:40 etr-core systemd[1]: spi-desktop.service - EtR SPI desktop on display :1 was skipped because of an unmet condition check (ConditionPathExists=/dev/fb1).
+Sep 07 11:03:44 etr-core systemd[1]: spi-desktop.service - EtR SPI desktop on display :1 was skipped because of an unmet condition check (ConditionPathExists=/dev/fb1).
+Sep 07 11:04:51 etr-core systemd[1]: spi-desktop.service - EtR SPI desktop on display :1 was skipped because of an unmet condition check (ConditionPathExists=/dev/fb1).
+
+● etr-kiosk.service - EtR kiosk (Chromium on SPI)
+     Loaded: loaded (/etc/systemd/system/etr-kiosk.service; enabled; preset: enabled)
+     Active: active (running) since Mon 2026-09-07 11:04:51 CEST; 10s ago
+ Invocation: 84e093e1e15b48dd98ebf9b5b6243c51
+   Main PID: 5657 (bash)
+      Tasks: 2 (limit: 4505)
+        CPU: 59ms
+     CGroup: /system.slice/etr-kiosk.service
+             ├─5657 bash /usr/local/bin/etr-kiosk.sh
+             └─5741 sleep 1
+
+Sep 07 11:04:51 etr-core systemd[1]: etr-kiosk.service: Scheduled restart job, restart counter is at 17.
+Sep 07 11:04:51 etr-core systemd[1]: Started etr-kiosk.service - EtR kiosk (Chromium on SPI).
+Sep 07 11:04:51 etr-core etr-kiosk.sh[5657]: /usr/local/bin/etr-kiosk.sh: line 10: warning: setlocale: LC_ALL: cannot change locale (fr_FR.UTF-8): No such file or directory
+=== kernel boot log ===
+Sep 07 10:45:51 etr-core kernel: NODE_DATA(1) allocated [mem 0xfb7fa280-0xfb7fcfff]
+Sep 07 10:45:51 etr-core kernel: Kernel command line: coherent_pool=1M 8250.nr_uarts=0 snd_bcm2835.enable_headphones=0 cgroup_disable=memory numa_policy=interleave nvme.max_host_mem_size_mb=32 bcm2708_fb.fbwidth=0 bcm2708_fb.fbheight=0 bcm2708_fb.fbswap=1 numa=fake=2 system_heap.max_order=0 smsc95xx.macaddr=88:A2:9E:2C:3A:10 vc_mem.mem_base=0x3ec00000 vc_mem.mem_size=0x40000000  console=ttyS0,115200 console=tty1 root=PARTUUID=ebfb0877-02 rootfstype=ext4 fsck.repair=yes rootwait quiet splash plymouth.ignore-serial-consoles cfg80211.ieee80211_regdom=FR usbcore.autosuspend=-1
+Sep 07 10:45:51 etr-core kernel: raspberrypi-firmware soc:firmware: Firmware hash is cd866525580337c0aee4b25880e1f5f9f674fb24
+Sep 07 10:45:51 etr-core kernel: Waiting for root device PARTUUID=ebfb0877-02...
+Sep 07 10:45:51 etr-core systemd[1]: Expecting device dev-disk-by\x2dpartuuid-ebfb0877\x2d01.device - /dev/disk/by-partuuid/ebfb0877-01...
