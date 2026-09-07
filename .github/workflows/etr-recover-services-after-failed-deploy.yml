@@ -1,0 +1,53 @@
+name: EtR - recuperer services apres deploiement interrompu
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-recover-services-after-failed-deploy.yml
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 15
+    steps:
+      - name: Remettre en route les services existants sans reinstall
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo systemctl daemon-reload
+          sudo systemctl reset-failed \
+            spi-desktop.service etr-kiosk.service \
+            etr-remote-desktop.service etr-vnc.service \
+            etr-remote-screen.service etr-wifi-portal.service
+          sudo systemctl enable \
+            spi-desktop.service etr-kiosk.service \
+            etr-remote-desktop.service etr-vnc.service \
+            etr-remote-screen.service etr-wifi-portal.service
+          sudo systemctl restart spi-desktop.service
+          sudo systemctl restart etr-kiosk.service
+          sudo systemctl restart etr-wifi-portal.service
+          sudo systemctl restart etr-remote-desktop.service
+          sudo systemctl restart etr-vnc.service
+          sudo systemctl restart etr-remote-screen.service
+
+          for _ in $(seq 1 30); do
+            physical=0
+            remote=0
+            DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority \
+              xdpyinfo 2>/dev/null | grep -q 'dimensions:.*480x320' && physical=1
+            DISPLAY=:2 XAUTHORITY=/home/oryx/.Xauthority \
+              xdpyinfo 2>/dev/null | grep -q 'dimensions:.*1280x720' && remote=1
+            [ "$physical" -eq 1 ] && [ "$remote" -eq 1 ] && break
+            sleep 2
+          done
+
+          DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xdpyinfo \
+            | grep 'dimensions:.*480x320'
+          DISPLAY=:2 XAUTHORITY=/home/oryx/.Xauthority xdpyinfo \
+            | grep 'dimensions:.*1280x720'
+          curl -fsS --connect-timeout 3 --max-time 10 http://127.0.0.1:8090/ >/dev/null
+          systemctl is-active etr-vnc.service etr-remote-screen.service
