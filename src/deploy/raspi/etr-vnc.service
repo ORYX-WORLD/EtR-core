@@ -1,18 +1,16 @@
 [Unit]
-Description=EtR VNC source for the physical SPI framebuffer
-After=spi-desktop.service
-Requires=spi-desktop.service
+Description=EtR local VNC source for the 1280x720 remote desktop
+After=etr-remote-desktop.service
+Requires=etr-remote-desktop.service
 
 [Service]
 Type=simple
-Environment=DISPLAY=:1
+Environment=DISPLAY=:2
 Environment=XAUTHORITY=/home/oryx/.Xauthority
-ExecStartPre=+/usr/bin/bash /home/oryx/EtR-core/src/deploy/raspi/etr-recover-github-runner.sh
-ExecStart=/usr/local/bin/etr-vnc-rawfb.sh
+ExecStart=/usr/bin/x11vnc -display :2 -auth /home/oryx/.Xauthority -localhost -forever -shared -nopw -rfbport 5901 -noxdamage
 Restart=always
 RestartSec=3
 User=oryx
-SupplementaryGroups=video
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
