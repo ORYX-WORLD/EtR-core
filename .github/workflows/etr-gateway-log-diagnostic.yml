@@ -1,0 +1,37 @@
+name: EtR - diagnostic logs gateway
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/etr-gateway-log-diagnostic.yml'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Authenticate Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Read recent EtR gateway logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud logging read \
+            'resource.type="cloud_run_revision" AND resource.labels.service_name="etr-remote-gateway" AND timestamp>="2026-09-07T06:15:00Z"' \
+            --project=oryx-froid-industriel \
+            --limit=200 \
+            --order=desc \
+            --format='value(timestamp,severity,textPayload,jsonPayload.message,jsonPayload.installationId,jsonPayload.linkedInstallationId,jsonPayload.code,jsonPayload.status)' \
+            | sed -n '1,200p'
