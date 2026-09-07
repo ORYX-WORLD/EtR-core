@@ -90,6 +90,7 @@ class BootUnitDependencyTests(unittest.TestCase):
         self.assertNotIn("ConditionPathExists=/dev/fb1", unit)
         self.assertIn("fb_ili9486", launcher)
         self.assertIn("480,320", launcher)
+        self.assertIn("export FRAMEBUFFER", launcher)
         self.assertNotIn("FRAMEBUFFER=/dev/fb1", launcher)
         self.assertIn("dtoverlay=tft35a:rotate=90", setup)
 

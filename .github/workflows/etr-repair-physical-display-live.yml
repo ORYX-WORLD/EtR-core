@@ -37,6 +37,10 @@ jobs:
           sudo systemctl daemon-reload
           sudo systemctl restart spi-desktop.service
           sudo systemctl restart etr-kiosk.service
+          sudo systemctl restart etr-wifi-portal.service
+          sudo systemctl restart etr-remote-desktop.service
+          sudo systemctl restart etr-vnc.service
+          sudo systemctl restart etr-remote-screen.service
           for _ in $(seq 1 30); do
             if DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority \
               xdpyinfo 2>/dev/null | grep -q 'dimensions:.*480x320'; then
@@ -46,4 +50,7 @@ jobs:
           done
           DISPLAY=:1 XAUTHORITY=/home/oryx/.Xauthority xdpyinfo \
             | grep 'dimensions:.*480x320'
+          DISPLAY=:2 XAUTHORITY=/home/oryx/.Xauthority xdpyinfo \
+            | grep 'dimensions:.*1280x720'
+          curl -fsS --connect-timeout 3 --max-time 10 http://127.0.0.1:8090/ >/dev/null
           sudo bash "$work/etr-architecture-diagnostic.sh"

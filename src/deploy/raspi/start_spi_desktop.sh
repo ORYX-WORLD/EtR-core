@@ -28,6 +28,7 @@ done
   exit 1
 }
 echo "EtR ecran physique: $FRAMEBUFFER -> DISPLAY $DISPLAY_ID"
+export FRAMEBUFFER
 
 cleanup() {
   set +e
