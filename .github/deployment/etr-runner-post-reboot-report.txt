@@ -1,7 +1,7 @@
-proof=final-after-dynamic-framebuffer-fix
-checked_at=2026-09-07T09:21:07Z
+proof=final-after-service-recovery
+checked_at=2026-09-07T09:31:55Z
 boot_id=279a9c71-5548-41a5-ad4c-8694ce3d24b3
-uptime=577.41
+uptime=1225.03
 reboot_requested=2026-09-07T08:44:49Z
 spi_overlay=dtoverlay=tft35a:rotate=90
 /sys/class/graphics/fb0/name=fb_ili9486
@@ -14,8 +14,8 @@ runner_restart_delay=10s
 1109 /home/oryx/actions-runner/actions-runner/bin/Runner.Listener run --startuptype service
 watchdog_enabled=enabled
 watchdog_active=active
-NEXT                         LEFT LAST                               PASSED UNIT                      ACTIVATES
-Mon 2026-09-07 11:22:04 CEST  56s Mon 2026-09-07 11:19:54 CEST 1min 13s ago etr-runner-watchdog.timer etr-runner-watchdog.service
+NEXT                            LEFT LAST                              PASSED UNIT                      ACTIVATES
+Mon 2026-09-07 11:32:57 CEST 1min 2s Mon 2026-09-07 11:30:46 CEST 1min 8s ago etr-runner-watchdog.timer etr-runner-watchdog.service
 
 1 timers listed.
 Pass --all to see loaded but inactive timers, too.
@@ -27,7 +27,7 @@ etr-remote-screen.service enabled=enabled active=inactive
 {"ok":true,"service":"etr-remote-gateway","version":"1.1.1","revision":"etr-remote-gateway-00036-dn5","devices":0,"viewers":0,"readyViewers":0,"enrollment":"v1","admin":"v1","liveViewerDiagnostic":"github-oidc"}
 From https://github.com/ORYX-WORLD/EtR-core
  * branch            main       -> FETCH_HEAD
-   3b7ef77..7966d05  main       -> origin/main
+   7966d05..abcd377  main       -> origin/main
 ETR_DIAG_OK|desktop|SD V1.1 -> launcher systeme
 ETR_DIAG_OK|launcher|/usr/local/bin/etr-sd-factory-launch.sh
 ETR_DIAG_OK|factory_service|unite installee et ExecStart conforme
