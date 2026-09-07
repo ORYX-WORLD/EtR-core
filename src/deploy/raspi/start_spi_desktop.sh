@@ -29,6 +29,19 @@ done
 }
 echo "EtR ecran physique: $FRAMEBUFFER -> DISPLAY $DISPLAY_ID"
 export FRAMEBUFFER
+XORG_CONFIG=/run/etr-xorg-physical.conf
+cat > "$XORG_CONFIG" <<EOF
+Section "Device"
+  Identifier "EtR physical framebuffer"
+  Driver "fbdev"
+  Option "fbdev" "$FRAMEBUFFER"
+EndSection
+
+Section "Screen"
+  Identifier "EtR physical screen"
+  Device "EtR physical framebuffer"
+EndSection
+EOF
 
 cleanup() {
   set +e
@@ -75,7 +88,8 @@ touch /home/oryx/.Xauthority
 chown oryx:oryx /home/oryx/.Xauthority
 rm -f /tmp/.X1-lock
 
-/usr/lib/xorg/Xorg "$DISPLAY_ID" vt2 -keeptty -nolisten tcp -noreset -ac &
+/usr/lib/xorg/Xorg "$DISPLAY_ID" vt2 -keeptty -nolisten tcp -noreset -ac \
+  -config "$XORG_CONFIG" &
 XORG_PID="$!"
 
 for _ in $(seq 1 30); do

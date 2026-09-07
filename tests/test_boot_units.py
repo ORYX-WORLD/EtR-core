@@ -91,6 +91,8 @@ class BootUnitDependencyTests(unittest.TestCase):
         self.assertIn("fb_ili9486", launcher)
         self.assertIn("480,320", launcher)
         self.assertIn("export FRAMEBUFFER", launcher)
+        self.assertIn('Option "fbdev" "$FRAMEBUFFER"', launcher)
+        self.assertIn('-config "$XORG_CONFIG"', launcher)
         self.assertNotIn("FRAMEBUFFER=/dev/fb1", launcher)
         self.assertIn("dtoverlay=tft35a:rotate=90", setup)
 
