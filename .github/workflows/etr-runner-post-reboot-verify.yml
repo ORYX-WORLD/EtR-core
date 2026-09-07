@@ -1,0 +1,73 @@
+name: EtR - preuve runner apres reboot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-runner-post-reboot-verify.yml
+      - .github/scripts/etr-runner-watchdog.*
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 15
+    steps:
+      - name: Prouver le reboot et installer le watchdog
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=/home/oryx/EtR-core
+          work=/tmp/etr-runner-post-reboot
+          rm -rf "$work"
+          mkdir -p "$work"
+          sudo -u oryx -H git -C "$repo" fetch --prune origin main
+          for file in \
+            etr-runner-watchdog.sh \
+            etr-runner-watchdog.service \
+            etr-runner-watchdog.timer; do
+            sudo -u oryx -H git -C "$repo" show \
+              "$GITHUB_SHA:.github/scripts/$file" > "$work/$file"
+          done
+
+          python3 - <<'PY'
+          from datetime import datetime, timezone
+          from pathlib import Path
+          requested = datetime.fromisoformat(
+              Path('/var/lib/etr-core/runner-reboot-requested-at.txt')
+              .read_text().strip().replace('Z', '+00:00')
+          )
+          booted = datetime.fromtimestamp(Path('/proc/1').stat().st_ctime, timezone.utc)
+          assert booted > requested, (booted, requested)
+          print(f'reboot_requested={requested.isoformat()}')
+          print(f'boot_proven={booted.isoformat()}')
+          PY
+
+          sudo install -m 0755 "$work/etr-runner-watchdog.sh" \
+            /usr/local/sbin/etr-runner-watchdog.sh
+          sudo install -m 0644 "$work/etr-runner-watchdog.service" \
+            /etc/systemd/system/etr-runner-watchdog.service
+          sudo install -m 0644 "$work/etr-runner-watchdog.timer" \
+            /etc/systemd/system/etr-runner-watchdog.timer
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now etr-runner-watchdog.timer
+
+          unit=actions.runner.ORYX-WORLD-EtR-core.etr-core.service
+          systemctl is-enabled "$unit"
+          systemctl is-active "$unit"
+          systemctl is-enabled etr-runner-watchdog.timer
+          systemctl is-active etr-runner-watchdog.timer
+          pgrep -af 'Runner.Listener|runsvc.sh'
+
+      - name: Verifier la topologie sans fabrication SD
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo=/home/oryx/EtR-core
+          diagnostic=/tmp/etr-architecture-diagnostic.sh
+          sudo -u oryx -H git -C "$repo" show \
+            "$GITHUB_SHA:src/deploy/raspi/etr-architecture-diagnostic.sh" \
+            > "$diagnostic"
+          sudo bash "$diagnostic"

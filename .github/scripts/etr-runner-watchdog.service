@@ -1,0 +1,8 @@
+[Unit]
+Description=Surveillance de connexion du runner GitHub EtR
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/etr-runner-watchdog.sh
