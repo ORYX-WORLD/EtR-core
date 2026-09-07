@@ -19,7 +19,7 @@ jobs:
         run: |
           report=/tmp/etr-spi-boot-report.txt
           {
-            echo '=== identity ==='
+            echo '=== identity post-export ==='
             date -u +%Y-%m-%dT%H:%M:%SZ
             uname -a
             cat /proc/sys/kernel/random/boot_id
