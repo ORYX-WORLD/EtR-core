@@ -1,0 +1,37 @@
+name: EtR - restaurer ecran SPI au boot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/etr-restore-spi-boot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  restore:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 10
+    steps:
+      - name: Restaurer l overlay persistant et programmer un reboot
+        shell: bash
+        run: |
+          set -euo pipefail
+          config=/boot/firmware/config.txt
+          overlay=/boot/firmware/overlays/tft35a.dtbo
+          test -s "$config"
+          test -s "$overlay"
+          if ! grep -Eq '^[[:space:]]*dtoverlay=tft35a([,:]|$)' "$config"; then
+            stamp=$(date -u +%Y%m%dT%H%M%SZ)
+            sudo cp -a "$config" "$config.etr-before-spi-$stamp"
+            printf '\n# Ecran physique EtR 480x320\ndtoverlay=tft35a:rotate=90\n' \
+              | sudo tee -a "$config" >/dev/null
+          fi
+          grep -nE 'dtparam=spi|dtoverlay=(tft35a|etr-ads1263)' "$config"
+          test "$(grep -Ec '^[[:space:]]*dtoverlay=tft35a([,:]|$)' "$config")" -eq 1
+          sudo systemd-run \
+            --unit=etr-spi-proof-reboot \
+            --on-active=45s \
+            /usr/bin/systemctl reboot
+          sudo systemctl status etr-spi-proof-reboot.timer --no-pager
