@@ -1,0 +1,95 @@
+---
+- name: EtR declarative state
+  hosts: etr-core
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Verify target identity
+      ansible.builtin.assert:
+        that:
+          - ansible_hostname == etr_hostname
+          - ansible_architecture in ['aarch64', 'arm64']
+        fail_msg: 'Refusing to manage a host that is not the EtR Raspberry.'
+
+    - name: Read active kernel
+      ansible.builtin.command: uname -r
+      register: etr_kernel
+      changed_when: false
+
+    - name: Verify active kernel
+      ansible.builtin.assert:
+        that:
+          - etr_kernel.stdout is match(etr_expected_kernel_regex)
+        fail_msg: 'Unexpected Raspberry kernel: {{ etr_kernel.stdout }}'
+
+    - name: Read framebuffer name
+      ansible.builtin.slurp:
+        src: /sys/class/graphics/fb1/name
+      register: etr_fb_name
+
+    - name: Read framebuffer geometry
+      ansible.builtin.slurp:
+        src: /sys/class/graphics/fb1/virtual_size
+      register: etr_fb_size
+
+    - name: Read framebuffer depth
+      ansible.builtin.slurp:
+        src: /sys/class/graphics/fb1/bits_per_pixel
+      register: etr_fb_bpp
+
+    - name: Verify physical SPI framebuffer
+      ansible.builtin.assert:
+        that:
+          - (etr_fb_name.content | b64decode | trim) == etr_framebuffer_name
+          - (etr_fb_size.content | b64decode | trim) == (etr_framebuffer_width | string) + ',' + (etr_framebuffer_height | string)
+          - (etr_fb_bpp.content | b64decode | trim) == (etr_framebuffer_bpp | string)
+        fail_msg: 'Physical SPI framebuffer does not match the EtR hardware contract.'
+
+  tasks:
+    - name: Keep critical deployed files identical to GitHub
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+        backup: true
+      loop: "{{ etr_managed_files }}"
+
+    - name: Ensure critical EtR services are enabled and running
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop: "{{ etr_critical_services }}"
+
+    - name: Ensure GitHub runner service is enabled and running
+      ansible.builtin.systemd_service:
+        name: "{{ etr_runner_service }}"
+        enabled: true
+        state: started
+
+    - name: Verify runner installation directory
+      ansible.builtin.stat:
+        path: "{{ etr_runner_root }}/bin/Runner.Listener"
+      register: etr_runner_listener
+
+    - name: Assert runner binary exists
+      ansible.builtin.assert:
+        that:
+          - etr_runner_listener.stat.exists
+        fail_msg: 'GitHub runner installation is missing from the declared path.'
+
+    - name: Count LXDE sessions on physical display
+      ansible.builtin.shell: "ps -eo args= | grep -F '/usr/bin/lxsession -s LXDE -e LXDE' | grep -v grep | wc -l"
+      args:
+        executable: /bin/bash
+      register: etr_lxde_count
+      changed_when: false
+
+    - name: Require exactly one LXDE session
+      ansible.builtin.assert:
+        that:
+          - etr_lxde_count.stdout | int == 1
+        fail_msg: 'Display invariant violated: expected exactly one LXDE session, found {{ etr_lxde_count.stdout }}.'

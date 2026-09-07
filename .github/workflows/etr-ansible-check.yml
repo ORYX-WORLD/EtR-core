@@ -1,0 +1,36 @@
+name: EtR - Ansible check Raspberry
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'infra/ansible/**'
+      - '.github/workflows/etr-ansible-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source of truth
+        uses: actions/checkout@v5
+
+      - name: Prepare isolated Ansible runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/etr-ansible"
+          "$RUNNER_TEMP/etr-ansible/bin/pip" install --disable-pip-version-check 'ansible-core>=2.18,<2.21'
+          "$RUNNER_TEMP/etr-ansible/bin/ansible-playbook" --version
+
+      - name: Validate declared state without applying changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -n "$RUNNER_TEMP/etr-ansible/bin/ansible-playbook" \
+            -i infra/ansible/inventory.yml \
+            infra/ansible/site.yml \
+            --check --diff
