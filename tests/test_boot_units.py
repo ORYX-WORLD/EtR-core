@@ -93,6 +93,16 @@ class BootUnitDependencyTests(unittest.TestCase):
         self.assertNotIn("FRAMEBUFFER=/dev/fb1", launcher)
         self.assertIn("dtoverlay=tft35a:rotate=90", setup)
 
+    def test_runner_watchdog_detects_stale_physical_queue(self):
+        watchdog = (
+            Path(__file__).resolve().parents[1]
+            / ".github/scripts/etr-runner-watchdog.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("?status=queued&per_page=30", watchdog)
+        self.assertIn("total_seconds() >= 300", watchdog)
+        self.assertIn("pgrep -f '/bin/Runner.Worker '", watchdog)
+
 
 if __name__ == "__main__":
     unittest.main()
