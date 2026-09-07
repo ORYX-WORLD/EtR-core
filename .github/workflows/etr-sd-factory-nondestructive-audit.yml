@@ -1,0 +1,34 @@
+name: EtR - audit non destructif de la Fabrique SD
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: etr-sd-factory-nondestructive-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+      - name: Vérifier que l'audit ne contient aucune commande destructive
+        shell: bash
+        run: |
+          set -euo pipefail
+          audit=src/deploy/raspi/etr-sd-factory-nondestructive-audit.sh
+          bash -n "$audit"
+          if grep -Ev '^[[:space:]]*#' "$audit" | grep -Eq '(^|[;&|[:space:]])(wipefs|sfdisk|mkfs(\.[[:alnum:]]+)?|dd|mount|umount|fsck|rsync)([;&|[:space:]]|$)'; then
+            echo 'Une commande interdite est présente dans l audit' >&2
+            exit 1
+          fi
+      - name: Exécuter les tests Fabrique sans support bloc
+        shell: bash
+        run: python3 -m unittest discover -s tests -p 'test_sd_factory*.py' -v
+      - name: Auditer le Raspberry en lecture seule
+        shell: bash
+        run: bash src/deploy/raspi/etr-sd-factory-nondestructive-audit.sh
