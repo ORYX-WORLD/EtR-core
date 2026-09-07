@@ -53,4 +53,13 @@ jobs:
           DISPLAY=:2 XAUTHORITY=/home/oryx/.Xauthority xdpyinfo \
             | grep 'dimensions:.*1280x720'
           curl -fsS --connect-timeout 3 --max-time 10 http://127.0.0.1:8090/ >/dev/null
+          for _ in $(seq 1 30); do
+            devices=$(curl -fsS --connect-timeout 3 --max-time 10 \
+              https://etr-remote-gateway-7n72m5gopq-ew.a.run.app/api/health \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin).get("devices", 0))' \
+              || printf '0')
+            [ "$devices" -ge 1 ] && break
+            sleep 3
+          done
+          [ "$devices" -ge 1 ]
           sudo bash "$work/etr-architecture-diagnostic.sh"
