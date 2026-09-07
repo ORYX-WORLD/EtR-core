@@ -11,7 +11,7 @@ etr_framebuffer_height: 320
 etr_framebuffer_bpp: 16
 etr_runner_service: actions.runner.ORYX-WORLD-EtR-core.etr-core.service
 etr_runner_root: /home/oryx/actions-runner/actions-runner
-etr_expected_kernel_regex: '^6\\.18\\.39\\+rpt-rpi-(v8|2712)$'
+etr_expected_kernel_regex: '^6\.18\.39\+rpt-rpi-(v8|2712)$'
 etr_critical_services:
   - spi-desktop.service
   - etr-remote-desktop.service
