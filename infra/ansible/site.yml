@@ -8,14 +8,15 @@
     - name: Verify target identity
       ansible.builtin.assert:
         that:
-          - ansible_hostname == etr_hostname
-          - ansible_architecture in ['aarch64', 'arm64']
+          - ansible_facts['hostname'] == etr_hostname
+          - ansible_facts['architecture'] in ['aarch64', 'arm64']
         fail_msg: 'Refusing to manage a host that is not the EtR Raspberry.'
 
     - name: Read active kernel
       ansible.builtin.command: uname -r
       register: etr_kernel
       changed_when: false
+      check_mode: false
 
     - name: Verify active kernel
       ansible.builtin.assert:
@@ -81,15 +82,27 @@
           - etr_runner_listener.stat.exists
         fail_msg: 'GitHub runner installation is missing from the declared path.'
 
-    - name: Count LXDE sessions on physical display
-      ansible.builtin.shell: "ps -eo args= | grep -F '/usr/bin/lxsession -s LXDE -e LXDE' | grep -v grep | wc -l"
+    - name: Observe LXDE sessions and their displays
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for pid in $(pgrep -x lxsession || true); do
+          [ -r "/proc/$pid/environ" ] || continue
+          display=$(tr '\0' '\n' < "/proc/$pid/environ" | sed -n 's/^DISPLAY=//p' | head -n1)
+          args=$(tr '\0' ' ' < "/proc/$pid/cmdline")
+          case "$args" in
+            *"lxsession -s LXDE -e LXDE"*) printf '%s\n' "$display" ;;
+          esac
+        done | sort
       args:
         executable: /bin/bash
-      register: etr_lxde_count
+      register: etr_lxde_displays
       changed_when: false
+      check_mode: false
 
-    - name: Require exactly one LXDE session
+    - name: Verify physical and remote desktop topology
       ansible.builtin.assert:
         that:
-          - etr_lxde_count.stdout | int == 1
-        fail_msg: 'Display invariant violated: expected exactly one LXDE session, found {{ etr_lxde_count.stdout }}.'
+          - etr_lxde_displays.stdout_lines | select('equalto', etr_display) | list | length == 1
+          - etr_lxde_displays.stdout_lines | select('equalto', etr_remote_display) | list | length == 1
+          - etr_lxde_displays.stdout_lines | length == 2
+        fail_msg: 'Display topology drift: expected one LXDE on {{ etr_display }} and one on {{ etr_remote_display }}, observed {{ etr_lxde_displays.stdout_lines }}.'
