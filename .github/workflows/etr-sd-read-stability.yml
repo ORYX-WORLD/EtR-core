@@ -14,6 +14,8 @@ jobs:
   read-stability:
     runs-on: [self-hosted, Linux, ARM64]
     timeout-minutes: 20
+    env:
+      EXPECTED_BYTES: '15548284928'
     steps:
       - uses: actions/checkout@v5
       - name: Vérifier la cible sans écriture
@@ -30,12 +32,12 @@ jobs:
           test "$(lsblk -dnro TRAN /dev/sda)" = usb
           test "$(lsblk -dnro RM /dev/sda)" = 1
           test -z "$(lsblk -dnro MOUNTPOINTS /dev/sda)"
-          test "$(sudo blockdev --getsize64 /dev/sda)" = 31268536320
+          test "$(sudo blockdev --getsize64 /dev/sda)" = "$EXPECTED_BYTES"
           ! sudo systemctl is-active --quiet etr-sd-factory-worker.service
           ! sudo test -e /var/lib/etr-core/sd-factory-request.json
           udevadm info --query=property --name=/dev/sda | grep -qx 'ID_VENDOR_ID=05e3'
           udevadm info --query=property --name=/dev/sda | grep -qx 'ID_MODEL_ID=0751'
-          echo 'ETR_SD_READ_PREFLIGHT|target=/dev/sda|bytes=31268536320|usb=05e3:0751|mounted=no'
+          echo "ETR_SD_READ_PREFLIGHT|target=/dev/sda|bytes=$EXPECTED_BYTES|usb=05e3:0751|mounted=no"
       - name: Lire intégralement la carte et surveiller le bus USB
         shell: bash
         run: |
@@ -51,7 +53,7 @@ jobs:
               fi
               size=$(sudo blockdev --getsize64 /dev/sda 2>/dev/null || echo 0)
               echo "$(date -Is) size=$size" >> "$monitor"
-              test "$size" = 31268536320 || exit 1
+              test "$size" = "$EXPECTED_BYTES" || exit 1
               sleep 2
             done
           ) &
@@ -64,9 +66,9 @@ jobs:
           trap - EXIT
 
           test -b /dev/sda
-          test "$(sudo blockdev --getsize64 /dev/sda)" = 31268536320
+          test "$(sudo blockdev --getsize64 /dev/sda)" = "$EXPECTED_BYTES"
           if grep -q 'device=missing' "$monitor" \
-            || ! awk '$NF != "size=31268536320" { exit 1 }' "$monitor"; then
+            || ! awk -v expected="size=$EXPECTED_BYTES" '$NF != expected { exit 1 }' "$monitor"; then
             cat "$monitor"
             exit 1
           fi
@@ -75,7 +77,7 @@ jobs:
             sudo journalctl -k --since "@$before" --no-pager | tail -n 200
             exit 1
           fi
-          echo 'ETR_SD_READ_SUCCESS|target=/dev/sda|bytes=31268536320|capacity_stable=yes|kernel_errors=none'
+          echo "ETR_SD_READ_SUCCESS|target=/dev/sda|bytes=$EXPECTED_BYTES|capacity_stable=yes|kernel_errors=none"
       - name: Publier l'état final même en cas d'échec
         if: always()
         shell: bash
