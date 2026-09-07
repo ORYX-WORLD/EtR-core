@@ -43,6 +43,15 @@ jobs:
               | xargs -0 -r grep -aH -E 'ili9486|fbtft|okay|disabled' 2>/dev/null || true
             echo '=== systemd ==='
             systemctl status spi-desktop.service etr-kiosk.service --no-pager 2>&1 || true
+            journalctl -u spi-desktop.service -b -n 160 --no-pager 2>&1 || true
+            for log in /var/log/Xorg.1.log /home/oryx/.local/share/xorg/Xorg.1.log; do
+              if [ -r "$log" ]; then
+                echo "--- $log ---"
+                tail -160 "$log"
+              fi
+            done
+            find /etc/X11 -maxdepth 3 -type f -print 2>/dev/null \
+              | sort | xargs -r grep -HnE 'fbdev|fb[0-9]|Driver|Device' 2>/dev/null || true
             echo '=== kernel boot log ==='
             sudo journalctl -b -k --no-pager 2>&1 \
               | grep -Ei 'spi|fbtft|ili9486|ads7846|overlay|framebuffer|fb[0-9]' || true
