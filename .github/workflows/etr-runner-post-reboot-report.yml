@@ -21,7 +21,7 @@ jobs:
           repo=/home/oryx/EtR-core
           diagnostic=/tmp/etr-architecture-diagnostic.sh
           {
-            echo "proof=final-after-exported-framebuffer"
+            echo "proof=final-xorg-explicit-framebuffer"
             echo "checked_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "boot_id=$(cat /proc/sys/kernel/random/boot_id)"
             echo "uptime=$(cut -d' ' -f1 /proc/uptime)"
