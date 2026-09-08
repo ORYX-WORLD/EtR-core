@@ -1,0 +1,33 @@
+{
+  "name": "EtR - qualifier mesures et tunnel local",
+  "on": {
+    "push": {
+      "branches": [
+        "codex/editor-hardware-access-20260908"
+      ],
+      "paths": [
+        ".github/workflows/etr-editor-hardware-access.yml"
+      ]
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "jobs": {
+    "qualify": {
+      "runs-on": [
+        "self-hosted",
+        "Linux",
+        "ARM64"
+      ],
+      "timeout-minutes": 4,
+      "steps": [
+        {
+          "name": "Verifier identite, acquisition et acces loopback limite",
+          "shell": "bash",
+          "run": "set -euo pipefail\npython3 - <<'PYREMOTE'\nimport json, urllib.request, os, pathlib, pwd, subprocess\nwith urllib.request.urlopen('http://127.0.0.1:8080/api/v1/status', timeout=10) as response:\n    status=json.load(response)\nidentity=status.get('device',{}).get('installation_id')\nprint('installation_id='+str(identity))\nprint('hardware_serial='+pathlib.Path('/proc/device-tree/serial-number').read_text().strip('\\x00\\n'))\ntelemetry=status.get('telemetry',{})\nprint(json.dumps({'online':telemetry.get('online'),'updated_at':telemetry.get('updated_at'),'sensors':[{'ain':s.get('ain'),'kind':s.get('kind'),'unit':s.get('unit'),'status':s.get('status'),'has_numeric_value':isinstance(s.get('value'),(int,float))} for s in telemetry.get('sensors',[])]}))\nfor unit in ['etr.service','etr-sensor-acquisition.service','etr-firebase-bridge.service','etr-remote-screen.service','spi-desktop.service','etr-remote-desktop.service']:\n    print(unit+'='+subprocess.run(['systemctl','is-active',unit],capture_output=True,text=True).stdout.strip())\nfor d in ('1','2'):\n    result=subprocess.run(['xdpyinfo'],env={**os.environ,'DISPLAY':':'+d,'XAUTHORITY':'/home/oryx/.Xauthority'},capture_output=True,text=True)\n    print('display_'+d+'='+next((x.strip() for x in result.stdout.splitlines() if 'dimensions:' in x),'unavailable'))\nfor path in pathlib.Path('/sys/class/graphics').glob('fb*/virtual_size'):\n    print(str(path)+'='+path.read_text().strip())\nserial=pathlib.Path('/proc/device-tree/serial-number').read_text().strip('\\x00\\n')\nif serial != '10000000dd7429c2' or identity not in (None, '', 'etr-0000dd7429c2'):\n    raise SystemExit('Unexpected device identity; no configuration applied')\nif not identity:\n    dropin='/etc/systemd/system/etr.service.d/40-installation-identity.conf'\n    content='[Service]\\nEnvironment=ETR_INSTALLATION_ID=etr-0000dd7429c2\\n'\n    probe=subprocess.run(['sudo','test','-e',dropin])\n    if probe.returncode==0:\n        current=subprocess.run(['sudo','cat',dropin],check=True,capture_output=True,text=True).stdout\n        if current!=content: raise SystemExit('Existing identity override differs; left intact')\n    else:\n        subprocess.run(['sudo','mkdir','-p','/etc/systemd/system/etr.service.d'],check=True)\n        subprocess.run(['sudo','tee',dropin],input=content,text=True,stdout=subprocess.DEVNULL,check=True)\n        subprocess.run(['sudo','chmod','0644',dropin],check=True)\n    subprocess.run(['sudo','systemctl','daemon-reload'],check=True)\n    subprocess.run(['sudo','systemctl','restart','etr.service'],check=True)\n    import time\n    time.sleep(2)\n    with urllib.request.urlopen('http://127.0.0.1:8080/api/v1/status',timeout=10) as response:\n        checked=json.load(response)\n    if checked.get('device',{}).get('installation_id')!='etr-0000dd7429c2': raise SystemExit('Identity verification failed')\n    print('api_installation_identity=verified')\naccount=pwd.getpwnam('oryx')\nif os.getuid()!=account.pw_uid: raise SystemExit('Runner user mismatch; no SSH change applied')\nfolder=pathlib.Path(account.pw_dir)/'.ssh'\nfolder.mkdir(mode=0o700,exist_ok=True)\nauth=folder/'authorized_keys'\nentry='restrict,port-forwarding,permitopen=\"127.0.0.1:8080\",command=\"/bin/false\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ2O3I9hVuy8kWM22rwpF203v5QesYBnmE6P1oE4eg95 etr-editor-loopback-only'\nold=auth.read_text() if auth.exists() else ''\nif 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ2O3I9hVuy8kWM22rwpF203v5QesYBnmE6P1oE4eg95 etr-editor-loopback-only'.split()[1] not in old:\n    with auth.open('a') as output: output.write(('' if not old or old.endswith('\\n') else '\\n')+entry+'\\n')\nauth.chmod(0o600)\nprint('restricted_editor_tunnel_key=installed')\nPYREMOTE\n"
+        }
+      ]
+    }
+  }
+}
