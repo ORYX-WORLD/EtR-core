@@ -1,0 +1,33 @@
+{
+  "name": "EtR - qualifier mesures et tunnel local",
+  "on": {
+    "push": {
+      "branches": [
+        "codex/editor-hardware-access-20260908"
+      ],
+      "paths": [
+        ".github/workflows/etr-editor-hardware-access.yml"
+      ]
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "jobs": {
+    "qualify": {
+      "runs-on": [
+        "self-hosted",
+        "Linux",
+        "ARM64"
+      ],
+      "timeout-minutes": 4,
+      "steps": [
+        {
+          "name": "Verifier identite, acquisition et acces loopback limite",
+          "shell": "bash",
+          "run": "set -euo pipefail\npython3 - <<'PYREMOTE'\nimport json, urllib.request, os, pathlib, pwd, subprocess\nwith urllib.request.urlopen('http://127.0.0.1:8080/api/v1/status', timeout=10) as response:\n    status=json.load(response)\nidentity=status.get('device',{}).get('installation_id')\nif identity != 'etr-0000dd7429c2':\n    raise SystemExit('Unexpected installation; no SSH change applied')\nprint('installation_id='+identity)\ntelemetry=status.get('telemetry',{})\nprint(json.dumps({'online':telemetry.get('online'),'updated_at':telemetry.get('updated_at'),'sensors':[{'ain':s.get('ain'),'kind':s.get('kind'),'unit':s.get('unit'),'status':s.get('status'),'has_numeric_value':isinstance(s.get('value'),(int,float))} for s in telemetry.get('sensors',[])]}))\nfor unit in ['etr.service','etr-sensor-acquisition.service','etr-firebase-bridge.service','etr-remote-screen.service','spi-desktop.service','etr-remote-desktop.service']:\n    print(unit+'='+subprocess.run(['systemctl','is-active',unit],capture_output=True,text=True).stdout.strip())\nfor d in ('1','2'):\n    result=subprocess.run(['xdpyinfo'],env={**os.environ,'DISPLAY':':'+d,'XAUTHORITY':'/home/oryx/.Xauthority'},capture_output=True,text=True)\n    print('display_'+d+'='+next((x.strip() for x in result.stdout.splitlines() if 'dimensions:' in x),'unavailable'))\nfor path in pathlib.Path('/sys/class/graphics').glob('fb*/virtual_size'):\n    print(str(path)+'='+path.read_text().strip())\naccount=pwd.getpwnam('oryx')\nif os.getuid()!=account.pw_uid: raise SystemExit('Runner is not oryx; no SSH change applied')\nfolder=pathlib.Path(account.pw_dir)/'.ssh'\nfolder.mkdir(mode=0o700,exist_ok=True)\nauth=folder/'authorized_keys'\nentry='restrict,port-forwarding,permitopen=\"127.0.0.1:8080\",command=\"/bin/false\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ2O3I9hVuy8kWM22rwpF203v5QesYBnmE6P1oE4eg95 etr-editor-loopback-only'\nold=auth.read_text() if auth.exists() else ''\nif 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ2O3I9hVuy8kWM22rwpF203v5QesYBnmE6P1oE4eg95 etr-editor-loopback-only'.split()[1] not in old:\n    with auth.open('a') as output:\n        output.write(('' if not old or old.endswith('\\n') else '\\n')+entry+'\\n')\nauth.chmod(0o600)\nprint('restricted_editor_tunnel_key=installed')\nPYREMOTE\n"
+        }
+      ]
+    }
+  }
+}
