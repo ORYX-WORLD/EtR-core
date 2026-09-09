@@ -1,0 +1,82 @@
+{
+  "checked_at": "2026-09-09T16:53:22.282045+00:00",
+  "commit": "203d1e10478b7afb8bfdb5f9384125c1948763a6",
+  "previous_commit": "f9787431e4cd06946d7808f28866ffc9a32a4a58",
+  "installation_id": "etr-0000dd7429c2",
+  "backup": "/var/lib/etr-core/modbus-backup-20260909T165256Z",
+  "profile": {
+    "ads1263": {
+      "enabled": false
+    },
+    "modbus": {
+      "enabled": true,
+      "serial_port": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG041Z8E-if00-port0"
+    },
+    "revision": 3,
+    "schema_version": 1
+  },
+  "config": {
+    "bus_exclusive_confirmed": false,
+    "enabled": false,
+    "installation_id": "",
+    "networks": [],
+    "points": [],
+    "revision": 0,
+    "schema_version": 1
+  },
+  "telemetry": {
+    "acquisition_version": "1.2.0",
+    "alerts": [
+      {
+        "code": "MODBUS_NOT_CONFIGURED",
+        "message": "Collecte arrêtée : configurer le réseau et les régulateurs, puis activer la lecture.",
+        "severity": "warning"
+      }
+    ],
+    "error": null,
+    "hardware": {
+      "adc": "ADS1263",
+      "chip_id": null,
+      "modbus": {
+        "enabled": true,
+        "message": "Collecte arrêtée : configurer le réseau et les régulateurs, puis activer la lecture.",
+        "status": "not_configured"
+      },
+      "status": "disabled"
+    },
+    "hardware_profile": {
+      "ads1263": {
+        "enabled": false
+      },
+      "modbus": {
+        "enabled": true,
+        "serial_port": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG041Z8E-if00-port0"
+      },
+      "revision": 3,
+      "schema_version": 1
+    },
+    "measurements": {},
+    "modbus": {
+      "points": [],
+      "revision": 0
+    },
+    "online": false,
+    "schema_version": "1.1",
+    "sensors": [],
+    "source": "hardware-profile",
+    "states": {},
+    "updated_at": "2026-09-09T16:53:21.306979+00:00"
+  },
+  "services": {
+    "etr-sensor-acquisition.service": "active",
+    "etr.service": "active",
+    "etr-dashboard.service": "active",
+    "etr-firebase-bridge.service": "active",
+    "spi-desktop.service": "active",
+    "etr-remote-desktop.service": "active",
+    "etr-remote-screen.service": "active"
+  },
+  "scope": "rtu-reader-installed-stopped",
+  "physical_register_read_verified": false,
+  "boot_id": "49e24129-fc45-47de-9a22-fbaf52fc7dcf"
+}

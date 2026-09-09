@@ -1,0 +1,61 @@
+{
+  "checked_at": "2026-09-09T16:58:40.227886+00:00",
+  "configuration": {
+    "config": {
+      "bus_exclusive_confirmed": false,
+      "enabled": false,
+      "installation_id": "",
+      "networks": [],
+      "points": [],
+      "revision": 1,
+      "schema_version": 1
+    },
+    "installationId": "etr-0000dd7429c2"
+  },
+  "save_reload_verified": true,
+  "service_version": "3.5.0",
+  "telemetry": {
+    "acquisition_version": "1.2.0",
+    "alerts": [
+      {
+        "code": "MODBUS_NOT_CONFIGURED",
+        "message": "Collecte arrêtée : configurer le réseau et les régulateurs, puis activer la lecture.",
+        "severity": "warning"
+      }
+    ],
+    "error": null,
+    "hardware": {
+      "adc": "ADS1263",
+      "chip_id": null,
+      "modbus": {
+        "enabled": true,
+        "message": "Collecte arrêtée : configurer le réseau et les régulateurs, puis activer la lecture.",
+        "status": "not_configured"
+      },
+      "status": "disabled"
+    },
+    "hardware_profile": {
+      "ads1263": {
+        "enabled": false
+      },
+      "modbus": {
+        "enabled": true,
+        "serial_port": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG041Z8E-if00-port0"
+      },
+      "revision": 3,
+      "schema_version": 1
+    },
+    "measurements": {},
+    "modbus": {
+      "points": [],
+      "revision": 1
+    },
+    "online": false,
+    "schema_version": "1.1",
+    "sensors": [],
+    "source": "hardware-profile",
+    "states": {},
+    "updated_at": "2026-09-09T16:58:36.988133+00:00"
+  },
+  "physical_register_read_verified": false
+}
