@@ -217,6 +217,7 @@
     renderEnrollment(data.enrollment);
     const sensorAlarms = renderSensors(telemetry) || [];
     renderMap(fields.measurements, telemetry.measurements, 'Aucune mesure instrumentée publiée.');
+    if (telemetry.modbus?.points?.length) fields.measurements.querySelector('.empty')?.remove();
     for (const point of telemetry.modbus?.points || []) {
       const row = document.createElement('div'); row.className = 'data-row';
       const label = document.createElement('span'); label.textContent = point.name;
