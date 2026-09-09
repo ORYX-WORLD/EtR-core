@@ -95,7 +95,8 @@ class SensorConversionTests(unittest.TestCase):
             atomic_write_json(path, {"measurements": {"pressure_1_bar": 0.0}})
             data = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(data["measurements"]["pressure_1_bar"], 0.0)
-            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            if __import__("os").name != "nt":
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
     def test_config_validation_rejects_duplicate_ain(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -37,10 +37,8 @@ class SensorRepositoryContractTests(unittest.TestCase):
         for marker in [
             "User=oryx",
             "Group=oryx",
-            "SupplementaryGroups=spi gpio",
             "WorkingDirectory=/var/lib/etr-core",
             "ExecStartPre=+/usr/bin/install -d -m 700 -o oryx -g oryx /var/lib/etr-core",
-            "ExecStartPre=+/usr/bin/pinctrl set 18 op dh",
             "sensor_acquisition_runtime.py",
             "ReadWritePaths=/var/lib/etr-core",
             "ProtectHome=read-only",

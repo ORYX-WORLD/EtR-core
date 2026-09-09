@@ -10,10 +10,14 @@ from pathlib import Path
 from typing import Any
 
 import psutil
-from flask import Flask, jsonify, send_file
+from flask import Flask, jsonify, send_file, request
+try:
+    from .hardware_profile import read_profile, save_profile, ProfileConflict, empty_payload
+except ImportError:
+    from hardware_profile import read_profile, save_profile, ProfileConflict, empty_payload
 
 SCHEMA_VERSION = "1.0"
-SERVICE_VERSION = "3.3.0"
+SERVICE_VERSION = "3.4.0"
 DEFAULT_STATE_FILE = "/var/lib/etr-core/telemetry.json"
 DEFAULT_ENROLLMENT_FILE = "/var/lib/etr-core/enrollment.json"
 DEFAULT_TOKEN_FILE = "/var/lib/etr-core/firebase-auth.json"
@@ -66,6 +70,7 @@ def read_telemetry_state(path: Path) -> tuple[dict[str, Any], str | None]:
         "source": raw.get("source") if isinstance(raw.get("source"), str) else "local_state_file",
         "acquisition_version": raw.get("acquisition_version") if isinstance(raw.get("acquisition_version"), str) else None,
         "hardware": hardware,
+        "hardware_profile": raw.get("hardware_profile"),
         "sensors": [item for item in sensors[:32] if isinstance(item, dict)],
         "measurements": measurements,
         "states": states,
@@ -159,6 +164,31 @@ def build_status() -> dict[str, Any]:
     audio_output_file = Path(os.getenv("ETR_AUDIO_OUTPUT_FILE", DEFAULT_AUDIO_OUTPUT_FILE))
     audio_sample_file = Path(os.getenv("ETR_AUDIO_SAMPLE_FILE", DEFAULT_AUDIO_SAMPLE_FILE))
     telemetry, telemetry_error = read_telemetry_state(state_file)
+    profile = None
+    try:
+        profile = read_profile()
+        frame_profile = telemetry.get("hardware_profile")
+        # Explicitly changed selections invalidate the old frame immediately.
+        if (frame_profile is not None and frame_profile != profile) or (frame_profile is None and profile["revision"] > 0):
+            telemetry = empty_payload(profile, "applying")
+            telemetry_error = "hardware_profile_applying"
+        elif frame_profile is not None:
+            try:
+                age = time.time() - datetime.fromisoformat(telemetry.get("updated_at") or "").timestamp()
+                fresh = -5 <= age <= 20
+            except (ValueError, TypeError, OverflowError):
+                fresh = False
+            if not fresh:
+                telemetry_error = "telemetry_stale"
+                telemetry["sensors"] = []
+                telemetry["measurements"] = {}
+                telemetry["states"] = {}
+                telemetry["alerts"] = [{"code": "TELEMETRY_STALE", "severity": "warning", "message": "Acquisition interrompue ou données périmées."}]
+    except (OSError, ValueError, TypeError):
+        telemetry = {"sensors": [], "measurements": {}, "states": {}, "alerts": [
+            {"code": "HARDWARE_PROFILE_INVALID", "severity": "critical", "message": "Configuration matérielle illisible."}
+        ]}
+        telemetry_error = "hardware_profile_invalid"
     enrollment = read_enrollment_state(enrollment_file, token_file)
     audio = read_audio_state(audio_state_file, audio_output_file, audio_sample_file)
     system = system_status()
@@ -167,13 +197,16 @@ def build_status() -> dict[str, Any]:
     alerts = telemetry.get("alerts", [])
     hardware = telemetry.get("hardware", {})
     hardware_offline = isinstance(hardware, dict) and hardware.get("status") == "offline"
+    acquisition_online = telemetry_error is None and not hardware_offline and hardware.get("status") not in {"disabled", "applying"}
+    modbus_pending = bool(profile and profile["modbus"]["enabled"] and hardware.get("modbus", {}).get("status") != "online")
 
     status: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "service": "EtR",
         "service_version": SERVICE_VERSION,
         "timestamp": utc_now(),
-        "health": "ok" if telemetry_error is None and not hardware_offline else "degraded",
+        "health": "ok" if telemetry_error is None and not hardware_offline and not modbus_pending else "degraded",
+        "hardware_profile": profile,
         "device": {
             "hostname": socket.gethostname(),
             "installation_id": os.getenv("ETR_INSTALLATION_ID", "").strip() or enrollment.get("installation_id"),
@@ -181,13 +214,14 @@ def build_status() -> dict[str, Any]:
         "system": system,
         "enrollment": enrollment,
         "telemetry": {
-            "online": telemetry_error is None and not hardware_offline,
+            "online": acquisition_online,
             "error": telemetry_error or ("acquisition_hardware_offline" if hardware_offline else None),
             "schema_version": telemetry.get("schema_version"),
             "source": telemetry.get("source"),
             "acquisition_version": telemetry.get("acquisition_version"),
             "updated_at": telemetry.get("updated_at"),
             "hardware": hardware,
+            "hardware_profile": profile,
             "sensors": telemetry.get("sensors", []),
             "measurements": measurements,
             "states": states,
@@ -201,7 +235,9 @@ def build_status() -> dict[str, Any]:
             "secure_enrollment": True,
             "remote_screen": True,
             "telemetry_contract": SCHEMA_VERSION,
-            "ads1263_acquisition": True,
+            "ads1263_acquisition": bool(profile and profile["ads1263"]["enabled"]),
+            "hardware_selection": True,
+            "modbus_acquisition": False,
             "audio_input": True,
             "bluetooth_audio": True,
             "rolling_audio_sample_seconds": 5,
@@ -227,6 +263,27 @@ def build_status() -> dict[str, Any]:
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config.update(JSON_SORT_KEYS=False)
+    app.config["MAX_CONTENT_LENGTH"] = 8192
+
+    @app.route("/api/v1/hardware", methods=["GET", "PUT"])
+    def hardware_endpoint():
+        try:
+            if request.method == "PUT":
+                # Browser writes require JSON and a non-simple header; no CORS
+                # is enabled. Local trusted proxies supply this same header.
+                if (request.headers.get("X-ETR-Local-Write") != "1" or not request.is_json
+                    or (request.headers.get("Origin") and request.headers["Origin"] != request.host_url.rstrip("/"))):
+                    return jsonify({"error": "Écriture locale autorisée uniquement."}), 403
+                profile = save_profile(request.get_json())
+            else:
+                profile = read_profile()
+            return jsonify({"profile": profile})
+        except ProfileConflict as error:
+            return jsonify({"error": str(error)}), 409
+        except (ValueError, TypeError) as error:
+            return jsonify({"error": str(error)}), 400
+        except OSError:
+            return jsonify({"error": "Configuration matérielle inaccessible."}), 503
 
     @app.after_request
     def secure_response(response):

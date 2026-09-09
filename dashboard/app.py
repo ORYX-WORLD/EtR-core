@@ -4,9 +4,10 @@ import os
 from typing import Any
 
 import requests
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
+from urllib.parse import urlsplit, urlunsplit
 
-DASHBOARD_VERSION = "1.2.1"
+DASHBOARD_VERSION = "1.3.0"
 DEFAULT_API_URL = "http://127.0.0.1:8080/api/v1/status"
 # Le dashboard n'est accessible que sur la boucle locale. Il est affiché dans
 # l'iframe du portail tactile EtR servi sur le port 8090. Toute autre origine
@@ -23,6 +24,27 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     )
     if config:
         app.config.update(config)
+    app.config["MAX_CONTENT_LENGTH"] = 8192
+
+    @app.route("/api/hardware", methods=["GET", "PUT"])
+    def api_hardware():
+        if request.method == "PUT" and (
+            request.headers.get("X-ETR-Local-Write") != "1" or not request.is_json
+            or (request.headers.get("Origin") and request.headers["Origin"] != request.host_url.rstrip("/"))
+        ):
+            return jsonify({"error": "Écriture locale autorisée uniquement."}), 403
+        base = urlsplit(app.config["ETR_API_URL"])
+        url = urlunsplit((base.scheme, base.netloc, "/api/v1/hardware", "", ""))
+        try:
+            response = requests.request(request.method, url,
+                json=request.get_json() if request.method == "PUT" else None,
+                headers={"X-ETR-Local-Write": "1"},
+                timeout=app.config["ETR_API_TIMEOUT"], allow_redirects=False)
+            if response.status_code not in {200, 400, 409, 503}:
+                raise ValueError("Unexpected hardware response")
+            return jsonify(response.json()), response.status_code
+        except (requests.RequestException, ValueError):
+            return jsonify({"error": "Configuration du Raspberry inaccessible."}), 503
 
     @app.after_request
     def secure_response(response):

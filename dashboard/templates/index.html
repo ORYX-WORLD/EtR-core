@@ -7,6 +7,7 @@
   <title>EtR — Banc d’essai capteurs</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
   <script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='hardware.js') }}" defer></script>
 </head>
 <body data-etr-dashboard-version="{{ dashboard_version }}">
   <a class="skip-link" href="#main">Aller aux données</a>
@@ -47,7 +48,17 @@
       </div>
     </section>
 
-    <section class="sensor-overview" aria-labelledby="sensor-title">
+    <details class="panel hardware-editor" data-hardware-editor>
+      <summary>Matériel de l’installation</summary>
+      <label><input type="checkbox" name="ads1263"> Carte AD HAT — entrées analogiques</label>
+      <label><input type="checkbox" name="modbus"> Convertisseur Modbus USB / RS485</label>
+      <label>Port du convertisseur <input name="serial_port" type="text" placeholder="/dev/serial/by-id/…" maxlength="240"></label>
+      <p>Le choix du matériel ne confirme pas la réception des mesures Modbus.</p>
+      <div><button type="button" data-hardware-save disabled>Enregistrer</button> <button type="button" data-hardware-reload>Recharger</button></div>
+      <p role="status">Lecture de la configuration…</p>
+    </details>
+
+    <section class="sensor-overview" data-adc-section aria-labelledby="sensor-title">
       <div class="section-head">
         <div>
           <p class="eyebrow">Waveshare ADS1263</p>
@@ -60,7 +71,7 @@
       </div>
     </section>
 
-    <section class="refrigeration-cycle" aria-labelledby="cycle-title">
+    <section class="refrigeration-cycle" data-adc-section aria-labelledby="cycle-title">
       <div class="section-head">
         <div>
           <p class="eyebrow">Circuit frigorifique</p>
@@ -84,7 +95,7 @@
       </div>
     </section>
 
-    <section class="lab-note" aria-labelledby="wiring-title">
+    <section class="lab-note" data-adc-section aria-labelledby="wiring-title">
       <div>
         <p class="eyebrow">Câblage laboratoire</p>
         <h2 id="wiring-title">Repérage des entrées</h2>

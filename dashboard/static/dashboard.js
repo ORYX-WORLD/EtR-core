@@ -106,8 +106,11 @@
     return root;
   };
   const renderSensors = telemetry => {
+    const disabled = telemetry.hardware_profile?.ads1263?.enabled === false;
+    document.querySelectorAll('[data-adc-section]').forEach(section => { section.hidden = disabled; });
     if (!fields.sensorGrid) return [];
     fields.sensorGrid.replaceChildren();
+    if (disabled) return [];
     const sensorAlarms = [];
     const hardware = telemetry.hardware || {};
     const sensors = Array.isArray(telemetry.sensors) ? telemetry.sensors : [];
@@ -218,15 +221,22 @@
     renderAlerts([...(Array.isArray(telemetry.alerts) ? telemetry.alerts : []), ...sensorAlarms]);
   };
 
+  let refreshGeneration = 0;
   const refresh = async () => {
+    const generation = ++refreshGeneration;
     try {
       const response = await fetch('/api/status', { cache: 'no-store', headers: { Accept: 'application/json' } });
       if (!response.ok) throw new Error('status');
-      render(await response.json());
+      const payload = await response.json();
+      if (generation === refreshGeneration) render(payload);
     } catch {
-      render({ api_online: false, data: {} });
+      if (generation === refreshGeneration) render({ api_online: false, data: {} });
     }
   };
+  window.addEventListener('etr-hardware-profile-saved', () => {
+    render({ api_online: true, data: {} });
+    refresh();
+  });
   refresh();
   setInterval(refresh, 5000);
 })();

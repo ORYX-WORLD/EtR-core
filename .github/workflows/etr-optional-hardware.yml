@@ -1,0 +1,56 @@
+name: EtR - matériel optionnel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/optional-hardware-20260909]
+    paths: [.github/workflows/etr-optional-hardware.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: etr-hardware-profile
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 5
+    steps:
+      - name: Contrôler le matériel et les fichiers en service sans secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /home/oryx/EtR-core
+          hostname
+          git rev-parse HEAD
+          git status --short
+          git diff --stat -- src/app.py src/sensor_acquisition.py src/sensor_acquisition_runtime.py dashboard src/deploy/raspi/etr-sensor-acquisition.service
+          for unit in etr.service etr-dashboard.service etr-sensor-acquisition.service etr-firebase-bridge.service spi-desktop.service etr-remote-desktop.service etr-remote-screen.service; do
+            printf '%s ' "$unit"
+            systemctl is-active "$unit" || true
+          done
+          printf 'boot-id='
+          cat /proc/sys/kernel/random/boot_id
+          ls -l /dev/serial/by-id /dev/ttyUSB* /dev/ttyACM* /dev/fb* 2>/dev/null || true
+          lsusb || true
+          for display in :1 :2; do
+            DISPLAY="$display" XAUTHORITY=/home/oryx/.Xauthority xdpyinfo 2>/dev/null | grep dimensions || true
+          done
+          python3 - <<'PY'
+          import json, urllib.request
+          from pathlib import Path
+          import hashlib
+          files = ['src/app.py', 'src/sensor_acquisition.py', 'src/sensor_acquisition_runtime.py', 'src/hardware_profile.py', 'dashboard/app.py', 'dashboard/templates/index.html', 'dashboard/static/dashboard.js', 'dashboard/static/dashboard.css', 'dashboard/static/hardware.js', 'src/deploy/raspi/etr-sensor-acquisition.service']
+          for name in files:
+              path = Path(name)
+              print(json.dumps({'file': name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None}))
+          try:
+              with urllib.request.urlopen('http://127.0.0.1:8080/api/v1/status', timeout=5) as response:
+                  data = json.load(response)
+              print(json.dumps({k:data.get(k) for k in ['service_version','health','device','hardware_profile','telemetry']}, ensure_ascii=False))
+          except Exception as error:
+              print('API status unavailable:', type(error).__name__)
+          print('sensor_unit_dropins:', [str(p) for p in Path('/etc/systemd/system/etr-sensor-acquisition.service.d').glob('*.conf')])
+          PY

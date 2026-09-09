@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "revision": 0,
+  "ads1263": { "enabled": false },
+  "modbus": { "enabled": true, "serial_port": "" }
+}

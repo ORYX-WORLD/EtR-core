@@ -21,7 +21,7 @@ except ModuleNotFoundError:  # Direct execution from src/ on the Raspberry Pi.
 
 DEFAULT_CONFIG = "/etc/etr-core/sensors.json"
 DEFAULT_STATE = "/var/lib/etr-core/telemetry.json"
-ACQUISITION_VERSION = "1.0.0"
+ACQUISITION_VERSION = "1.1.0"
 
 
 def utc_now() -> str:
@@ -336,13 +336,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     config_path = Path(args.config)
     state_path = Path(args.state)
-    try:
-        config = load_config(config_path)
-    except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
-        print(f"Invalid sensor configuration: {error}", file=sys.stderr)
-        return 2
-
-    interval = max(1.0, float(config.get("sample_interval_seconds", 5.0)))
+    interval = 5.0
     stopped = False
 
     def stop(_signum: int, _frame: Any) -> None:
@@ -354,11 +348,19 @@ def main(argv: list[str] | None = None) -> int:
 
     while not stopped:
         try:
-            payload = acquire_once(config)
+            payload = acquire_selected_once(config_path)
+            interval = 5.0
+            if payload.get("hardware_profile", {}).get("ads1263", {}).get("enabled"):
+                try:
+                    configured_interval = float(load_config(config_path).get("sample_interval_seconds", 5.0))
+                    if math.isfinite(configured_interval):
+                        interval = max(1.0, configured_interval)
+                except (OSError, ValueError, TypeError):
+                    pass
             atomic_write_json(state_path, payload)
             if args.once:
                 print(json.dumps(payload, ensure_ascii=False))
-                return 0
+                return 3 if args.strict and payload.get("hardware", {}).get("status") == "offline" else 0
         except (ADS1263Error, OSError, RuntimeError, ValueError) as error:
             payload = failure_payload(f"{type(error).__name__}: {error}")
             atomic_write_json(state_path, payload)
@@ -370,6 +372,30 @@ def main(argv: list[str] | None = None) -> int:
         while not stopped and time.monotonic() < deadline:
             time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
     return 0
+
+
+def acquire_selected_once(config_path: Path) -> dict[str, Any]:
+    try:
+        from .hardware_profile import read_profile, empty_payload, attach_profile
+    except ImportError:
+        from hardware_profile import read_profile, empty_payload, attach_profile
+    # Reload on every cycle so a saved profile takes effect without a reboot.
+    try:
+        profile = read_profile()
+    except (OSError, ValueError, TypeError) as error:
+        payload = failure_payload(f"Configuration matérielle illisible : {error}")
+        payload["alerts"][0]["code"] = "HARDWARE_PROFILE_INVALID"
+        return payload
+    if profile["ads1263"]["enabled"]:
+        try:
+            payload = acquire_once(load_config(config_path))
+        except (ADS1263Error, OSError, RuntimeError, ValueError, TypeError) as error:
+            payload = failure_payload(f"AD HAT activée mais indisponible : {error}")
+    else:
+        payload = empty_payload(profile)
+        payload["updated_at"] = utc_now()
+        payload["acquisition_version"] = ACQUISITION_VERSION
+    return attach_profile(payload, profile)
 
 
 if __name__ == "__main__":

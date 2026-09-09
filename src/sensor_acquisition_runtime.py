@@ -2,12 +2,13 @@
 """Point d'entrée matériel EtR pour le banc ADS1263 partagé avec l'écran.
 
 GPIO17 appartient au tactile et GPIO22 est piloté par le noyau comme SPI0 CS2.
-Le service root prépare RESET/GPIO18 à l'état haut avant ce processus. Le
-convertisseur est ensuite remis à zéro par sa commande SPI, sans ouvrir lgpio
-depuis le processus non privilégié.
+Le processus prépare RESET/GPIO18 seulement lorsque le HAT est activé dans
+le profil matériel. Le convertisseur est ensuite remis à zéro par sa commande
+SPI, sans ouvrir lgpio depuis le processus non privilégié.
 """
 
 from __future__ import annotations
+import subprocess
 
 try:  # Import comme module de paquet pendant les tests.
     from . import sensor_acquisition as acquisition
@@ -25,6 +26,16 @@ class SoftwareResetADS1263(ADS1263):
         kwargs["use_data_ready_gpio"] = False
         kwargs["use_hardware_reset_gpio"] = False
         super().__init__(*args, **kwargs)
+
+    def __enter__(self):
+        # Runs only for an enabled ADC. The gpio group can access /dev/gpiomem;
+        # a permissions or missing-tool failure is reported as an ADC fault.
+        try:
+            subprocess.run(["/usr/bin/pinctrl", "set", "18", "op", "dh"],
+                           check=True, capture_output=True, timeout=3)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise RuntimeError("Préparation AD HAT impossible (GPIO18 / droits gpio).") from error
+        return super().__enter__()
 
 
 # `acquire_once` conserve la fabrique dans ses valeurs par défaut. La remplacer

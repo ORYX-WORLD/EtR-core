@@ -246,3 +246,9 @@ meter::-webkit-meter-optimum-value { border-radius: 999px; background: linear-gr
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto !important; transition: none !important; }
 }
+
+[hidden] { display: none !important; }
+.hardware-editor summary { cursor: pointer; font-weight: 700; padding: .5rem 0; }
+.hardware-editor label { display: flex; align-items: center; gap: .6rem; margin: .8rem 0; flex-wrap: wrap; }
+.hardware-editor input[type=text] { min-width: 0; width: 100%; padding: .5rem; font: inherit; }
+.hardware-editor button { padding: .6rem .8rem; font: inherit; }

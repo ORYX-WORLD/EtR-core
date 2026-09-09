@@ -32,7 +32,7 @@ class DashboardTests(unittest.TestCase):
         response = self.client.get("/healthz")
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
-        self.assertEqual(payload["version"], "1.2.1")
+        self.assertEqual(payload["version"], "1.3.0")
         self.assertEqual(payload["embedded_by"], "http://127.0.0.1:8090")
 
     @patch("dashboard.app.requests.get")

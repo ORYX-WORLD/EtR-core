@@ -18,6 +18,7 @@ remote_screen_connected=false
 firebase_session_health=false
 sensor_acquisition=false
 sensor_adc_online=false
+adc_enabled=unknown
 sensor_count=0
 pressure_signals_valid=false
 temperature_inputs_diagnosed=false
@@ -75,6 +76,7 @@ write_report() {
     echo "firebase_session_health=$firebase_session_health"
     echo "sensor_acquisition=$sensor_acquisition"
     echo "sensor_adc_online=$sensor_adc_online"
+    echo "ads1263_enabled=$adc_enabled"
     echo "sensor_count=$sensor_count"
     echo "pressure_signals_valid=$pressure_signals_valid"
     echo "temperature_inputs_diagnosed=$temperature_inputs_diagnosed"
@@ -351,8 +353,11 @@ sudo ss -H -ltnp | grep -qE '(127\.0\.0\.1|\[::1\]):5901'
 [ "$(sudo systemctl show etr-sensor-acquisition.service -p User --value)" = oryx ]
 
 target_step=verify_sensor_acquisition
+adc_enabled=$(sudo python3 "$ETR_INSTALL_DIR/src/hardware_profile.py")
+if [ "$adc_enabled" = true ]; then
 test -c /dev/spidev0.2
 test -c /dev/gpiochip0
+fi
 fresh=false
 for attempt in $(seq 1 30); do
   if sudo test -s /var/lib/etr-core/telemetry.json; then
@@ -368,13 +373,16 @@ done
 telemetry_fresh=true
 sudo cp /var/lib/etr-core/telemetry.json /tmp/etr-deploy-telemetry.json
 sudo chown "$(id -u):$(id -g)" /tmp/etr-deploy-telemetry.json
-read -r telemetry_updated_at sensor_count < <(python3 - <<'PY'
+if [ "$adc_enabled" = true ]; then
+sensor_proof=$(python3 - <<'PY'
 import json
 from pathlib import Path
 
 telemetry = json.loads(Path('/tmp/etr-deploy-telemetry.json').read_text(encoding='utf-8'))
 api = json.loads(Path('/tmp/etr-api-status.json').read_text(encoding='utf-8'))
 hardware = telemetry.get('hardware', {})
+if telemetry.get('hardware_profile', {}).get('modbus', {}).get('enabled'):
+    assert hardware.get('modbus', {}).get('status') == 'online', 'Collecte Modbus non qualifiée'
 assert telemetry.get('schema_version') == '1.1', telemetry
 assert hardware.get('status') == 'online', hardware
 assert hardware.get('adc') == 'ADS1263', hardware
@@ -399,12 +407,39 @@ assert len(api_telemetry.get('sensors', [])) == 4, api_telemetry
 print(str(telemetry.get('updated_at') or 'unavailable'), len(sensors))
 PY
 )
+read -r telemetry_updated_at sensor_count <<<"$sensor_proof"
 grep -Fq 'data-sensor-grid' <<<"$dashboard_html"
 grep -Fq 'Banc d’essai capteurs' <<<"$dashboard_html"
 sensor_acquisition=true
 sensor_adc_online=true
 pressure_signals_valid=true
 temperature_inputs_diagnosed=true
+else
+  sensor_adc_online=not_applicable
+  pressure_signals_valid=not_applicable
+  temperature_inputs_diagnosed=true
+  sensor_proof=$(python3 - <<'PY'
+import json
+from pathlib import Path
+telemetry = json.loads(Path('/tmp/etr-deploy-telemetry.json').read_text(encoding='utf-8'))
+api = json.loads(Path('/tmp/etr-api-status.json').read_text(encoding='utf-8'))
+profile = api['hardware_profile']
+assert profile['ads1263']['enabled'] is False
+assert telemetry.get('hardware_profile') == profile, 'Profil non appliqué'
+assert telemetry['hardware']['status'] == 'disabled'
+assert not telemetry['sensors'] and not telemetry['measurements']
+assert api['capabilities']['ads1263_acquisition'] is False
+assert not api['telemetry']['sensors'] and not api['telemetry']['measurements']
+assert not any(a.get('code') == 'ADC_UNAVAILABLE' for a in telemetry['alerts'])
+if profile['modbus']['enabled']:
+    assert telemetry['hardware']['modbus']['status'] == 'online', 'Collecte Modbus non qualifiée'
+print(telemetry['updated_at'], 0)
+PY
+)
+  read -r telemetry_updated_at sensor_count <<<"$sensor_proof"
+  temperature_inputs_diagnosed=not_applicable
+  sensor_acquisition=true
+fi
 
 target_step=verify_remote_screen
 start_epoch=$(date +%s)

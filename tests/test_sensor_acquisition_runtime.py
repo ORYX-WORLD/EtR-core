@@ -30,13 +30,13 @@ class SensorRuntimeRepositoryContractTests(unittest.TestCase):
         for marker in [
             "WorkingDirectory=/var/lib/etr-core",
             "ExecStartPre=+/usr/bin/install -d -m 700 -o oryx -g oryx /var/lib/etr-core",
-            "ExecStartPre=+/usr/bin/pinctrl set 18 op dh",
             "sensor_acquisition_runtime.py",
             "ProtectHome=read-only",
         ]:
             self.assertIn(marker, sensor_unit)
         self.assertIn("ExecStartPre=/usr/bin/install -d -m 700 -o oryx -g oryx /var/lib/etr-core", wifi_unit)
         self.assertNotIn("StateDirectory=etr-core", wifi_unit)
+        self.assertNotIn("ExecStartPre=+/usr/bin/pinctrl", sensor_unit)
 
     def test_installer_forces_reset_high_and_software_reset_profile(self):
         installer = (ROOT / "src/deploy/raspi/install_sensor_acquisition.sh").read_text(encoding="utf-8")

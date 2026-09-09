@@ -10,6 +10,22 @@ SERVICE=etr-sensor-acquisition.service
 OVERLAY_NAME=etr-ads1263-spi0-cs2
 OVERLAY_SOURCE=${INSTALL_DIR}/src/deploy/raspi/${OVERLAY_NAME}-overlay.dts
 
+# The selected profile is preserved across upgrades. Without a HAT, install
+# the state publisher but do not touch SPI, overlays, GPIO or request a reboot.
+adc_enabled=$(sudo python3 "${INSTALL_DIR}/src/hardware_profile.py")
+if [ "$adc_enabled" = false ]; then
+  sudo install -d -m 700 -o oryx -g oryx "${STATE_DIR}"
+  sudo install -m 644 "${INSTALL_DIR}/src/deploy/raspi/${SERVICE}" "/etc/systemd/system/${SERVICE}"
+  sudo systemctl daemon-reload
+  sudo systemctl enable "${SERVICE}"
+  sudo -u oryx python3 "${INSTALL_DIR}/src/sensor_acquisition_runtime.py" \
+    --once --strict --config "${CONFIG_FILE}" --state "${STATE_DIR}/telemetry.json" >/dev/null
+  sudo systemctl restart "${SERVICE}"
+  sudo systemctl is-active --quiet "${SERVICE}"
+  echo "Profil matériel appliqué : AD HAT désactivée, aucune initialisation SPI/GPIO."
+  exit 0
+fi
+
 for source in \
   "${INSTALL_DIR}/src/sensor_acquisition.py" \
   "${INSTALL_DIR}/src/sensor_acquisition_runtime.py" \
