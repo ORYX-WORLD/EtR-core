@@ -17,7 +17,7 @@ except ImportError:
     from hardware_profile import read_profile, save_profile, ProfileConflict, empty_payload
 
 SCHEMA_VERSION = "1.0"
-SERVICE_VERSION = "3.4.0"
+SERVICE_VERSION = "3.5.0"
 DEFAULT_STATE_FILE = "/var/lib/etr-core/telemetry.json"
 DEFAULT_ENROLLMENT_FILE = "/var/lib/etr-core/enrollment.json"
 DEFAULT_TOKEN_FILE = "/var/lib/etr-core/firebase-auth.json"
@@ -69,6 +69,7 @@ def read_telemetry_state(path: Path) -> tuple[dict[str, Any], str | None]:
         "updated_at": raw.get("updated_at") if isinstance(raw.get("updated_at"), str) else None,
         "source": raw.get("source") if isinstance(raw.get("source"), str) else "local_state_file",
         "acquisition_version": raw.get("acquisition_version") if isinstance(raw.get("acquisition_version"), str) else None,
+        "modbus": raw.get("modbus") if isinstance(raw.get("modbus"), dict) else {},
         "hardware": hardware,
         "hardware_profile": raw.get("hardware_profile"),
         "sensors": [item for item in sensors[:32] if isinstance(item, dict)],
@@ -183,12 +184,26 @@ def build_status() -> dict[str, Any]:
                 telemetry["sensors"] = []
                 telemetry["measurements"] = {}
                 telemetry["states"] = {}
+                telemetry["modbus"] = {"points": []}
                 telemetry["alerts"] = [{"code": "TELEMETRY_STALE", "severity": "warning", "message": "Acquisition interrompue ou données périmées."}]
     except (OSError, ValueError, TypeError):
         telemetry = {"sensors": [], "measurements": {}, "states": {}, "alerts": [
             {"code": "HARDWARE_PROFILE_INVALID", "severity": "critical", "message": "Configuration matérielle illisible."}
         ]}
         telemetry_error = "hardware_profile_invalid"
+    try:
+        try:
+            from .modbus_acquisition import read_config
+        except ImportError:
+            from modbus_acquisition import read_config
+        current_modbus = read_config()
+        frame_modbus = telemetry.get("modbus", {})
+        if frame_modbus.get("points") and (not current_modbus["enabled"] or frame_modbus.get("revision") != current_modbus["revision"]):
+            telemetry["modbus"] = {"points": [], "revision": current_modbus["revision"]}
+            telemetry.setdefault("hardware", {})["modbus"] = {"status": "applying", "message": "Application de la configuration de collecte."}
+    except (OSError, ValueError, TypeError):
+        telemetry["modbus"] = {"points": []}
+        telemetry.setdefault("hardware", {})["modbus"] = {"status": "config_invalid", "message": "Configuration de collecte illisible."}
     enrollment = read_enrollment_state(enrollment_file, token_file)
     audio = read_audio_state(audio_state_file, audio_output_file, audio_sample_file)
     system = system_status()
@@ -197,7 +212,8 @@ def build_status() -> dict[str, Any]:
     alerts = telemetry.get("alerts", [])
     hardware = telemetry.get("hardware", {})
     hardware_offline = isinstance(hardware, dict) and hardware.get("status") == "offline"
-    acquisition_online = telemetry_error is None and not hardware_offline and hardware.get("status") not in {"disabled", "applying"}
+    modbus_live = hardware.get("modbus", {}).get("status") in {"online", "partial"}
+    acquisition_online = telemetry_error is None and ((not hardware_offline and hardware.get("status") not in {"disabled", "applying"}) or modbus_live)
     modbus_pending = bool(profile and profile["modbus"]["enabled"] and hardware.get("modbus", {}).get("status") != "online")
 
     status: dict[str, Any] = {
@@ -220,6 +236,7 @@ def build_status() -> dict[str, Any]:
             "source": telemetry.get("source"),
             "acquisition_version": telemetry.get("acquisition_version"),
             "updated_at": telemetry.get("updated_at"),
+            "modbus": telemetry.get("modbus", {}),
             "hardware": hardware,
             "hardware_profile": profile,
             "sensors": telemetry.get("sensors", []),
@@ -237,7 +254,7 @@ def build_status() -> dict[str, Any]:
             "telemetry_contract": SCHEMA_VERSION,
             "ads1263_acquisition": bool(profile and profile["ads1263"]["enabled"]),
             "hardware_selection": True,
-            "modbus_acquisition": False,
+            "modbus_acquisition": True,
             "audio_input": True,
             "bluetooth_audio": True,
             "rolling_audio_sample_seconds": 5,
@@ -263,7 +280,29 @@ def build_status() -> dict[str, Any]:
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config.update(JSON_SORT_KEYS=False)
-    app.config["MAX_CONTENT_LENGTH"] = 8192
+    app.config["MAX_CONTENT_LENGTH"] = 512000
+
+    @app.route("/api/v1/modbus", methods=["GET", "PUT"])
+    def modbus_endpoint():
+        try:
+            try:
+                from .modbus_acquisition import read_config, save_config
+            except ImportError:
+                from modbus_acquisition import read_config, save_config
+            if request.method == "PUT":
+                if (request.headers.get("X-ETR-Local-Write") != "1" or not request.is_json
+                    or (request.headers.get("Origin") and request.headers["Origin"] != request.host_url.rstrip("/"))):
+                    return jsonify({"error": "Écriture locale autorisée uniquement."}), 403
+                config = save_config(request.get_json())
+            else:
+                config = read_config()
+            return jsonify({"config": config})
+        except ProfileConflict as error:
+            return jsonify({"error": str(error)}), 409
+        except (ValueError, TypeError, KeyError) as error:
+            return jsonify({"error": str(error)}), 400
+        except OSError:
+            return jsonify({"error": "Configuration de collecte inaccessible."}), 503
 
     @app.route("/api/v1/hardware", methods=["GET", "PUT"])
     def hardware_endpoint():
@@ -271,6 +310,8 @@ def create_app() -> Flask:
             if request.method == "PUT":
                 # Browser writes require JSON and a non-simple header; no CORS
                 # is enabled. Local trusted proxies supply this same header.
+                if request.content_length and request.content_length > 8192:
+                    return jsonify({"error": "Configuration trop volumineuse."}), 413
                 if (request.headers.get("X-ETR-Local-Write") != "1" or not request.is_json
                     or (request.headers.get("Origin") and request.headers["Origin"] != request.host_url.rstrip("/"))):
                     return jsonify({"error": "Écriture locale autorisée uniquement."}), 403

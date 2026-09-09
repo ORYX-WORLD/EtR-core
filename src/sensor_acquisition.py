@@ -21,7 +21,7 @@ except ModuleNotFoundError:  # Direct execution from src/ on the Raspberry Pi.
 
 DEFAULT_CONFIG = "/etc/etr-core/sensors.json"
 DEFAULT_STATE = "/var/lib/etr-core/telemetry.json"
-ACQUISITION_VERSION = "1.1.0"
+ACQUISITION_VERSION = "1.2.0"
 
 
 def utc_now() -> str:
@@ -395,7 +395,13 @@ def acquire_selected_once(config_path: Path) -> dict[str, Any]:
         payload = empty_payload(profile)
         payload["updated_at"] = utc_now()
         payload["acquisition_version"] = ACQUISITION_VERSION
-    return attach_profile(payload, profile)
+    try:
+        from .modbus_acquisition import collect
+    except ImportError:
+        from modbus_acquisition import collect
+    payload = collect(attach_profile(payload, profile), profile)
+    payload["updated_at"] = utc_now()
+    return payload
 
 
 if __name__ == "__main__":

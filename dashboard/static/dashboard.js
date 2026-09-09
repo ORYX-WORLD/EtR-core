@@ -217,6 +217,16 @@
     renderEnrollment(data.enrollment);
     const sensorAlarms = renderSensors(telemetry) || [];
     renderMap(fields.measurements, telemetry.measurements, 'Aucune mesure instrumentée publiée.');
+    for (const point of telemetry.modbus?.points || []) {
+      const row = document.createElement('div'); row.className = 'data-row';
+      const label = document.createElement('span'); label.textContent = point.name;
+      const value = document.createElement('strong');
+      const age = Date.now() - Date.parse(point.updated_at || '');
+      value.textContent = point.status === 'ok' && age >= -5000 && age <= 20000 && Number.isFinite(point.value)
+        ? `${formatValue(point.value)} ${point.unit}` : '—';
+      row.title = point.message || ''; row.append(label, value); fields.measurements.append(row);
+    }
+
     renderMap(fields.states, telemetry.states, 'Aucun état métier publié.');
     renderAlerts([...(Array.isArray(telemetry.alerts) ? telemetry.alerts : []), ...sensorAlarms]);
   };

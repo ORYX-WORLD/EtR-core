@@ -81,3 +81,10 @@ L'installateur saute la préparation ADS1263 lorsque le profil la désactive ; i
 ### Qualification terrain du profil (9 septembre)
 
 Le commit f9787431e4cd06946d7808f28866ffc9a32a4a58 est installé sur le Raspberry et vérifié après redémarrage réel. Profil HAT désactivé et USB/RS485 activé, port stable usb-FTDI_FT232R_USB_UART_BG041Z8E-if00-port0. Enregistrement effectif par dashboard-API puis par l'éditeur local validé, révision3. Aucun test de lecture/écriture des registres Modbus ; pending_validation reste donc attendu. Ce résultat remplace la limite « non déployé » des paragraphes préparatoires pour le profil matériel uniquement ; il ne qualifie pas la collecte ni l'ensemble des interfaces.
+
+
+## Collecte RTU (API3.5.0)
+
+`telemetry.modbus` expose `revision` de configuration et `points`, liste indépendante des capteurs ADS1263. Chaque point porte `id` (modbus:installation-logique:regulateur:table:registre encodés), `definition` (empreinte textuelle des paramètres de lecture), `name`, `unit`, `status`, `message` et, uniquement en cas de réponse valide, `value`, `raw`, `updated_at`. Le bridge transmet cette liste sans conversion ; l’éditeur compare la définition et expire les valeurs après20s. Les points ne sont jamais enregistrés comme valeurs statiques du dessin.
+
+L’état hardware.modbus peut être not_configured, unavailable, config_invalid, applying, partial ou online. Une réponse valide rend la télémétrie disponible même quand ADS1263 est désactivé. La santé reste degraded en cas de lecture partielle. PUT /api/v1/modbus est local, JSON + X-ETR-Local-Write:1, comparaison revision atomique ; il configure la collecte et n’expose aucune écriture de registre. Registres supportés : lectures03/04 d’un mot16bits H-L, signé/non signé ou masque. Un réseau RTU par convertisseur ; TCP non implémenté par ce moteur. Configuration persistée dans /var/lib/etr-core/modbus-config.json, défaut désactivé. Les coordonnées effectives du régulateur et l’absence de second maître doivent être confirmées avant activation.

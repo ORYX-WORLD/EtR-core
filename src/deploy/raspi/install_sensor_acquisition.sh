@@ -13,12 +13,13 @@ OVERLAY_SOURCE=${INSTALL_DIR}/src/deploy/raspi/${OVERLAY_NAME}-overlay.dts
 # The selected profile is preserved across upgrades. Without a HAT, install
 # the state publisher but do not touch SPI, overlays, GPIO or request a reboot.
 adc_enabled=$(sudo python3 "${INSTALL_DIR}/src/hardware_profile.py")
+bash "${INSTALL_DIR}/src/deploy/raspi/install_modbus_runtime.sh"
 if [ "$adc_enabled" = false ]; then
   sudo install -d -m 700 -o oryx -g oryx "${STATE_DIR}"
   sudo install -m 644 "${INSTALL_DIR}/src/deploy/raspi/${SERVICE}" "/etc/systemd/system/${SERVICE}"
   sudo systemctl daemon-reload
   sudo systemctl enable "${SERVICE}"
-  sudo -u oryx python3 "${INSTALL_DIR}/src/sensor_acquisition_runtime.py" \
+  sudo -u oryx env PYTHONPATH=/opt/etr-core-modbus/3.6.6 python3 "${INSTALL_DIR}/src/sensor_acquisition_runtime.py" \
     --once --strict --config "${CONFIG_FILE}" --state "${STATE_DIR}/telemetry.json" >/dev/null
   sudo systemctl restart "${SERVICE}"
   sudo systemctl is-active --quiet "${SERVICE}"

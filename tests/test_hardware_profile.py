@@ -25,7 +25,7 @@ class HardwareProfileTests(unittest.TestCase):
         self.profile_path = Path(self.temp.name) / "hardware.json"
         self.telemetry = Path(self.temp.name) / "telemetry.json"
         self.env = patch.dict(os.environ, {"ETR_HARDWARE_PROFILE_FILE": str(self.profile_path),
-                                          "ETR_TELEMETRY_FILE": str(self.telemetry)})
+                                          "ETR_TELEMETRY_FILE": str(self.telemetry), "ETR_MODBUS_CONFIG_FILE": str(Path(self.temp.name) / "modbus.json")})
         self.env.start()
         self.addCleanup(self.env.stop)
         self.client = create_app().test_client()
@@ -88,7 +88,7 @@ class HardwareProfileTests(unittest.TestCase):
         profile = self.disable_adc(True)
         profile["modbus"]["serial_port"] = "/dev/ttyUSB0"
         save_profile(profile)
-        for present, expected in ((False, "unavailable"), (True, "pending_validation")):
+        for present, expected in ((False, "unavailable"), (True, "not_configured")):
             with patch("src.hardware_profile.Path.exists", return_value=present):
                 payload = acquire_selected_once(Path("missing"))
             self.assertEqual(payload["hardware"]["modbus"]["status"], expected)

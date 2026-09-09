@@ -7,7 +7,7 @@ import requests
 from flask import Flask, jsonify, render_template, request
 from urllib.parse import urlsplit, urlunsplit
 
-DASHBOARD_VERSION = "1.3.0"
+DASHBOARD_VERSION = "1.3.1"
 DEFAULT_API_URL = "http://127.0.0.1:8080/api/v1/status"
 # Le dashboard n'est accessible que sur la boucle locale. Il est affiché dans
 # l'iframe du portail tactile EtR servi sur le port 8090. Toute autre origine

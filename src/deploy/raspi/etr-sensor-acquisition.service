@@ -9,9 +9,11 @@ StartLimitIntervalSec=0
 Type=simple
 User=oryx
 Group=oryx
+SupplementaryGroups=dialout
 WorkingDirectory=/var/lib/etr-core
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONPATH=/opt/etr-core-modbus/3.6.6
 # Le portail Wi-Fi tourne sous root et ne doit jamais retirer l'écriture à oryx.
 # Cette préparation idempotente rétablit les droits avant chaque démarrage.
 ExecStartPre=+/usr/bin/install -d -m 700 -o oryx -g oryx /var/lib/etr-core
