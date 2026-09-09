@@ -1,0 +1,82 @@
+{
+  "checked_at": "2026-09-09T15:49:18.270083+00:00",
+  "commit": "f9787431e4cd06946d7808f28866ffc9a32a4a58",
+  "previous_commit": "8c1bd51049c5fed8bf8995d48f651714a51a3c0e",
+  "repository": "ORYX-WORLD/EtR-core",
+  "path": "/home/oryx/EtR-core",
+  "scope": "hardware-profile-only",
+  "backup": "/var/lib/etr-core/hardware-backup-20260909T154909Z",
+  "boot_id": "73190231-e6f4-4858-8820-709ce623a022",
+  "installation_id": "etr-0000dd7429c2",
+  "profile": {
+    "ads1263": {
+      "enabled": false
+    },
+    "modbus": {
+      "enabled": true,
+      "serial_port": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG041Z8E-if00-port0"
+    },
+    "revision": 2,
+    "schema_version": 1
+  },
+  "telemetry": {
+    "acquisition_version": "1.1.0",
+    "alerts": [
+      {
+        "code": "MODBUS_PENDING_VALIDATION",
+        "message": "Port Modbus présent ; collecte et réponse des régulateurs non validées.",
+        "severity": "warning"
+      }
+    ],
+    "error": null,
+    "hardware": {
+      "adc": "ADS1263",
+      "chip_id": null,
+      "modbus": {
+        "enabled": true,
+        "message": "Port Modbus présent ; collecte et réponse des régulateurs non validées.",
+        "status": "pending_validation"
+      },
+      "status": "disabled"
+    },
+    "hardware_profile": {
+      "ads1263": {
+        "enabled": false
+      },
+      "modbus": {
+        "enabled": true,
+        "serial_port": "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_BG041Z8E-if00-port0"
+      },
+      "revision": 2,
+      "schema_version": 1
+    },
+    "measurements": {},
+    "online": false,
+    "schema_version": "1.1",
+    "sensors": [],
+    "source": "hardware-profile",
+    "states": {},
+    "updated_at": "2026-09-09T15:49:17.089061+00:00"
+  },
+  "services": {
+    "etr-sensor-acquisition.service": "active",
+    "etr.service": "active",
+    "etr-dashboard.service": "active",
+    "etr-firebase-bridge.service": "active",
+    "spi-desktop.service": "active",
+    "etr-remote-desktop.service": "active",
+    "etr-remote-screen.service": "active"
+  },
+  "modbus_collection_verified": false,
+  "files": {
+    "src/app.py": "297b58c7e01856ef9ae87ad0c2656b81ab4000bd986a1fe62e28c847cc253d84",
+    "src/hardware_profile.py": "fa6928b93877c0137ea1d56f05f1fac7c360f2c4bcf05eb575fe02d12a620fb3",
+    "src/sensor_acquisition.py": "8e8b2c3e48708713ca821cdff3a27f3ee4ead3f8a18568aa08d972587d01c18d",
+    "src/sensor_acquisition_runtime.py": "bdd89327c8bf9e6f9794d254aa60eb6f0c8cbbed1d3f927f90646fcb56549e48",
+    "dashboard/app.py": "e0e1bc023874e86499e5f5ddd3ad8d068c0b51a03eec436533c79a13c243502e",
+    "dashboard/static/hardware.js": "53bbc53f1fcd48b7fee1a26032629c9b7481c3e342d9225390451ea345828a24",
+    "dashboard/static/dashboard.js": "e0c018252193c6368f50a00721b8dab804768ed4d28dfbd29efe9f90b2496418",
+    "dashboard/templates/index.html": "18760e22a972091e347d488efac611b21a8b1f7a522699fd8c2aae58de5146ec",
+    "src/deploy/raspi/etr-sensor-acquisition.service": "a6674de35c236981d6cbec2e464368b79885289a760d1be1066b2dd7b5a7fb23"
+  }
+}
