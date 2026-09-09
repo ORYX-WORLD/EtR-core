@@ -10,6 +10,13 @@ from src.app import create_app, read_enrollment_state, read_telemetry_state
 
 class LocalApiTests(unittest.TestCase):
     def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        isolated = patch.dict(os.environ, {name: str(Path(temporary.name)/f"{name}.json") for name in (
+            "ETR_HARDWARE_PROFILE_FILE", "ETR_MODBUS_CONFIG_FILE", "ETR_TELEMETRY_FILE",
+            "ETR_ENROLLMENT_FILE", "ETR_TOKEN_FILE", "ETR_AUDIO_STATE_FILE", "ETR_AUDIO_OUTPUT_FILE")})
+        isolated.start()
+        self.addCleanup(isolated.stop)
         self.app = create_app()
         self.app.config.update(TESTING=True)
         self.client = self.app.test_client()
