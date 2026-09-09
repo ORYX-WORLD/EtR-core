@@ -2,6 +2,12 @@ name: EtR - matériel optionnel
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Contrôle, installation ciblée, redémarrage ou vérification après redémarrage
+        type: choice
+        default: inspect
+        options: [inspect, install, reboot, verify]
   push:
     branches: [codex/optional-hardware-20260909]
     paths: [.github/workflows/etr-optional-hardware.yml]
@@ -10,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: etr-hardware-profile
+  group: etr-physical-deploy
   cancel-in-progress: false
 
 jobs:
@@ -54,3 +60,60 @@ jobs:
               print('API status unavailable:', type(error).__name__)
           print('sensor_unit_dropins:', [str(p) for p in Path('/etc/systemd/system/etr-sensor-acquisition.service.d').glob('*.conf')])
           PY
+
+  install:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'install'
+    needs: inspect
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 10
+    steps:
+      - name: Tester puis installer la révision exacte avec retour arrière
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /home/oryx/EtR-core
+          git fetch origin "$GITHUB_SHA"
+          source_dir=$(mktemp -d /tmp/etr-hardware-source.XXXXXX)
+          git archive "$GITHUB_SHA" | tar -x -C "$source_dir"
+          cd "$source_dir"
+          PYTHONDONTWRITEBYTECODE=1 /home/oryx/EtR-core/.venv/bin/python -m unittest \
+            tests.test_hardware_profile tests.test_app tests.test_dashboard \
+            tests.test_sensor_acquisition tests.test_sensor_acquisition_runtime \
+            tests.test_ads1263 tests.test_sensor_repository_contract tests.test_physical_deploy_workflow
+          sudo /usr/bin/python3 "$source_dir/src/deploy/raspi/deploy_optional_hardware.py" --commit "$GITHUB_SHA"
+          sudo cat /var/lib/etr-core/hardware-deploy-proof.json > "$RUNNER_TEMP/etr-hardware-proof.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: etr-hardware-profile-proof
+          path: ${{ runner.temp }}/etr-hardware-proof.json
+
+  reboot:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'reboot'
+    needs: inspect
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 3
+    steps:
+      - name: Vérifier la version et programmer le redémarrage après ce travail
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C /home/oryx/EtR-core rev-parse HEAD)" = "$GITHUB_SHA"
+          sudo /usr/bin/python3 /home/oryx/EtR-core/src/deploy/raspi/deploy_optional_hardware.py --commit "$GITHUB_SHA" --verify
+          sudo systemd-run --unit="etr-hardware-reboot-${GITHUB_RUN_ID}" --on-active=15s /usr/bin/systemctl reboot
+
+  verify:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'verify'
+    needs: inspect
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 5
+    steps:
+      - name: Contrôler le profil et l'acquisition après redémarrage réel
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo /usr/bin/python3 /home/oryx/EtR-core/src/deploy/raspi/deploy_optional_hardware.py --commit "$GITHUB_SHA" --verify --require-new-boot
+          sudo cat /var/lib/etr-core/hardware-deploy-proof.json > "$RUNNER_TEMP/etr-hardware-proof.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: etr-hardware-profile-reboot-proof
+          path: ${{ runner.temp }}/etr-hardware-proof.json
