@@ -47,8 +47,42 @@ CONTROL_STYLE = r"""
 }
 .etr-linux-button:disabled{opacity:.7;cursor:wait}
 .etr-linux-button .etr-linux-icon{font-size:20px;line-height:1}
-@media(max-width:520px){
-  .etr-linux-button{right:10px;bottom:10px;min-height:44px;padding:10px 14px;font-size:13px}
+
+/* Ecran tactile EtR 480x320 : le clavier ne doit plus masquer le formulaire.
+   Il reste assez grand pour un usage au doigt mais occupe au maximum ~42 %
+   de la hauteur. Le panneau peut defiler horizontalement pour les symboles. */
+@media (max-width:520px), (max-height:360px){
+  .keyboard{
+    position:fixed!important;
+    left:4px!important;
+    right:4px!important;
+    bottom:4px!important;
+    z-index:120!important;
+    max-height:42vh!important;
+    margin:0!important;
+    padding:4px!important;
+    border-radius:10px!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    scrollbar-width:thin;
+  }
+  .keyrow{
+    justify-content:center!important;
+    gap:3px!important;
+    margin:3px 0!important;
+    min-width:max-content;
+  }
+  .key{
+    min-width:30px!important;
+    min-height:30px!important;
+    height:30px!important;
+    padding:2px 5px!important;
+    border-radius:7px!important;
+    font-size:12px!important;
+    line-height:1!important;
+  }
+  .key.wide{min-width:58px!important}
+  .etr-linux-button{right:8px;bottom:8px;min-height:38px;padding:7px 11px;font-size:12px}
 }
 """
 
